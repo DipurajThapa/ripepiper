@@ -151,9 +151,12 @@
           }).catch(function (x) { err.textContent = x.message; });
         return;
       }
-      if (FREE.indexOf(email.split("@")[1]) !== -1) show(okBox("alternate_email", MSG_WORK));
-      else if (deal === 0) show(okBox("lightbulb", msgNotFit(name)));
-      else show(slots());
+      // Never present simulated availability as a real appointment or claim an invitation was sent.
+      if (location.protocol === "file:") {
+        err.textContent = "Calendar booking requires the deployed Ripe Piper website. This local file cannot access live availability. Open the staging website using its https:// address.";
+      } else {
+        err.textContent = "Calendar booking is not enabled on this website yet. Please email hello@ripepiper.com to arrange a call.";
+      }
     });
     res.addEventListener("click", function (e) {
       var b = e.target.closest(".slot"); if (!b) return;
@@ -168,7 +171,7 @@
           .catch(function (x) { res.querySelectorAll(".slot").forEach(function (s) { s.disabled = false; }); b.setAttribute("aria-pressed", "false"); add(okBox("schedule", x.message)); });
         return;
       }
-      add(okBox("event_available", "<strong>Your call is booked for " + b.getAttribute("data-slot") + ".</strong> We have sent a calendar invitation to your email. You will receive reminders 24 hours and 1 hour before the call."));
+      add(okBox("schedule", "This is a preview only. No booking has been created. Please use the deployed website."));
     });
   }
   function liveSlots(list) {
