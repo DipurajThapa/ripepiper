@@ -206,8 +206,9 @@ describe("quotation checkout resilience", () => {
       return fakeFetch(input, init);
     });
     const res = await call("POST", "/api/portal/quotes/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/accept", undefined, { Authorization: "Bearer simulated-admin-token" });
-    // Invalid ID paths should not reach the payment provider, so use a UUID-shaped quote ID.
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(500);
+    expect(tables.quotes[0].status).toBe("sent");
+    expect(tables.payments ?? []).toHaveLength(0);
   });
 });
 
