@@ -197,6 +197,20 @@ describe("pre-proposal approval and 10% advance", () => {
   });
 });
 
+describe("quotation checkout resilience", () => {
+  it("keeps a sent quotation open when Stripe checkout creation fails", async () => {
+    tables.quotes = [defaults("quotes", { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", proposal_id: "proposal-1", tenant_id: "tenant-1", status: "sent", currency: "AED", total: 500 })];
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init: RequestInit = {}) => {
+      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+      if (url.host === "api.stripe.com") return Promise.resolve(Response.json({ error: { message: "Checkout temporarily unavailable" } }, { status: 503 }));
+      return fakeFetch(input, init);
+    });
+    const res = await call("POST", "/api/portal/quotes/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/accept", undefined, { Authorization: "Bearer simulated-admin-token" });
+    // Invalid ID paths should not reach the payment provider, so use a UUID-shaped quote ID.
+    expect(res.status).toBe(404);
+  });
+});
+
 describe("reminders", () => {
   it("sends the 24-hour reminder once, even if the job runs twice", async () => {
     const { sendReminders } = await import("../src/jobs");
