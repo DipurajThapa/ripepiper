@@ -33,5 +33,14 @@ jobs:
       - name: Test
         working-directory: platform/ripe-piper-platform
         run: npm test
+      - name: Prevent simulated booking confirmations
+        run: |
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const source = readFileSync("site/assets/site.js", "utf8");
+            if (!source.includes("Calendar booking requires the deployed Ripe Piper website")) process.exit(1);
+            if (source.includes("Sample only: on the live website, this is your Cal.com calendar.")) process.exit(1);
+            if (source.includes("We have sent a calendar invitation to your email. You will receive reminders 24 hours")) process.exit(1);
+          '
       - name: Check frontend JavaScript syntax
         run: find site/assets -type f -name '*.js' -print0 | xargs -0 -r -n 1 node --check
