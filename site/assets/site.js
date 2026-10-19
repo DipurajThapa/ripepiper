@@ -180,14 +180,6 @@
     list.forEach(function (s) { h += '<button type="button" class="slot" data-start="' + s.start + '" data-slot="' + s.label + '">' + s.label.replace(" GST", "") + "</button>"; });
     return h + "</div>";
   }
-  function slots() {
-    var days = [], d = new Date(), names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], times = ["10:00", "13:30", "16:00"];
-    while (days.length < 3) { d.setDate(d.getDate() + 1); var w = d.getDay(); if (w !== 0 && w !== 6) days.push(new Date(d)); }
-    var h = "<p><strong>Your company is a good fit for a call.</strong> Choose a time below. All times are Gulf Standard Time.</p><div class=\"slots\">";
-    days.forEach(function (day) { h += '<span class="day">' + names[day.getDay()] + " " + day.getDate() + "</span>"; });
-    times.forEach(function (t) { days.forEach(function (day) { h += '<button type="button" class="slot" data-slot="' + names[day.getDay()] + " " + day.getDate() + " at " + t + '">' + t + "</button>"; }); });
-    return h + '</div><p class="hint">Sample only: on the live website, this is your Cal.com calendar.</p>';
-  }
 
   /* Calculator email gate */
   var gate = document.getElementById("gateForm");
