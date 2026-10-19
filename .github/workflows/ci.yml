@@ -1,0 +1,32 @@
+name: Ripe Piper checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm project sources exist
+        run: |
+          test -f site/index.html
+          test -f platform/ripe-piper-platform/package-lock.json
+          test -f platform/ripe-piper-platform/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: platform/ripe-piper-platform/package-lock.json
+      - name: Install locked dependencies
+        working-directory: platform/ripe-piper-platform
+        run: npm ci
+      - name: Type-check Worker
+        working-directory: platform/ripe-piper-platform
+        run: npm run typecheck
+      - name: Run tests
+        working-directory: platform/ripe-piper-platform
+        run: npm test
+      - name: Check frontend JavaScript syntax
+        run: |
+          find site/assets -name '*.js' -type f -print0 | xargs -0 -n1 node --check
