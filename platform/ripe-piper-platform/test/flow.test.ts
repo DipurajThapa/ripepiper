@@ -78,6 +78,10 @@ async function fakeSupabase(url: URL, init: RequestInit): Promise<Response> {
 
 async function fakeFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
   const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+  if (url.host === "challenges.cloudflare.com" && url.pathname.endsWith("/siteverify")) {
+    const params = new URLSearchParams(String(init.body));
+    return Response.json({ success: params.get("secret") === "turnstile-test-secret" && params.get("response") === "test-valid-token" });
+  }
   if (url.host === "test.supabase.co") return fakeSupabase(url, init);
   if (url.host === "oauth2.googleapis.com") return Response.json({ access_token: "g-token", expires_in: 3600 });
   if (url.pathname.endsWith("/freeBusy")) return Response.json({ calendars: { primary: { busy: [] } } });
@@ -97,12 +101,12 @@ const env: any = {
   SUPABASE_URL: "https://test.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "srv", SUPABASE_ANON_KEY: "anon",
   GOOGLE_CLIENT_ID: "id", GOOGLE_CLIENT_SECRET: "s", GOOGLE_REFRESH_TOKEN: "r", GOOGLE_CALENDAR_ID: "primary",
   CRM_SHEET_ID: "sheet", MAIL_FROM: "Ripe Piper <hello@ripepiper.com>", ADMIN_ALERT_EMAIL: "founder@ripepiper.com",
-  STRIPE_SECRET_KEY: "sk_test", STRIPE_WEBHOOK_SECRET: "whsec_test", SITE_URL: "https://ripepiper.com", AI_MODEL: "m",
+  STRIPE_SECRET_KEY: "sk_test", STRIPE_WEBHOOK_SECRET: "whsec_test", TURNSTILE_SECRET: "turnstile-test-secret", SITE_URL: "https://ripepiper.com", AI_MODEL: "m",
 };
 const pending: Promise<unknown>[] = [];
 const ctx: any = { waitUntil: (p: Promise<unknown>) => pending.push(p), passThroughOnException() {} };
 const call = (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) =>
-  worker.fetch(new Request("https://ripepiper.com" + path, { method, headers: { "Content-Type": "application/json", ...headers }, body: body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body), redirect: "manual" }), env, ctx);
+  worker.fetch(new Request("https://ripepiper.com" + path, { method, headers: { "Content-Type": "application/json", ...headers }, body: body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(path === "/api/lead" && body && typeof body === "object" ? { ...body as object, turnstile_token: "test-valid-token" } : body), redirect: "manual" }), env, ctx);
 
 async function sign(secret: string, payload: string) {
   const t = Math.floor(Date.now() / 1000);
