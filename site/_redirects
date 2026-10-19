@@ -1,0 +1,7 @@
+/results /how-it-works#results 301
+/results.html /how-it-works#results 301
+/packages /pricing#packages 301
+/packages/ /pricing#packages 301
+/packages/index.html /pricing#packages 301
+/guides /blog/ 301
+/guides/* /blog/:splat 301

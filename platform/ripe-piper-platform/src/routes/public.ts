@@ -1,0 +1,143 @@
+import type { Env } from "../env";
+import { Db, DbError } from "../lib/db";
+import { cleanEmail, cleanText, cleanWebsite, routeLead, scoreLead, isFreeEmail, pickUtm } from "../lib/validate";
+import { freeSlots, isOfferedSlot, BOOKING } from "../lib/slots";
+import { busyTimes, createMeetEvent, sendEmail } from "../lib/google";
+import { emails } from "../lib/email";
+import { json, bad, readJson, verifyTurnstile } from "./http";
+
+const COUNTRY: Record<string, string> = { "United Arab Emirates": "AE", India: "IN", "Saudi Arabia": "SA", Qatar: "QA", Other: "OTHER" };
+
+async function upsertLead(db: Db, row: Record<string, unknown>) {
+  try {
+    return (await db.insert("leads", row))[0];
+  } catch (e) {
+    if (!(e instanceof DbError && e.isConflict)) throw e;
+    // Same person submitted again: keep the original record and refresh the answers.
+    const { source, ...patch } = row;
+    return (await db.update("leads", `tenant_id=is.null&email=eq.${encodeURIComponent(String(row.email))}`, patch))[0];
+  }
+}
+
+async function busyWithMeetings(env: Env, db: Db, now: Date) {
+  const to = new Date(now.getTime() + (BOOKING.horizonDays + 1) * 86400_000);
+  const [g, booked] = await Promise.all([
+    busyTimes(env, now, to),
+    db.select<any>("meetings", `tenant_id=is.null&status=in.(booked,rescheduled)&start_at=gte.${now.toISOString()}&select=start_at,end_at`),
+  ]);
+  return [...g, ...booked.map(b => ({ start: new Date(b.start_at), end: new Date(b.end_at) }))];
+}
+
+/** Step 1 of booking: save the lead and decide the route (calendar, ask for work email, or not a fit yet). */
+export async function postLead(req: Request, env: Env, ctx: ExecutionContext) {
+  const b = await readJson(req);
+  if (b.website_url_confirm) return json({ ok: true, route: "not_fit" });               // honeypot: bots fill hidden fields
+  if (!(await verifyTurnstile(env, b.turnstile_token, req))) return bad("Please confirm you are not a robot and try again.");
+  const email = cleanEmail(b.email), name = cleanText(b.name, 120), website = cleanWebsite(b.website);
+  const dealBand = Number(b.deal_band);
+  if (!email || !name || !website) return bad("Please enter your name, work email and company website.");
+  if (![0, 1, 2, 3].includes(dealBand)) return bad("Please choose the average value of one deal.");
+  if (b.consent !== true) return bad("Please tick the box to agree that we may contact you about this request.");
+  const pkg = ["revive", "signal", "response", "events", "unsure"].includes(String(b.package)) ? String(b.package) : "unsure";
+  const country = cleanText(b.country, 40);
+  const route = routeLead(email, dealBand);
+  const db = new Db(env);
+  const lead = await upsertLead(db, {
+    source: "book_form", name, email, website, company: website, country: COUNTRY[country] ?? "OTHER", package_interest: pkg,
+    deal_band: dealBand, score: scoreLead({ dealBand, pkg, freeEmail: isFreeEmail(email), country }),
+    status: route === "not_fit" ? "not_fit" : route === "calendar" ? "qualified" : "new",
+    consent_at: new Date().toISOString(), ...pickUtm(b),
+  });
+  // Speed to lead: the founder hears about every inquiry within a minute.
+  const alert = emails.adminAlert("New inquiry", `${name} <${email}>\n${website}\nPackage: ${pkg}\nDeal band: ${dealBand}\nRoute: ${route}`);
+  ctx.waitUntil(sendEmail(env, env.ADMIN_ALERT_EMAIL, alert.subject, alert.text).catch(() => {}));
+  if (route !== "calendar") return json({ ok: true, route, lead_id: lead.id });
+  const now = new Date();
+  const slots = freeSlots(now, await busyWithMeetings(env, db, now)).slice(0, 18);
+  return json({ ok: true, route, lead_id: lead.id, slots });
+}
+
+export async function getSlots(_req: Request, env: Env) {
+  const db = new Db(env), now = new Date();
+  return json({ ok: true, slots: freeSlots(now, await busyWithMeetings(env, db, now)) });
+}
+
+/** Step 2 of booking: reserve the slot, create the Google Meet event, confirm by email. */
+export async function postBook(req: Request, env: Env) {
+  const b = await readJson(req);
+  const db = new Db(env);
+  const lead = await db.one<any>("leads", `id=eq.${encodeURIComponent(String(b.lead_id))}&tenant_id=is.null&select=*`);
+  if (!lead || lead.status === "not_fit") return bad("Please complete the booking form first.");
+  const now = new Date();
+  const slot = isOfferedSlot(String(b.start), now, await busyWithMeetings(env, db, now));
+  if (!slot) return bad("That time is no longer available. Please choose another time.", 409);
+  let meeting: any;
+  try {
+    meeting = (await db.insert("meetings", { lead_id: lead.id, kind: "discovery", start_at: slot.start, end_at: slot.end, attendee_email: lead.email, attendee_name: lead.name }))[0];
+  } catch (e) {
+    if (e instanceof DbError && e.isConflict) return bad("That time was just booked by someone else. Please choose another time.", 409);
+    throw e;
+  }
+  try {
+    const ev = await createMeetEvent(env, {
+      id: meeting.id, start: slot.start, end: slot.end, email: lead.email, name: lead.name ?? lead.email,
+      summary: `Ripe Piper call with ${lead.name ?? lead.email}`,
+      description: `15-minute discovery call.\nCompany website: ${lead.website ?? ""}\nPackage of interest: ${lead.package_interest ?? ""}`,
+    });
+    await db.update("meetings", `id=eq.${meeting.id}`, { google_event_id: ev.eventId, meet_url: ev.meetUrl, meet_code: ev.meetCode });
+    await db.update("leads", `id=eq.${lead.id}`, { status: "meeting_booked" });
+    const m = emails.bookingConfirmed(lead.name ?? "there", slot.start, ev.meetUrl ?? "");
+    try { await sendEmail(env, lead.email, m.subject, m.text); }
+    catch (mailError) { console.error("Booking confirmed but email delivery failed", meeting.id, String(mailError)); }
+    return json({ ok: true, meeting_id: meeting.id, start: slot.start, label: slot.label, meet_url: ev.meetUrl });
+  } catch (e) {
+    // Never leave a reserved slot without a calendar event.
+    await db.update("meetings", `id=eq.${meeting.id}`, { status: "cancelled" });
+    throw e;
+  }
+}
+
+export async function postCalculator(req: Request, env: Env, ctx: ExecutionContext) {
+  const b = await readJson(req);
+  if (!(await verifyTurnstile(env, b.turnstile_token, req))) return bad("Please confirm you are not a robot and try again.");
+  const email = cleanEmail(b.email), name = cleanText(b.name, 120), company = cleanText(b.company, 160);
+  if (!email || !name || !company) return bad("Please enter your name, work email and company name.");
+  if (b.consent !== true) return bad("Please tick the box so we can email you the breakdown.");
+  const db = new Db(env);
+  await upsertLead(db, { source: "calculator", name, email, company, consent_at: new Date().toISOString(), ...pickUtm(b) });
+  const m = emails.calculatorBreakdown(name);
+  ctx.waitUntil(sendEmail(env, email, m.subject, m.text).catch(() => {}));
+  return json({ ok: true });
+}
+
+export async function postNewsletter(req: Request, env: Env, ctx: ExecutionContext) {
+  const b = await readJson(req);
+  const email = cleanEmail(b.email);
+  if (!email) return bad("Please enter a valid email address.");
+  if (!(await verifyTurnstile(env, b.turnstile_token, req))) return bad("Please confirm you are not a robot and try again.");
+  if (b.consent !== true) return bad("Please tick the box to agree to receive the newsletter.");
+  const db = new Db(env);
+  const [sub] = await db.upsert<any>("newsletter_subscribers", { email, status: "pending", consent_at: new Date().toISOString() }, "email");
+  const m = emails.newsletterConfirm(`${env.SITE_URL}/api/newsletter/confirm?token=${sub.confirm_token}`);
+  ctx.waitUntil(sendEmail(env, email, m.subject, m.text).catch(() => {}));
+  return json({ ok: true });
+}
+
+export async function getNewsletterConfirm(req: Request, env: Env) {
+  const token = new URL(req.url).searchParams.get("token") ?? "";
+  if (!/^[0-9a-f-]{36}$/.test(token)) return Response.redirect(`${env.SITE_URL}/`, 302);
+  await new Db(env).update("newsletter_subscribers", `confirm_token=eq.${token}&status=eq.pending`, { status: "confirmed", confirmed_at: new Date().toISOString() });
+  return Response.redirect(`${env.SITE_URL}/#subscribed`, 302);
+}
+
+export async function postOptOut(req: Request, env: Env) {
+  const b = await readJson(req);
+  const email = cleanEmail(b.email);
+  if (!email) return bad("Please enter a valid email address.");
+  if (!(await verifyTurnstile(env, b.turnstile_token, req))) return bad("Please confirm you are not a robot and try again.");
+  const db = new Db(env);
+  await db.upsert("suppression", { email, reason: cleanText(b.reason, 120) || "opt-out page" }, "email");
+  await db.update("newsletter_subscribers", `email=eq.${encodeURIComponent(email)}`, { status: "unsubscribed", unsubscribed_at: new Date().toISOString() });
+  await db.update("leads", `email=eq.${encodeURIComponent(email)}`, { status: "unsubscribed" });
+  return json({ ok: true });
+}

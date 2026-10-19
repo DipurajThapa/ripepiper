@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Client Dashboard | Ripe Piper</title><meta name="claude:viewport-fit-sides" content="cover"><meta name="description" content="Sign in to see your live Ripe Piper results."><meta name="robots" content="noindex"><link rel="canonical" href="https://ripepiper.com/portal/"><meta property="og:type" content="website"><meta property="og:site_name" content="Ripe Piper"><meta property="og:title" content="Client Dashboard | Ripe Piper"><meta property="og:description" content="Sign in to see your live Ripe Piper results."><meta property="og:url" content="https://ripepiper.com/portal/"><meta property="og:image" content="https://ripepiper.com/img/og-ripe-piper.png"><meta name="twitter:card" content="summary_large_image"><link rel="icon" href="../img/favicon.svg" type="image/svg+xml"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Boldonse&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,300..500,0..1,0&display=block"><link rel="stylesheet" href="../assets/site.css"><script type="application/ld+json">{"@context": "https://schema.org", "@type": "Organization", "name": "Ripe Piper", "url": "https://ripepiper.com/", "logo": "https://ripepiper.com/img/og-ripe-piper.png", "email": "hello@ripepiper.com", "description": "Ripe Piper books qualified sales meetings for B2B companies in the UAE and India by reactivating old leads, replying to new inquiries and reaching companies that show buying signals.", "areaServed": [{"@type": "Country", "name": "United Arab Emirates"}, {"@type": "Country", "name": "India"}], "founder": {"@type": "Person", "name": "Dipuraj Thapa"}}</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="announce"><div class="wrap">Now booking 14-day Revive sprints for November 2026. <a href="../packages/revive.html">See how a sprint works</a></div></div>
+<header class="site">
+  <div class="wrap nav">
+    <div class="nav-left">
+      <a class="brand" href="../index.html" aria-label="Ripe Piper home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>ripe piper</a>
+      <ul class="nav-links"><li><a href="../how-it-works.html">How it works</a></li><li><a href="../pricing.html">Pricing</a></li><li><a href="../blog/index.html">Blog</a></li><li><a href="../about.html">About</a></li></ul>
+    </div>
+    <div class="nav-right">
+      <a class="btn btn-dark" href="../book.html">Book a call<span class="ms" aria-hidden="true">arrow_forward</span></a>
+      <button class="menu-btn" type="button" aria-expanded="false" aria-controls="mnav" aria-label="Open menu"><span class="ms" aria-hidden="true">menu</span></button>
+    </div>
+  </div>
+  <nav class="mobile-nav" id="mnav" aria-label="Mobile"><div class="wrap"><ul><li><a href="../how-it-works.html">How it works</a></li><li><a href="../pricing.html">Pricing</a></li><li><a href="../blog/index.html">Blog</a></li><li><a href="../about.html">About</a></li><li><a href="../book.html">Book a call</a></li></ul></div></nav>
+</header>
+<main id="main">
+<section class="page-hero" id="login" hidden><div class="wrap"><div class="copy narrow">
+  <h1>Sign in to your dashboard</h1><p class="lede">Your live results: leads, meetings, ad spend, cost and return on investment. You see only your own company's data.</p>
+  <div class="formbox">
+    <button class="btn btn-dark" type="button" data-login="google"><span class="ms" aria-hidden="true">login</span>Continue with Google</button>
+    <p class="muted">Or receive a sign-in link by email. Use the company email address we invited.</p>
+    <form id="magicForm" class="stack" novalidate>
+      <div class="field"><label for="magicEmail">Email address</label><input id="magicEmail" type="email" autocomplete="email"></div>
+      <p class="err" id="magicErr" role="alert"></p>
+      <button class="btn btn-line" type="submit">Email me a sign-in link</button>
+      <div id="magicOk" hidden></div>
+    </form>
+  </div>
+</div></div></section>
+<section class="page-hero tight" id="app" hidden><div class="wrap">
+  <div class="app-head">
+    <div class="stack sm"><span class="kicker" id="tenantPlan">Client dashboard</span><h1 id="tenantName" class="h-app">Your dashboard</h1>
+      <p class="muted" id="freshness"></p></div>
+    <div class="app-tools">
+      <label class="hint" for="tenantSelect" id="tenantSelectLabel" hidden>Company</label><select id="tenantSelect" hidden></select>
+      <label class="hint" for="monthSelect">Month</label><select id="monthSelect"></select>
+      <button class="btn btn-line" type="button" id="signOut">Sign out</button>
+    </div>
+  </div>
+  <p class="note before" id="demoNote" hidden><span class="ms" aria-hidden="true">info</span>You are viewing sample data. Connect Supabase in assets/config.js to show live data.</p>
+  <nav class="tabs" aria-label="Dashboard sections">
+    <a href="#overview" data-tab="overview" aria-current="page">Overview</a><a href="#funnel" data-tab="funnel">Funnel</a>
+    <a href="#ads" data-tab="ads">Ads</a><a href="#value" data-tab="value">Cost and return</a>
+    <a href="#deals" data-tab="deals">Deals</a><a href="#quotes" data-tab="quotes">Proposals and quotes</a><a href="#activity" data-tab="activity">Activity</a>
+  </nav>
+</div></section>
+
+<section class="tight" data-panel="overview" hidden><div class="wrap">
+  <div class="kpis" id="kpis"></div>
+  <div class="sec-head after"><span class="kicker">Last six months</span><h2>Qualified leads and meetings held.</h2></div>
+  <div class="bars" id="trend"></div>
+</div></section>
+
+<section class="tight" data-panel="funnel" hidden><div class="wrap">
+  <div class="sec-head"><span class="kicker">Outreach funnel</span><h2>Where every lead is this month.</h2>
+    <p class="muted">Each step shows the number of people and the share of the step before it.</p></div>
+  <div class="funnel" id="funnel"></div>
+  <div class="split top after">
+    <div class="stack"><span class="kicker">Targeting</span><h3>Are we contacting the right companies?</h3><div id="icp"></div></div>
+    <div class="stack"><span class="kicker">Lead sources</span><h3 id="attrTitle">Leads by source</h3><div class="table-wrap flush" id="sources"></div></div>
+  </div>
+</div></section>
+
+<section class="tight" data-panel="ads" hidden><div class="wrap">
+  <div class="sec-head"><span class="kicker">Advertising</span><h2>Ad spend and results by platform.</h2>
+    <p class="muted">Spend is shown in your currency. Data from Google Ads, Meta and LinkedIn updates every night.</p></div>
+  <div class="table-wrap flush" id="adsTable"></div>
+</div></section>
+
+<section class="tight" data-panel="value" hidden><div class="wrap">
+  <div class="sec-head"><span class="kicker">Cost and return</span><h2>What you paid and what it returned.</h2>
+    <p class="muted">Return on investment = (revenue from won deals − total cost) ÷ total cost. Total cost = our fees + your ad spend.</p></div>
+  <div class="kpis" id="valueKpis"></div>
+  <div class="table-wrap" id="feesTable"></div>
+</div></section>
+
+<section class="tight" data-panel="deals" hidden><div class="wrap">
+  <div class="sec-head"><span class="kicker">Deals</span><h2>Deals from the meetings we booked.</h2>
+    <p class="muted" id="dealsHelp">Keep the stage and value up to date so your revenue and return are accurate.</p></div>
+  <div class="table-wrap flush" id="dealsTable"></div>
+</div></section>
+
+<section class="tight" data-panel="quotes" hidden><div class="wrap">
+  <div class="sec-head"><span class="kicker">Proposals and quotes</span><h2>Your proposals, quotations and payments.</h2></div>
+  <div id="quotesList" class="stack lg"></div>
+</div></section>
+
+<section class="tight" data-panel="activity" hidden><div class="wrap">
+  <div class="sec-head"><span class="kicker">Activity</span><h2>What changed, why, and what happens next.</h2></div>
+  <div class="timeline" id="activity"></div>
+</div></section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div class="stack sm">
+        <a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>ripe piper</a>
+        <p class="muted">We book qualified sales meetings for B2B companies in the UAE and India.</p>
+        <p class="muted">Email: hello@ripepiper.com<br>WhatsApp: +971 00 000 0000</p>
+      </div>
+      <div><h4>Packages</h4><ul>
+        <li><a href="../packages/revive.html">Ripe Revive</a></li><li><a href="../packages/signal.html">Ripe Signal</a></li>
+        <li><a href="../packages/response.html">Ripe Response</a></li><li><a href="../packages/events.html">Ripe Events</a></li></ul></div>
+      <div><h4>Company</h4><ul>
+        <li><a href="../how-it-works.html">How it works</a></li><li><a href="../pricing.html">Pricing</a></li>
+        <li><a href="../how-it-works.html#results">Weekly results</a></li><li><a href="../about.html">About</a></li>
+        <li><a href="../calculator.html">Revenue calculator</a></li><li><a href="../blog/index.html">Blog</a></li></ul></div>
+      <div><h4>Regions</h4><ul>
+        <li><a href="../ae/index.html">United Arab Emirates</a></li><li><a href="../in/index.html">India</a></li></ul></div>
+      <div><h4>Legal</h4><ul>
+        <li><a href="../privacy.html">Privacy policy</a></li><li><a href="../terms.html">Terms of service</a></li>
+        <li><a href="../exit-policy.html">Exit policy</a></li><li><a href="../opt-out.html">Stop receiving our emails</a></li></ul></div>
+    </div>
+    <div class="fine"><span>© 2026 Ripe Piper. All rights reserved.</span></div>
+  </div>
+</footer>
+<a class="btn btn-dark wa" href="../book.html#whatsapp"><span class="ms" aria-hidden="true">chat</span>WhatsApp</a>
+<script src="../assets/site.js"></script><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script><script src="../assets/config.js"></script><script src="../assets/app-common.js"></script><script src="../assets/portal.js"></script>
+</body>
+</html>

@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Admin | Ripe Piper</title><meta name="claude:viewport-fit-sides" content="cover"><meta name="description" content="Ripe Piper administration."><meta name="robots" content="noindex"><link rel="canonical" href="https://ripepiper.com/admin/"><meta property="og:type" content="website"><meta property="og:site_name" content="Ripe Piper"><meta property="og:title" content="Admin | Ripe Piper"><meta property="og:description" content="Ripe Piper administration."><meta property="og:url" content="https://ripepiper.com/admin/"><meta property="og:image" content="https://ripepiper.com/img/og-ripe-piper.png"><meta name="twitter:card" content="summary_large_image"><link rel="icon" href="../img/favicon.svg" type="image/svg+xml"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Boldonse&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,300..500,0..1,0&display=block"><link rel="stylesheet" href="../assets/site.css"><script type="application/ld+json">{"@context": "https://schema.org", "@type": "Organization", "name": "Ripe Piper", "url": "https://ripepiper.com/", "logo": "https://ripepiper.com/img/og-ripe-piper.png", "email": "hello@ripepiper.com", "description": "Ripe Piper books qualified sales meetings for B2B companies in the UAE and India by reactivating old leads, replying to new inquiries and reaching companies that show buying signals.", "areaServed": [{"@type": "Country", "name": "United Arab Emirates"}, {"@type": "Country", "name": "India"}], "founder": {"@type": "Person", "name": "Dipuraj Thapa"}}</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="announce"><div class="wrap">Now booking 14-day Revive sprints for November 2026. <a href="../packages/revive.html">See how a sprint works</a></div></div>
+<header class="site">
+  <div class="wrap nav">
+    <div class="nav-left">
+      <a class="brand" href="../index.html" aria-label="Ripe Piper home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>ripe piper</a>
+      <ul class="nav-links"><li><a href="../how-it-works.html">How it works</a></li><li><a href="../pricing.html">Pricing</a></li><li><a href="../blog/index.html">Blog</a></li><li><a href="../about.html">About</a></li></ul>
+    </div>
+    <div class="nav-right">
+      <a class="btn btn-dark" href="../book.html">Book a call<span class="ms" aria-hidden="true">arrow_forward</span></a>
+      <button class="menu-btn" type="button" aria-expanded="false" aria-controls="mnav" aria-label="Open menu"><span class="ms" aria-hidden="true">menu</span></button>
+    </div>
+  </div>
+  <nav class="mobile-nav" id="mnav" aria-label="Mobile"><div class="wrap"><ul><li><a href="../how-it-works.html">How it works</a></li><li><a href="../pricing.html">Pricing</a></li><li><a href="../blog/index.html">Blog</a></li><li><a href="../about.html">About</a></li><li><a href="../book.html">Book a call</a></li></ul></div></nav>
+</header>
+<main id="main">
+<section class="page-hero" id="login" hidden><div class="wrap"><div class="copy narrow">
+  <h1>Admin sign-in</h1><p class="lede">This area is for Ripe Piper administrators only.</p>
+  <div class="formbox">
+    <button class="btn btn-dark" type="button" data-login="google"><span class="ms" aria-hidden="true">login</span>Continue with Google</button>
+    <p class="muted">Or receive a sign-in link by email. Use the company email address we invited.</p>
+    <form id="magicForm" class="stack" novalidate>
+      <div class="field"><label for="magicEmail">Email address</label><input id="magicEmail" type="email" autocomplete="email"></div>
+      <p class="err" id="magicErr" role="alert"></p>
+      <button class="btn btn-line" type="submit">Email me a sign-in link</button>
+      <div id="magicOk" hidden></div>
+    </form>
+  </div>
+</div></div></section>
+<section class="page-hero tight" id="app" hidden><div class="wrap">
+  <div class="app-head">
+    <div class="stack sm"><span class="kicker">Admin</span><h1 class="h-app">Ripe Piper admin</h1><p class="muted" id="whoami"></p></div>
+    <div class="app-tools"><button class="btn btn-line" type="button" id="signOut">Sign out</button></div>
+  </div>
+  <p class="note before" id="demoNote" hidden><span class="ms" aria-hidden="true">info</span>Sample data. Changes are not saved until Supabase is connected in assets/config.js.</p>
+  <nav class="tabs" aria-label="Admin sections">
+    <a href="#leads" data-tab="leads" aria-current="page">Leads</a><a href="#meetings" data-tab="meetings">Meetings</a>
+    <a href="#proposals" data-tab="proposals">Proposals</a><a href="#clients" data-tab="clients">Clients</a><a href="#blog" data-tab="blog">Blog</a>
+  </nav>
+</div></section>
+
+<section class="tight" data-panel="leads" hidden><div class="wrap">
+  <div class="price-head"><div class="sec-head"><span class="kicker">Leads</span><h2>Website inquiries.</h2><p class="muted">Every lead is also copied to the Website_Leads tab of the CRM Google Sheet.</p></div>
+    <div class="field"><label for="leadFilter">Status</label><select id="leadFilter"><option value="">All</option><option>new</option><option>qualified</option><option>meeting_booked</option><option>meeting_held</option><option>proposal</option><option>won</option><option>not_fit</option></select></div></div>
+  <div class="table-wrap flush" id="leadsTable"></div>
+</div></section>
+
+<section class="tight" data-panel="meetings" hidden><div class="wrap">
+  <div class="sec-head"><span class="kicker">Meetings</span><h2>Calls, notes and minutes.</h2>
+    <p class="muted">After each call the system collects the Google Meet transcript and writes notes, minutes and requirements. You can also paste a transcript.</p></div>
+  <div class="split top">
+    <div class="table-wrap flush" id="meetingsTable"></div>
+    <div class="formbox" id="meetingDetail"><p class="muted">Choose a meeting to see its notes.</p></div>
+  </div>
+</div></section>
+
+<section class="tight" data-panel="proposals" hidden><div class="wrap">
+  <div class="sec-head"><span class="kicker">Proposals</span><h2>Pre-proposals, payments and quotations.</h2>
+    <p class="muted">Review the AI draft, edit it, then send. Prices come from the published price list and cannot be changed by the AI.</p></div>
+  <div class="split top">
+    <div class="table-wrap flush" id="proposalsTable"></div>
+    <div class="formbox" id="proposalDetail"><p class="muted">Choose a proposal to review it.</p></div>
+  </div>
+</div></section>
+
+<section class="tight" data-panel="clients" hidden><div class="wrap">
+  <div class="sec-head"><span class="kicker">Clients</span><h2>Client accounts and dashboard data.</h2></div>
+  <div class="split top">
+    <div class="table-wrap flush" id="tenantsTable"></div>
+    <div class="formbox" id="tenantDetail"><p class="muted">Choose a client to invite users, add weekly results, fees, ad accounts and notes.</p></div>
+  </div>
+</div></section>
+
+<section class="tight" data-panel="blog" hidden><div class="wrap">
+  <div class="price-head"><div class="sec-head"><span class="kicker">Blog</span><h2>Articles.</h2><p class="muted">Published articles appear on /blog immediately.</p></div>
+    <button class="btn btn-dark" type="button" id="newPost">New article<span class="ms" aria-hidden="true">add</span></button></div>
+  <div class="split top">
+    <div class="table-wrap flush" id="postsTable"></div>
+    <form class="formbox" id="postForm" novalidate hidden>
+      <div class="field"><label for="pTitle">Title <span class="hint" id="pTitleCount"></span></label><input id="pTitle" type="text" maxlength="120"></div>
+      <div class="field"><label for="pSlug">Web address</label><input id="pSlug" type="text" maxlength="90"><span class="hint">ripepiper.com/blog/<span id="pSlugPreview"></span></span></div>
+      <div class="field"><label for="pDesc">Search description <span class="hint" id="pDescCount"></span></label><textarea id="pDesc" maxlength="170"></textarea></div>
+      <div class="field"><label for="pCover">Cover image address (optional)</label><input id="pCover" type="text"></div>
+      <div class="field"><label for="pCoverAlt">Cover image description</label><input id="pCoverAlt" type="text"></div>
+      <div class="field"><label for="pBody">Article (Markdown)</label><textarea id="pBody" class="editor"></textarea>
+        <span class="hint">Use ## for section headings, - for lists and [text](https://link) for links. HTML is not allowed.</span></div>
+      <div class="serp" aria-label="Search result preview"><span class="serp-url" id="serpUrl"></span><span class="serp-title" id="serpTitle"></span><span class="serp-desc" id="serpDesc"></span></div>
+      <p class="err" id="pErr" role="alert"></p>
+      <div class="hero-actions"><button class="btn btn-line" type="submit" data-status="draft">Save draft</button>
+        <button class="btn btn-dark" type="submit" data-status="published">Publish</button></div>
+      <div id="pOk" hidden></div>
+      <div class="stack sm"><span class="kicker">Preview</span><div class="prose preview" id="pPreview"></div></div>
+    </form>
+  </div>
+</div></section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div class="stack sm">
+        <a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>ripe piper</a>
+        <p class="muted">We book qualified sales meetings for B2B companies in the UAE and India.</p>
+        <p class="muted">Email: hello@ripepiper.com<br>WhatsApp: +971 00 000 0000</p>
+      </div>
+      <div><h4>Packages</h4><ul>
+        <li><a href="../packages/revive.html">Ripe Revive</a></li><li><a href="../packages/signal.html">Ripe Signal</a></li>
+        <li><a href="../packages/response.html">Ripe Response</a></li><li><a href="../packages/events.html">Ripe Events</a></li></ul></div>
+      <div><h4>Company</h4><ul>
+        <li><a href="../how-it-works.html">How it works</a></li><li><a href="../pricing.html">Pricing</a></li>
+        <li><a href="../how-it-works.html#results">Weekly results</a></li><li><a href="../about.html">About</a></li>
+        <li><a href="../calculator.html">Revenue calculator</a></li><li><a href="../blog/index.html">Blog</a></li></ul></div>
+      <div><h4>Regions</h4><ul>
+        <li><a href="../ae/index.html">United Arab Emirates</a></li><li><a href="../in/index.html">India</a></li></ul></div>
+      <div><h4>Legal</h4><ul>
+        <li><a href="../privacy.html">Privacy policy</a></li><li><a href="../terms.html">Terms of service</a></li>
+        <li><a href="../exit-policy.html">Exit policy</a></li><li><a href="../opt-out.html">Stop receiving our emails</a></li></ul></div>
+    </div>
+    <div class="fine"><span>© 2026 Ripe Piper. All rights reserved.</span></div>
+  </div>
+</footer>
+<a class="btn btn-dark wa" href="../book.html#whatsapp"><span class="ms" aria-hidden="true">chat</span>WhatsApp</a>
+<script src="../assets/site.js"></script><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script><script src="https://cdn.jsdelivr.net/npm/marked@14.1.4/marked.min.js"></script><script src="../assets/config.js"></script><script src="../assets/app-common.js"></script><script src="../assets/admin.js"></script>
+</body>
+</html>

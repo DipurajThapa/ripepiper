@@ -1,0 +1,11 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+const config = readFileSync(resolve('../../site/assets/config.js'), 'utf8');
+const vars = ['SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY','SUPABASE_ANON_KEY','GOOGLE_CLIENT_ID','GOOGLE_CLIENT_SECRET','GOOGLE_REFRESH_TOKEN','CRM_SHEET_ID','ADMIN_ALERT_EMAIL','ANTHROPIC_API_KEY','STRIPE_SECRET_KEY','STRIPE_WEBHOOK_SECRET','RAZORPAY_KEY_ID','RAZORPAY_KEY_SECRET','RAZORPAY_WEBHOOK_SECRET','TURNSTILE_SECRET'];
+const missing = vars.filter(k => !process.env[k]);
+console.log('Ripe Piper deploy preflight');
+console.log('Required service variables missing:', missing.join(', ') || 'none');
+console.log('Frontend publicly configured:', /supabaseUrl:\s*"https:\/\//.test(config) && /supabaseAnonKey:\s*"[^\"]+"/.test(config));
+console.log('Turnstile site key configured:', /turnstileSiteKey:\s*"[^\"]+"/.test(config));
+console.log('Live submissions enabled:', /live:\s*true/.test(config));
+if (missing.length || !/live:\s*true/.test(config) || !/turnstileSiteKey:\s*"[^\"]+"/.test(config)) process.exitCode = 1;
