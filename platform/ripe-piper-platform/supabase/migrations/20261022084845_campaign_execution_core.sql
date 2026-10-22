@@ -132,7 +132,7 @@ declare a public.outbound_actions%rowtype;
 begin
   if current_user <> 'service_role' then raise exception 'Service role required' using errcode='42501'; end if;
   select * into a from public.outbound_actions where id=p_id for update skip locked;
-  if not found or a.state <> 'claimed' or p_now is null or a.lease_until<=p_now then return false; end if;
+  if not found or a.state <> 'claimed' or p_now is null or a.lease_until is null or a.lease_until<=p_now then return false; end if;
   perform 1 from public.campaigns where id=a.campaign_id and tenant_id=a.tenant_id for update;
   if not public.synthetic_action_allowed(a.id,p_now) then
     update public.outbound_actions set state='blocked', error_code='eligibility_or_authority_changed', lease_until=null where id=a.id;
