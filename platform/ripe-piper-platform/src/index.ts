@@ -9,6 +9,7 @@ import { runScheduled } from "./jobs";
 import { recordSubjectRequest } from "./foundation/requests";
 import { prepareTenant } from "./foundation/tenants";
 import { testAction } from "./foundation/actions";
+import { acceptInvites } from "./foundation/invites";
 
 type Handler = (req: Request, env: Env, ctx: ExecutionContext, p: string[]) => Promise<Response>;
 const routes: [string, RegExp, Handler][] = [
@@ -31,6 +32,7 @@ const routes: [string, RegExp, Handler][] = [
   ["POST", /^\/api\/admin\/quotes$/, (r, e) => createQuote(r, e)],
   ["POST", /^\/api\/admin\/quotes\/([0-9a-f-]{36})\/send$/, (r, e, _c, p) => sendQuote(r, e, p[0])],
   ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/invite$/, (r, e, _c, p) => inviteUser(r, e, p[0])],
+  ["POST", /^\/api\/portal\/accept-invites$/, (r, e) => acceptInvites(r, e)],
   ["POST", /^\/api\/admin\/ads\/sync$/, (r, e) => runAdsSync(r, e)],
   ["POST", /^\/api\/admin\/subject-requests$/, (r, e) => recordSubjectRequest(r, e)],
   ["POST", /^\/api\/admin\/tenants$/, (r, e) => prepareTenant(r, e)],

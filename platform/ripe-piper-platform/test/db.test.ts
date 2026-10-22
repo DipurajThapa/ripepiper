@@ -8,7 +8,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 const STUB = `
 create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;
 create schema auth;
-create table auth.users (id uuid primary key, email text, raw_user_meta_data jsonb default '{}');
+create table auth.users (id uuid primary key, email text, email_confirmed_at timestamptz, raw_user_meta_data jsonb default '{}');
 create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.sub', true), '')::uuid $$;
 grant usage on schema auth to authenticated, anon; grant execute on function auth.uid() to authenticated, anon;
 `;
@@ -27,7 +27,7 @@ async function as(user: string, sql: string) {
 beforeAll(async () => {
   db = new PGlite({ extensions: { btree_gist } });
   await db.exec(STUB);
-  for (const f of ["0001_core.sql", "0002_security_and_views.sql", "20261022082304_tenant_identity_foundation.sql", "20261022083018_consultation_booking_capability.sql", "20261022083835_lead_provenance_and_rights.sql", "20261022084845_campaign_execution_core.sql"]) {
+  for (const f of ["0001_core.sql", "0002_security_and_views.sql", "20261022082304_tenant_identity_foundation.sql", "20261022083018_consultation_booking_capability.sql", "20261022083835_lead_provenance_and_rights.sql", "20261022084845_campaign_execution_core.sql", "20261022090405_verified_invite_acceptance.sql"]) {
     await db.exec(readFileSync(new URL(`../supabase/migrations/${f}`, import.meta.url), "utf8"));
   }
   T1 = (await db.query<any>(`insert into tenants (name, slug, country, currency, created_at) values ('Gulf Interiors','gulf-interiors','AE','AED', now() - interval '40 days') returning id`)).rows[0].id;
@@ -35,7 +35,8 @@ beforeAll(async () => {
   RIPE = (await db.query<any>(`insert into tenants (name, slug, country, currency) values ('Ripe Piper','ripe-piper','AE','AED') returning id`)).rows[0].id;
   await db.query(`insert into invites (tenant_id, email, role) values ($1, 'owner@gulfinteriors.ae', 'owner'), ($2, 'cfo.punetech@gmail.com', 'viewer')`, [T1, T2]);
   await db.query(`insert into invites (tenant_id, email, role) values ($1, 'operator@ripepiper.com', 'owner')`, [RIPE]);
-  await db.exec(`insert into auth.users (id, email) values ('${ADMIN}','dipuraj@ripepiper.com'), ('${U1}','OWNER@gulfinteriors.ae'), ('${U2}','cfo.punetech@gmail.com'), ('${U3}','operator@ripepiper.com');`);
+  await db.exec(`insert into auth.users (id, email, email_confirmed_at) values ('${ADMIN}','dipuraj@ripepiper.com',now()), ('${U1}','OWNER@gulfinteriors.ae',now()), ('${U2}','cfo.punetech@gmail.com',now()), ('${U3}','operator@ripepiper.com',now());`);
+  await db.exec(`set role service_role; select public.accept_verified_invites('${U1}'); select public.accept_verified_invites('${U2}'); select public.accept_verified_invites('${U3}'); reset role;`);
   await db.exec(`update profiles set is_admin = true where id = '${ADMIN}';`);
   await db.query(`insert into leads (tenant_id, source, email, status) values ($1,'outreach','a@x.ae','qualified'), ($1,'outreach','b@x.ae','new'), ($2,'outreach','c@y.in','qualified'), (null,'book_form','prospect@z.com','new')`, [T1, T2]);
   await db.query(`insert into fees (tenant_id, month, type, amount, currency) values ($1, date_trunc('month', now()), 'retainer', 7500, 'AED')`, [T1]);
@@ -55,9 +56,31 @@ describe("tenant isolation (row-level security)", () => {
       expect((await as(U3, `select email from leads where tenant_id is null`))).toHaveLength(0);
     } finally { await db.query(`delete from leads where id=$1`, [row.id]); }
   });
-  it("links invited users to their tenant on first sign-in, case-insensitively", async () => {
+  it("links verified invited users on redemption, case-insensitively", async () => {
     const r = await db.query<any>(`select tenant_id, role from memberships where user_id = $1`, [U1]);
     expect(r.rows).toEqual([{ tenant_id: T1, role: "owner" }]);
+  });
+  it("does not accept an unverified account or a paused tenant, and redeems an existing verified user once", async () => {
+    const id = '00000000-0000-0000-0000-0000000000c4';
+    await db.query(`insert into auth.users (id,email) values ($1,'late@example.invalid')`, [id]);
+    await db.query(`insert into invites (tenant_id,email,role) values ($1,'late@example.invalid','viewer'), ($2,'LATE@example.invalid','owner')`, [T1,T2]);
+    expect((await db.query<any>(`select count(*)::int n from memberships where user_id=$1`, [id])).rows[0].n).toBe(0);
+    await db.exec('set role service_role');
+    try {
+      expect((await db.query<any>(`select public.accept_verified_invites($1) as n`, [id])).rows[0].n).toBe(0);
+      await expect(db.query(`select public.accept_verified_invites('00000000-0000-0000-0000-000000000000')`)).resolves.toBeDefined();
+    } finally { await db.exec('reset role'); }
+    await db.query(`update auth.users set email_confirmed_at=now() where id=$1`, [id]);
+    await db.query(`update tenants set status='paused' where id=$1`, [T2]);
+    await db.exec('set role service_role');
+    try {
+      expect((await db.query<any>(`select public.accept_verified_invites($1) as n`, [id])).rows[0].n).toBe(1);
+      expect((await db.query<any>(`select public.accept_verified_invites($1) as n`, [id])).rows[0].n).toBe(0);
+    } finally { await db.exec('reset role'); }
+    expect((await db.query<any>(`select tenant_id,role from memberships where user_id=$1`, [id])).rows).toEqual([{ tenant_id:T1, role:'viewer' }]);
+    expect((await db.query<any>(`select accepted_at from invites where tenant_id=$1 and lower(email)='late@example.invalid'`, [T2])).rows[0].accepted_at).toBeNull();
+    await expect(as(U1, `select public.accept_verified_invites('${id}')`)).rejects.toThrow();
+    await db.query(`update tenants set status='onboarding' where id=$1`, [T2]);
   });
   it("a client sees only its own leads", async () => {
     const rows = await as(U1, `select email from leads order by email`);

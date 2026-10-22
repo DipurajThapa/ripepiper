@@ -210,6 +210,22 @@ describe("staff-managed client setup", () => {
     expect(sentEmails).toHaveLength(0);
     expect(calendarEvents).toHaveLength(0);
   });
+  it("redeems invitations only through an authenticated portal and blocks invites for paused tenants", async () => {
+    const tenant = "11111111-1111-4111-8111-111111111111";
+    tables.tenants = [{ id: tenant, status: 'onboarding' }];
+    expect((await call("POST", "/api/portal/accept-invites")).status).toBe(401);
+    const accepted = await call("POST", "/api/portal/accept-invites", {}, { Authorization: "Bearer client-token" });
+    expect(accepted.status).toBe(200);
+    expect(rpcCalls).toEqual(["/rest/v1/rpc/accept_verified_invites"]);
+    const invite = `/api/admin/tenants/${tenant}/invite`;
+    expect((await call("POST", invite, { email: "new@example.invalid" })).status).toBe(401);
+    expect((await call("POST", invite, { email: "new@example.invalid" }, { Authorization: "Bearer client-token" })).status).toBe(403);
+    expect((await call("POST", invite, { email: "new@example.invalid", role: "garbage" }, { Authorization: "Bearer test-admin" })).status).toBe(400);
+    tables.tenants[0].status = 'paused';
+    expect((await call("POST", invite, { email: "new@example.invalid", role: "viewer" }, { Authorization: "Bearer test-admin" })).status).toBe(409);
+    expect(tables.invites || []).toHaveLength(0);
+    expect(sentEmails).toHaveLength(0);
+  });
 });
 
 describe("synthetic action endpoint", () => {

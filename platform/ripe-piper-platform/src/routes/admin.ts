@@ -92,8 +92,15 @@ export async function inviteUser(req: Request, env: Env, tenantId: string) {
   const b = await readJson(req);
   const email = cleanEmail(b.email);
   if (!email) return bad("Please enter a valid email address.");
-  const role = b.role === "viewer" ? "viewer" : "owner";
-  await new Db(env).upsert("invites", { tenant_id: tenantId, email, role }, "tenant_id,email");
+  if (b.role !== "viewer" && b.role !== "owner") return bad("Choose an owner or viewer role.");
+  const role = b.role;
+  const db = new Db(env);
+  const tenant = await db.one<{ status: string }>("tenants", `id=eq.${tenantId}&select=status`);
+  if (!tenant) return bad("Client not found.", 404);
+  if (!['onboarding', 'active'].includes(tenant.status)) return bad("This client is paused or inactive.", 409);
+  const previous = await db.one<{ accepted_at: string | null }>("invites", `tenant_id=eq.${tenantId}&email=eq.${encodeURIComponent(email)}&select=accepted_at`);
+  if (previous?.accepted_at) return bad("This invitation was already accepted. Review the member's role separately.", 409);
+  await db.upsert("invites", { tenant_id: tenantId, email, role }, "tenant_id,email");
   return json({ ok: true });
 }
 
