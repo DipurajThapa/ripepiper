@@ -77,3 +77,7 @@ Each milestone needs implementation, relevant passing acceptance checks, linked 
 - 2026-10-22 Published combined development candidate `e300c4b` to [draft PR #4](https://github.com/DipurajThapa/ripepiper/pull/4). [CI run 39747852530](https://github.com/DipurajThapa/ripepiper/actions/runs/39747852530) passed all verify steps. PR remains unmerged; no database migration applied. This CI result verifies the exact published candidate, not live operation.
 
 - 2026-10-22 Pack M04 step 1b (RP-012) on the foundation feature branch: public consultation now requires a one-use expiring hashed booking capability and an eligible lead; frontend/API/PGlite/mock paths are exercised. See evidence/PACK_M04.md. This is still a nonproduction candidate; rate/ownership, provider failure recovery, and client campaign booking remain open.
+
+- 2026-10-22 Pack M04 step 1c: synthetic Ripe Piper ordinary-tenant membership; local lead provenance/contact-rights/suppression/subject-request schema and admin case intake. Objection freezes existing rights and adds suppression without a send. Production schema remains unchanged. See evidence/PACK_M04.md; durable outbound execution and subject-request fulfilment remain next.
+
+- 2026-10-22 Pack M04 step 1d: staff-only managed tenant preparation endpoint, always onboarding and without provider effects. 72 backend tests and 17 safety/UI tests passed locally with the new provenance/rights migration. Import and durable delivery remain blocked until explicit CTS/stop controls; no release implied.

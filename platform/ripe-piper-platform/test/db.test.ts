@@ -15,8 +15,9 @@ grant usage on schema auth to authenticated, anon; grant execute on function aut
 const ADMIN = "00000000-0000-0000-0000-0000000000a1";
 const U1 = "00000000-0000-0000-0000-0000000000c1";
 const U2 = "00000000-0000-0000-0000-0000000000c2";
+const U3 = "00000000-0000-0000-0000-0000000000c3";
 let db: PGlite;
-let T1 = "", T2 = "";
+let T1 = "", T2 = "", RIPE = "";
 
 async function as(user: string, sql: string) {
   await db.exec(`set role authenticated; select set_config('request.jwt.sub', '${user}', false);`);
@@ -26,13 +27,15 @@ async function as(user: string, sql: string) {
 beforeAll(async () => {
   db = new PGlite({ extensions: { btree_gist } });
   await db.exec(STUB);
-  for (const f of ["0001_core.sql", "0002_security_and_views.sql", "20261022082304_tenant_identity_foundation.sql", "20261022083018_consultation_booking_capability.sql"]) {
+  for (const f of ["0001_core.sql", "0002_security_and_views.sql", "20261022082304_tenant_identity_foundation.sql", "20261022083018_consultation_booking_capability.sql", "20261022083835_lead_provenance_and_rights.sql"]) {
     await db.exec(readFileSync(new URL(`../supabase/migrations/${f}`, import.meta.url), "utf8"));
   }
   T1 = (await db.query<any>(`insert into tenants (name, slug, country, currency, created_at) values ('Gulf Interiors','gulf-interiors','AE','AED', now() - interval '40 days') returning id`)).rows[0].id;
   T2 = (await db.query<any>(`insert into tenants (name, slug, country, currency) values ('Pune Tech','pune-tech','IN','INR') returning id`)).rows[0].id;
+  RIPE = (await db.query<any>(`insert into tenants (name, slug, country, currency) values ('Ripe Piper','ripe-piper','AE','AED') returning id`)).rows[0].id;
   await db.query(`insert into invites (tenant_id, email, role) values ($1, 'owner@gulfinteriors.ae', 'owner'), ($2, 'cfo.punetech@gmail.com', 'viewer')`, [T1, T2]);
-  await db.exec(`insert into auth.users (id, email) values ('${ADMIN}','dipuraj@ripepiper.com'), ('${U1}','OWNER@gulfinteriors.ae'), ('${U2}','cfo.punetech@gmail.com');`);
+  await db.query(`insert into invites (tenant_id, email, role) values ($1, 'operator@ripepiper.com', 'owner')`, [RIPE]);
+  await db.exec(`insert into auth.users (id, email) values ('${ADMIN}','dipuraj@ripepiper.com'), ('${U1}','OWNER@gulfinteriors.ae'), ('${U2}','cfo.punetech@gmail.com'), ('${U3}','operator@ripepiper.com');`);
   await db.exec(`update profiles set is_admin = true where id = '${ADMIN}';`);
   await db.query(`insert into leads (tenant_id, source, email, status) values ($1,'outreach','a@x.ae','qualified'), ($1,'outreach','b@x.ae','new'), ($2,'outreach','c@y.in','qualified'), (null,'book_form','prospect@z.com','new')`, [T1, T2]);
   await db.query(`insert into fees (tenant_id, month, type, amount, currency) values ($1, date_trunc('month', now()), 'retainer', 7500, 'AED')`, [T1]);
@@ -42,6 +45,16 @@ beforeAll(async () => {
 });
 
 describe("tenant isolation (row-level security)", () => {
+  it("uses ordinary membership and tenant filtering for a synthetic Ripe Piper customer", async () => {
+    const member = (await db.query<any>(`select tenant_id, role from memberships where user_id=$1`, [U3])).rows[0];
+    expect(member).toEqual({ tenant_id: RIPE, role: "owner" });
+    const row = (await db.query<any>(`insert into leads (tenant_id, source, email) values ($1,'import','fixture@ripepiper.example.invalid') returning id`, [RIPE])).rows[0];
+    try {
+      expect(await as(U3, `select email from leads`)).toEqual([{ email: "fixture@ripepiper.example.invalid" }]);
+      expect((await as(U1, `select email from leads where id='${row.id}'`))).toHaveLength(0);
+      expect((await as(U3, `select email from leads where tenant_id is null`))).toHaveLength(0);
+    } finally { await db.query(`delete from leads where id=$1`, [row.id]); }
+  });
   it("links invited users to their tenant on first sign-in, case-insensitively", async () => {
     const r = await db.query<any>(`select tenant_id, role from memberships where user_id = $1`, [U1]);
     expect(r.rows).toEqual([{ tenant_id: T1, role: "owner" }]);
@@ -79,6 +92,33 @@ describe("tenant isolation (row-level security)", () => {
 });
 
 describe("data rules", () => {
+  it("preserves tenant-scoped source evidence and rejects a foreign lead or duplicate source key", async () => {
+    const own = (await db.query<any>(`select id from leads where email='a@x.ae'`)).rows[0].id;
+    const foreign = (await db.query<any>(`select id from leads where email='c@y.in'`)).rows[0].id;
+    const source = `insert into lead_observations (tenant_id,lead_id,source,external_ref,observed_at,original_purpose,synthetic) values ($1,$2,'client import','row-1','2026-10-22T10:00:00Z','appointment',true) returning id`;
+    const good = (await db.query<any>(source, [T1, own])).rows[0].id;
+    expect(good).toBeTruthy();
+    await expect(db.query(source, [T1, foreign])).rejects.toThrow();
+    await expect(db.query(source, [T1, own])).rejects.toThrow();
+    expect(await as(U1, `select id from lead_observations where tenant_id='${T1}'`)).toEqual([]);
+    expect(await as(ADMIN, `select id from lead_observations where id='${good}'`)).toHaveLength(1);
+  });
+  it("defaults contact rights to unknown and freezes them immediately on objection", async () => {
+    const lead = (await db.query<any>(`select id from leads where email='a@x.ae'`)).rows[0].id;
+    const source = (await db.query<any>(`select id from lead_observations where tenant_id=$1 and lead_id=$2`, [T1, lead])).rows[0].id;
+    await expect(db.query(`insert into contact_rights (tenant_id,lead_id,source_id,purpose,channel,market,decision) values ($1,$2,$3,'appointment','email','AE','permitted')`, [T1, lead, source])).rejects.toThrow();
+    const right = (await db.query<any>(`insert into contact_rights (tenant_id,lead_id,source_id,purpose,channel,market) values ($1,$2,$3,'appointment','email','AE') returning id,decision`, [T1, lead, source])).rows[0];
+    expect(right.decision).toBe('unknown');
+    await db.query(`update contact_rights set decision='permitted',reviewer_id=$2,notice_reference='notice-v1' where id=$1`, [right.id, ADMIN]);
+    await expect(db.query(`insert into subject_requests (tenant_id,lead_id,kind) values ($1,$2,'object')`, [T2, lead])).rejects.toThrow();
+    await as(ADMIN, `insert into subject_requests (tenant_id,lead_id,kind,owner_id) values ('${T1}','${lead}','object','${ADMIN}')`);
+    const state = (await db.query<any>(`select decision,version,objected_at from contact_rights where id=$1`, [right.id])).rows[0];
+    expect(state.decision).toBe('denied');
+    expect(state.version).toBe(2);
+    expect(state.objected_at).toBeTruthy();
+    expect((await db.query<any>(`select reason from lead_suppression where tenant_id=$1 and lead_id=$2`, [T1, lead])).rows).toEqual([{ reason: 'objection' }]);
+    expect((await db.query<any>(`select reason from suppression where email='a@x.ae'`)).rows).toEqual([{ reason: 'objection' }]);
+  });
   it("atomically consumes a qualified consultation capability once", async () => {
     const id = (await db.query<any>(`select id from leads where email = 'prospect@z.com'`)).rows[0].id;
     const hash = "a".repeat(64);

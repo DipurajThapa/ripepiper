@@ -44,14 +44,15 @@ function defaults(table: string, row: Row): Row {
 }
 
 async function fakeSupabase(url: URL, init: RequestInit): Promise<Response> {
-  if (url.pathname === "/auth/v1/user") return Response.json({ id: "admin-1", email: "admin@ripepiper.com" });
+  if (url.pathname === "/auth/v1/user") return Response.json(init.headers && (init.headers as Record<string,string>).Authorization === "Bearer client-token"
+    ? { id: "client-1", email: "client@example.invalid" } : { id: "admin-1", email: "admin@ripepiper.com" });
   const table = url.pathname.replace("/rest/v1/", "");
   tables[table] ??= [];
   const t = tables[table], q = url.searchParams, method = init.method ?? "GET";
   const body = init.body ? JSON.parse(String(init.body)) : null;
   if (method === "GET") {
     let rows = t.filter(r => matches(r, q));
-    if (table === "profiles") rows = [{ is_admin: true }];
+    if (table === "profiles") rows = [{ is_admin: q.get("id") !== "eq.client-1" }];
     const lim = Number(q.get("limit") ?? 0);
     return Response.json(lim ? rows.slice(0, lim) : rows);
   }
@@ -175,6 +176,36 @@ describe("inquiry to booked call", () => {
     vi.setSystemTime(new Date("2026-11-02T04:00:00Z"));
     tables.leads[0].status = "new";
     expect((await call("POST", "/api/book", { lead_id: a.lead_id, booking_token: a.booking_token, start: a.slots[0].start })).status).toBe(403);
+    expect(calendarEvents).toHaveLength(0);
+  });
+});
+
+describe("staff data request intake", () => {
+  it("rejects unsigned and malformed requests, and records a scoped synthetic case without sending", async () => {
+    const tenant = "11111111-1111-4111-8111-111111111111";
+    const lead = "22222222-2222-4222-8222-222222222222";
+    tables.leads = [{ id: lead, tenant_id: tenant, email: "fixture@example.invalid" }];
+    const body = { tenant_id: tenant, lead_id: lead, kind: "object" };
+    expect((await call("POST", "/api/admin/subject-requests", body)).status).toBe(401);
+    expect((await call("POST", "/api/admin/subject-requests", { ...body, kind: "unknown" }, { Authorization: "Bearer test-admin" })).status).toBe(400);
+    expect((await call("POST", "/api/admin/subject-requests", { ...body, tenant_id: "33333333-3333-4333-8333-333333333333" }, { Authorization: "Bearer test-admin" })).status).toBe(404);
+    const res = await call("POST", "/api/admin/subject-requests", body, { Authorization: "Bearer test-admin" });
+    expect(res.status).toBe(201);
+    expect(tables.subject_requests).toMatchObject([{ tenant_id: tenant, lead_id: lead, kind: "object", state: "pending_verification" }]);
+    expect(sentEmails).toHaveLength(0);
+  });
+});
+
+describe("staff-managed client setup", () => {
+  it("requires an administrator and prepares an inactive managed tenant without provider effects", async () => {
+    const body = { name: "Synthetic Client", slug: "synthetic-client", country: "AE", currency: "AED", package: "revive" };
+    expect((await call("POST", "/api/admin/tenants", body)).status).toBe(401);
+    expect((await call("POST", "/api/admin/tenants", body, { Authorization: "Bearer client-token" })).status).toBe(403);
+    expect((await call("POST", "/api/admin/tenants", { ...body, package: "invalid" }, { Authorization: "Bearer test-admin" })).status).toBe(400);
+    const res = await call("POST", "/api/admin/tenants", body, { Authorization: "Bearer test-admin" });
+    expect(res.status).toBe(201);
+    expect(tables.tenants).toMatchObject([{ slug: "synthetic-client", ownership: "managed", status: "onboarding", package: "revive" }]);
+    expect(sentEmails).toHaveLength(0);
     expect(calendarEvents).toHaveLength(0);
   });
 });

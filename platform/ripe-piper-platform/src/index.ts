@@ -6,6 +6,8 @@ import { viewProposal, approveProposal, stripeWebhook, razorpayWebhook, acceptQu
 import { processMeeting, draftProposal, sendProposal, createQuote, sendQuote, inviteUser, runAdsSync } from "./routes/admin";
 import { json, html, HttpError } from "./routes/http";
 import { runScheduled } from "./jobs";
+import { recordSubjectRequest } from "./foundation/requests";
+import { prepareTenant } from "./foundation/tenants";
 
 type Handler = (req: Request, env: Env, ctx: ExecutionContext, p: string[]) => Promise<Response>;
 const routes: [string, RegExp, Handler][] = [
@@ -29,6 +31,8 @@ const routes: [string, RegExp, Handler][] = [
   ["POST", /^\/api\/admin\/quotes\/([0-9a-f-]{36})\/send$/, (r, e, _c, p) => sendQuote(r, e, p[0])],
   ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/invite$/, (r, e, _c, p) => inviteUser(r, e, p[0])],
   ["POST", /^\/api\/admin\/ads\/sync$/, (r, e) => runAdsSync(r, e)],
+  ["POST", /^\/api\/admin\/subject-requests$/, (r, e) => recordSubjectRequest(r, e)],
+  ["POST", /^\/api\/admin\/tenants$/, (r, e) => prepareTenant(r, e)],
   ["GET", /^\/blog\/?$/, (_r, e) => blogIndex(e)],
   ["GET", /^\/blog\/([a-z0-9-]{3,90})\/?$/, (_r, e, _c, p) => blogPost(e, p[0])],
 ];
