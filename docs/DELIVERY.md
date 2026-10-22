@@ -83,3 +83,7 @@ Each milestone needs implementation, relevant passing acceptance checks, linked 
 - 2026-10-22 Pack M04 step 1d: staff-only managed tenant preparation endpoint, always onboarding and without provider effects. 72 backend tests and 17 safety/UI tests passed locally with the new provenance/rights migration. Import and durable delivery remain blocked until explicit CTS/stop controls; no release implied.
 
 - 2026-10-22 Pack M04 step 2a: local campaign/stop/action ledger with atomic synthetic-only claim, test-sink completion, current-rights recheck and uncertain-result pause. Staff API is disabled by default. 75 backend tests pass. No provider send or real campaign is enabled; M04 runtime acceptance remains open. See evidence/PACK_M04.md.
+
+- 2026-10-22 Pack M04 step 1e: verified-email invite redemption for existing and new accounts; unverified user creation no longer grants membership in the forward migration. Draft PR #4 candidate `21c09f5` passed CI run 39753080276 (77 backend and 17 safety/UI tests). Existing memberships and email-change lifecycle need rollout review; production remains unchanged.
+
+- 2026-10-22 Pack M04 step 1f: staff emergency pause atomically stops local campaign actions and ad connections, and scheduled ad reporting rechecks state. 80 backend and 17 safety/UI tests pass locally; provider revocation and other legacy jobs remain open. See evidence/PACK_M04.md. No production action was taken.
