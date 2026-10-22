@@ -87,3 +87,5 @@ Each milestone needs implementation, relevant passing acceptance checks, linked 
 - 2026-10-22 Pack M04 step 1e: verified-email invite redemption for existing and new accounts; unverified user creation no longer grants membership in the forward migration. Draft PR #4 candidate `21c09f5` passed CI run 39753080276 (77 backend and 17 safety/UI tests). Existing memberships and email-change lifecycle need rollout review; production remains unchanged.
 
 - 2026-10-22 Pack M04 step 1f: staff emergency pause atomically stops local campaign actions and ad connections, and scheduled ad reporting rechecks state. 80 backend and 17 safety/UI tests pass locally; provider revocation and other legacy jobs remain open. See evidence/PACK_M04.md. No production action was taken.
+
+- 2026-10-22 Pack M04 step 1g: removed payment checkout and proposal mutation from GET; the approved proposal now continues through POST. RP-014 remains open for atomic webhook/side-effect consistency. See evidence/PACK_M04.md.

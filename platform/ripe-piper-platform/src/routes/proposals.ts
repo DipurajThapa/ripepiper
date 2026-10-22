@@ -24,13 +24,13 @@ export async function viewProposal(token: string, env: Env) {
   const action = p.status === "sent"
     ? `<form method="post" action="/p/${token}/approve"><p>By approving, you agree to the scope and fixed-scope price above and to pay the advance of <strong>${money(Number(p.advance_amount), p.currency)}</strong>.</p>
        <button class="btn btn-dark" type="submit">Approve and pay ${money(Number(p.advance_amount), p.currency)}</button></form>`
-    : p.status === "approved" ? `<p class="ok"><span>You approved this pre-proposal. <a href="/p/${token}/approve">Continue to payment</a>.</span></p>`
+    : p.status === "approved" ? `<form method="post" action="/p/${token}/approve"><p class="ok">You approved this pre-proposal. Continue to payment when ready.</p><button class="btn btn-dark" type="submit">Continue to payment</button></form>`
     : p.status === "paid" ? `<p class="ok"><span>Thank you. Your advance has been received and the work has started.</span></p>`
     : `<p class="muted">This proposal is ${p.status}.</p>`;
   return html(page("Your pre-proposal", renderMarkdown(p.content_md) + `<div class="formbox">${action}</div>`, env.SITE_URL));
 }
 
-/** Approve and pay: Stripe for AED, Razorpay for INR. GET resumes an approved proposal that was not paid yet. */
+/** Explicit POST only: approve and open a payment checkout. */
 export async function approveProposal(token: string, env: Env) {
   if (!tokenOk(token)) return html("Not found", 404);
   const db = new Db(env);

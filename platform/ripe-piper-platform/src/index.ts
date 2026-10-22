@@ -22,7 +22,6 @@ const routes: [string, RegExp, Handler][] = [
   ["POST", /^\/api\/opt-out$/, (r, e) => postOptOut(r, e)],
   ["GET", /^\/p\/([0-9a-f-]{36})$/, (_r, e, _c, p) => viewProposal(p[0], e)],
   ["POST", /^\/p\/([0-9a-f-]{36})\/approve$/, (_r, e, _c, p) => approveProposal(p[0], e)],
-  ["GET", /^\/p\/([0-9a-f-]{36})\/approve$/, (_r, e, _c, p) => approveProposal(p[0], e)],
   ["POST", /^\/webhooks\/stripe$/, (r, e) => stripeWebhook(r, e)],
   ["POST", /^\/webhooks\/razorpay$/, (r, e) => razorpayWebhook(r, e)],
   ["POST", /^\/api\/portal\/quotes\/([0-9a-f-]{36})\/accept$/, (r, e, _c, p) => acceptQuote(r, e, p[0])],

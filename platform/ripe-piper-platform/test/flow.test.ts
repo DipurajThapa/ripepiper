@@ -278,10 +278,16 @@ describe("pre-proposal approval and 10% advance", () => {
     tables.proposals = [defaults("proposals", { lead_id: "lead-1", kind: "pre", plan: "engine", package: "signal", currency: "AED", fixed_amount: 27500, content_md: "# Pre-proposal", client_email: "sara@gulfinteriors.ae", status: "sent" })];
     const p = tables.proposals[0];
 
+    expect((await call("GET", `/p/${p.access_token}/approve`)).status).toBe(404);
+    expect(p.status).toBe("sent");
+    expect(tables.payments || []).toHaveLength(0);
+
     const approve = await call("POST", `/p/${p.access_token}/approve`);
     expect(approve.status).toBe(303);
     expect(approve.headers.get("Location")).toContain("checkout.stripe.com");
     expect(p.status).toBe("approved");
+    const approvedPage = await call("GET", `/p/${p.access_token}`);
+    expect(await approvedPage.text()).toContain('method="post"');
 
     const evt = JSON.stringify({ type: "checkout.session.completed", data: { object: { id: "cs_test_1", payment_status: "paid", amount_total: 275000, currency: "aed", metadata: { proposal_id: p.id, quote_id: "" } } } });
     const bad = await call("POST", "/webhooks/stripe", evt, { "Stripe-Signature": "t=1,v1=00" });
