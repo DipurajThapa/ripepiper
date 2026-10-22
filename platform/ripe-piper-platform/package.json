@@ -5,20 +5,23 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc -p .",
-    "deploy": "wrangler deploy",
-    "dev": "wrangler dev",
+    "deploy": "node scripts/blocked-deploy.mjs",
+    "dev": "node ../../scripts/preview.mjs serve",
     "preflight": "node scripts/preflight.mjs"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20241218.0",
+    "@cloudflare/workers-types": "5.20261022.1",
     "@electric-sql/pglite": "^0.2.17",
     "typescript": "^5.6.3",
-    "vitest": "^2.1.8",
-    "wrangler": "^3.99.0"
+    "vitest": "5.0.5",
+    "wrangler": "4.151.3"
   },
   "dependencies": {
     "marked": "^14.1.4"
   },
   "private": true,
-  "type": "module"
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  }
 }

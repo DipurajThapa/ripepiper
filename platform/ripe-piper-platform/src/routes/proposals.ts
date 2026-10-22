@@ -126,10 +126,14 @@ export async function acceptQuote(req: Request, env: Env, id: string) {
   if (!q) return bad("This quotation is not open for acceptance.", 404);
   const owner = await db.one<any>("memberships", `tenant_id=eq.${q.tenant_id}&user_id=eq.${user.id}&role=eq.owner&select=user_id`);
   if (!owner && !user.is_admin) return bad("Only the account owner can accept a quotation.", 403);
-  await db.update("quotes", `id=eq.${id}`, { status: "accepted" });
   const payReq = { proposalId: q.proposal_id, quoteId: q.id, amount: Number(q.total), currency: q.currency, email: user.email, name: user.email,
     description: "Ripe Piper customisation quotation", successUrl: `${env.SITE_URL}/portal/#quotes`, cancelUrl: `${env.SITE_URL}/portal/#quotes` };
+  // Never lock the quote as accepted if the payment provider fails to create a checkout link.
   const pay = q.currency === "AED" ? await stripeCheckout(env, payReq) : await razorpayLink(env, payReq);
+  const updated = await db.update("quotes", `id=eq.${id}&status=eq.sent`, { status: "accepted" });
+  if (!updated.length) return bad("This quotation has already been accepted. Refresh and try again.", 409);
+  await db.upsert("payments", { proposal_id: q.proposal_id, tenant_id: q.tenant_id, provider: q.currency === "AED" ? "stripe" : "razorpay",
+    provider_ref: pay.ref, purpose: "quote", amount: Number(q.total), currency: q.currency, status: "pending" }, "provider,provider_ref");
   await db.insert("activity_log", { tenant_id: q.tenant_id, actor: user.email, kind: "change", message: `Quotation accepted: ${money(Number(q.total), q.currency)}.` });
   return json({ ok: true, payment_url: pay.url });
 }

@@ -1,0 +1,59 @@
+name: Ripe Piper review checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify source layout
+        run: |
+          test -f site/index.html
+          test -f platform/ripe-piper-platform/package.json
+          test -f platform/ripe-piper-platform/package-lock.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: platform/ripe-piper-platform/package-lock.json
+      - name: Install dependencies
+        working-directory: platform/ripe-piper-platform
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Typecheck
+        working-directory: platform/ripe-piper-platform
+        run: npm run typecheck
+      - name: Test
+        working-directory: platform/ripe-piper-platform
+        run: npm test
+      - name: Prevent simulated booking confirmations
+        run: |
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const source = readFileSync("site/assets/site.js", "utf8");
+            if (!source.includes("Calendar booking requires the deployed Ripe Piper website")) process.exit(1);
+            if (source.includes("Sample only: on the live website, this is your Cal.com calendar.")) process.exit(1);
+            if (source.includes("We have sent a calendar invitation to your email. You will receive reminders 24 hours")) process.exit(1);
+          '
+      - name: Check frontend JavaScript syntax
+        run: find site/assets -type f -name '*.js' -print0 | xargs -0 -r -n 1 node --check
+      - name: Development safety acceptance
+        run: node --test scripts/*.test.mjs
+      - name: Dependency security gate
+        timeout-minutes: 4
+        run: node scripts/dependency-audit.mjs
+      - name: Build isolated UI preview
+        run: node scripts/preview.mjs build

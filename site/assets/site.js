@@ -79,10 +79,8 @@
   function okBox(icon, html) { return '<div class="ok"><span class="ms" aria-hidden="true">' + icon + "</span><p>" + html + "</p></div>"; }
   function firstName(n) { return n.split(" ")[0].replace(/[<>&"]/g, ""); }
 
-  /* Live mode: on ripepiper.com the forms call the API. In previews they run a local simulation. */
-  var LIVE = window.RP_CONFIG && typeof window.RP_CONFIG.live === "boolean"
-    ? window.RP_CONFIG.live
-    : /(^|\.)ripepiper\.com$/.test(location.hostname);
+  /* Live requests require explicit configuration; missing config fails closed. */
+  var LIVE = !!(window.RP_CONFIG && window.RP_CONFIG.live === true);
   var UTM = (function () {
     var keys = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "gclid", "fbclid", "li_fat_id"], out = {};
     try {
@@ -151,9 +149,12 @@
           }).catch(function (x) { err.textContent = x.message; });
         return;
       }
-      if (FREE.indexOf(email.split("@")[1]) !== -1) show(okBox("alternate_email", MSG_WORK));
-      else if (deal === 0) show(okBox("lightbulb", msgNotFit(name)));
-      else show(slots());
+      // Never present simulated availability as a real appointment or claim an invitation was sent.
+      if (location.protocol === "file:") {
+        err.textContent = "Calendar booking requires the deployed Ripe Piper website. This local file cannot access live availability. Open the staging website using its https:// address.";
+      } else {
+        err.textContent = "Calendar booking is not enabled on this website yet. Please email hello@ripepiper.com to arrange a call.";
+      }
     });
     res.addEventListener("click", function (e) {
       var b = e.target.closest(".slot"); if (!b) return;
@@ -168,7 +169,7 @@
           .catch(function (x) { res.querySelectorAll(".slot").forEach(function (s) { s.disabled = false; }); b.setAttribute("aria-pressed", "false"); add(okBox("schedule", x.message)); });
         return;
       }
-      add(okBox("event_available", "<strong>Your call is booked for " + b.getAttribute("data-slot") + ".</strong> We have sent a calendar invitation to your email. You will receive reminders 24 hours and 1 hour before the call."));
+      add(okBox("schedule", "This is a preview only. No booking has been created. Please use the deployed website."));
     });
   }
   function liveSlots(list) {
@@ -176,14 +177,6 @@
     var h = "<p><strong>Your company is a good fit for a call.</strong> Choose a time below. All times are Gulf Standard Time.</p><div class=\"slots\">";
     list.forEach(function (s) { h += '<button type="button" class="slot" data-start="' + s.start + '" data-slot="' + s.label + '">' + s.label.replace(" GST", "") + "</button>"; });
     return h + "</div>";
-  }
-  function slots() {
-    var days = [], d = new Date(), names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], times = ["10:00", "13:30", "16:00"];
-    while (days.length < 3) { d.setDate(d.getDate() + 1); var w = d.getDay(); if (w !== 0 && w !== 6) days.push(new Date(d)); }
-    var h = "<p><strong>Your company is a good fit for a call.</strong> Choose a time below. All times are Gulf Standard Time.</p><div class=\"slots\">";
-    days.forEach(function (day) { h += '<span class="day">' + names[day.getDay()] + " " + day.getDate() + "</span>"; });
-    times.forEach(function (t) { days.forEach(function (day) { h += '<button type="button" class="slot" data-slot="' + names[day.getDay()] + " " + day.getDate() + " at " + t + '">' + t + "</button>"; }); });
-    return h + '</div><p class="hint">Sample only: on the live website, this is your Cal.com calendar.</p>';
   }
 
   /* Calculator email gate */
@@ -198,7 +191,7 @@
       if (!document.getElementById("gConsent").checked) { err.textContent = "Please tick the box so we can email you the breakdown."; return; }
       err.textContent = "";
       var done = function () { ok.hidden = false; ok.innerHTML = okBox("mark_email_read", "Thank you, " + firstName(name) + ". Your breakdown will arrive at " + email.replace(/[<>&"]/g, "") + " within one business day."); };
-      if (!LIVE) return done();
+      if (!LIVE) { err.textContent = "This form is not enabled. Nothing has been submitted or sent. Please contact hello@ripepiper.com."; return; }
       post("/api/calculator", { name: name, email: email, company: company, consent: true, leads: num("cLeads"), deal: num("cDeal"), close: num("cClose"), currency: cur }).then(done).catch(function (x) { err.textContent = x.message; });
     });
   }
@@ -212,7 +205,7 @@
       if (!validEmail(email)) { err.textContent = "Please enter a valid email address."; return; }
       err.textContent = "";
       var done = function () { ok.hidden = false; ok.innerHTML = okBox("task_alt", "Done. " + email.replace(/[<>&"]/g, "") + " will be added to our do-not-contact list within 48 hours."); };
-      if (!LIVE) return done();
+      if (!LIVE) { err.textContent = "This form is not enabled. Nothing has been submitted or sent. Please contact hello@ripepiper.com."; return; }
       post("/api/opt-out", { email: email, reason: document.getElementById("oReason").value }).then(done).catch(function (x) { err.textContent = x.message; });
     });
   }
@@ -227,7 +220,7 @@
       if (!document.getElementById("nlConsent").checked) { err.textContent = "Please tick the box to agree to receive the newsletter."; return; }
       err.textContent = "";
       var done = function () { ok.hidden = false; ok.innerHTML = okBox("mark_email_read", "Thank you. Please check " + email.replace(/[<>&"]/g, "") + " and click the confirmation link to complete your subscription."); };
-      if (!LIVE) return done();
+      if (!LIVE) { err.textContent = "This form is not enabled. Nothing has been submitted or sent. Please contact hello@ripepiper.com."; return; }
       post("/api/newsletter", { email: email, consent: true }).then(done).catch(function (x) { err.textContent = x.message; });
     });
   }
