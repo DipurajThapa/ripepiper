@@ -1,0 +1,61 @@
+# Ripe Piper delivery record
+
+Owner and release authority: Dipuraj Thapa. Mission: production-grade multi-tenant B2B lead generation, with Ripe Piper as first operational customer. Existing branding, UX, database, integrations and live deployment are preservation constraints.
+
+## Authority
+
+Allowed: read-only audit; local synthetic development and tests; feature branches; isolated nonproduction previews; reversible protection controls. Explicit owner approval required for production data/schema writes, production merges/deployments, paid costs and any external prospect communications. No credentials or customer data in source, CI logs, fixtures or public previews. Passing CI never grants release authority.
+
+## Milestones and acceptance
+
+| ID | Outcome | Acceptance and verification | State |
+|---|---|---|---|
+| M00 | Baseline audit | Existing source/review/deployment identified; findings and evidence gaps documented; production unchanged | Assessment recorded; see AUDIT_2026-10-22.md |
+| M01 | Reversible workflow | Main requires PR/review/verify; production SHA preserved; feature branch; no deploy jobs; preview cannot reach production; tests repeatable; rollback documented | Implemented; local verification passed; remote checks and full protection readback pending |
+| M02 | Tenant/security foundation | Ripe Piper synthetic tenant plus adversarial second tenant; anonymous/viewer/owner/admin authorization; cross-tenant reads/writes/relations denied; verified invite acceptance; no tenant-scoped NULL paths for new products | Next, depends M01 |
+| M03 | Shared operational core + Revive | Import report and stable row errors; case-normalized dedupe per tenant; permission/provenance and suppression; draft/version approval; zero actual sends; synthetic end-to-end outcomes | Queued, depends M02 |
+| M04 | Signal | Dated cited signal records; freshness/duplicate rejection; explainable scoring; account/contact association and reviewed draft; tenant isolation | Queued, depends M03 |
+| M05 | Response | Duplicate inbound event creates one lead/work item; deterministic qualification; SLA timestamps, assignment and escalation; sandbox reply queue within 60s; no automatic external delivery | Queued, depends M04 |
+| M06 | Events | Event/contact provenance, import rejection/dedupe, follow-up due within 24h, same approval controls, event attribution and reporting | Queued, depends M05 |
+| M07 | Operational pilot and release readiness | Approved real first-customer provisioning, separate integration sandbox, measured journeys, retries/concurrency/recovery, accessibility and monitoring; owner-approved release and communication scope | Blocked until separate explicit approval |
+
+Each milestone needs implementation, relevant passing acceptance checks, linked evidence and rollback before dependent milestones start. SPECIFIED, IMPLEMENTED, VERIFIED, RELEASED and OPERATING remain distinct. No requirement for paid infrastructure is assumed.
+
+## Prioritized implementation backlog
+
+| ID | Priority | Requirement / defect | Acceptance | Milestone |
+|---|---|---|---|---|
+| RP-001 | P0 | DEP-01 protect production | PR + current verify check + review enforced including admins; no force/deletion; baseline SHA unchanged | M01 |
+| RP-002 | P0 | DEP-05 isolated previews | Explicit sample config, no production API/data, no credentials or sends; unsafe configuration rejected | M01 |
+| RP-003 | P0 | FUN-01 repeatable evidence | Existing 50 tests pass; typecheck; JS syntax; workflow triggers on feature changes; no deploy command | M01 |
+| RP-004 | P1 | SEC-07 tooling | Pin corrected tooling; refresh lockfile; rerun tests and audit; document any residual findings | M01 |
+| RP-005 | P0 | FUN-02 truthful preview | No form claims booking/email/subscription/suppression success without an actual permitted operation | M01 |
+| RP-010 | P0 | SEC-01 tenant relationships | Adversarial foreign-tenant relation tests fail closed at DB/API | M02 |
+| RP-011 | P0 | FUN-05 dogfooding | Ripe Piper uses ordinary memberships and tenant-scoped workflows in synthetic DB; no production seed | M02 |
+| RP-012 | P0 | SEC-02 booking authorization | Expiring single-purpose capability; qualified eligible lead; abuse/rate tests; no UUID-only authorization | M02 |
+| RP-013 | P0 | SEC-04 outbound safety | Suppression, channel permission, tenant membership and exact message-version approval checked at dispatch; blocked by default | M02 |
+| RP-014 | P0 | SEC-03 payment consistency | Concurrent/replayed/out-of-order webhooks produce one consistent effect and retryable outbox; POST-only approval | M02 |
+| RP-015 | P1 | SEC-05/06 grants/invites | Least privilege grants, stable search paths, verified-email invite acceptance including existing users | M02 |
+| RP-016 | P1 | FUN-03 job reliability | Failed send not marked delivered; overlapping workers cannot duplicate; missing Calendar state fails closed | M02 |
+| RP-017 | P1 | SEC-08 data safety | Sheets input cannot execute formulas; logs redact sensitive payloads; headers/rate/retention tests | M02 |
+| RP-020 | P1 | Revive vertical slice | Defined in M03; synthetic Ripe Piper dataset, errors and audit trail | M03 |
+| RP-030 | P1 | Signal vertical slice | Defined in M04; evidence fixtures, stale-source and duplicate tests | M04 |
+| RP-040 | P1 | Response vertical slice | Defined in M05; retry, SLA and escalation tests | M05 |
+| RP-050 | P1 | Events vertical slice | Defined in M06; mixed-tenant imports and deadline/attribution tests | M06 |
+| RP-060 | P0 before release | Deployment/integration proof | Confirm API Worker, domains, environment routing, costs, backups and restoration in isolated environment | M07 |
+
+## Decisions and unresolved evidence
+
+- ADR-001: Extend the existing static frontend and Worker; no replacement site or framework rewrite.
+- ADR-002: Branch M01 from PR #2's exact head, retaining its quote resilience and booking fixes. Neither existing branch is overwritten or merged.
+- ADR-003: Synthetic in-memory PostgreSQL and offline provider mocks are the initial backend environment. No Supabase branch/project provisioned; this avoids unapproved cost/data changes.
+- ADR-004: Use Ripe Piper as an ordinary tenant for product workflows. Legacy NULL-tenant data stays intact pending a tested, explicitly approved migration.
+- ADR-005: Message generation/approval may be developed locally; sending stays disabled until explicit scoped approval. Automated response-time promises are not yet verified operational SLAs.
+- Unknown: original source archive versions; separate deployed Worker and its bindings; production Auth settings; provider entitlements and permissions; backup/restore capability. Do not claim these are configured.
+
+## Change history
+
+- 2026-10-22 M00: Read-only baseline audit, 20-table RLS inventory, deployment identification, main/review tests and dependency assessment.
+- 2026-10-22 M01: Local feature branch from 684e29a; baseline tag at d6c1091; safety controls, truthful previews, CI and evidence prepared. Final verification is recorded in docs/evidence/M01.md.
+
+- 2026-10-22 M01 access recheck: main protected=true; verify required for everyone; main unchanged. Updated dependency audit reports zero vulnerabilities. Full protection readback is blocked by browser HTTP 401 / connector administration HTTP 403. M02 remains gated.

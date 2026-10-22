@@ -1,12 +1,16 @@
 name: Ripe Piper review checks
 on:
   push:
-    branches: [main, 'review/**']
+    branches: [main, 'review/**', 'feature/**']
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   verify:
@@ -21,12 +25,12 @@ jobs:
           test -f platform/ripe-piper-platform/package-lock.json
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: npm
           cache-dependency-path: platform/ripe-piper-platform/package-lock.json
       - name: Install dependencies
         working-directory: platform/ripe-piper-platform
-        run: npm ci --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Typecheck
         working-directory: platform/ripe-piper-platform
         run: npm run typecheck
@@ -44,3 +48,10 @@ jobs:
           '
       - name: Check frontend JavaScript syntax
         run: find site/assets -type f -name '*.js' -print0 | xargs -0 -r -n 1 node --check
+      - name: Development safety acceptance
+        run: node --test scripts/safety.test.mjs
+      - name: Dependency security gate
+        working-directory: platform/ripe-piper-platform
+        run: npm audit --audit-level=high
+      - name: Build isolated UI preview
+        run: node scripts/preview.mjs build
