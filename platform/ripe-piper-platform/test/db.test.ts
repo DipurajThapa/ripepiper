@@ -26,7 +26,7 @@ async function as(user: string, sql: string) {
 beforeAll(async () => {
   db = new PGlite({ extensions: { btree_gist } });
   await db.exec(STUB);
-  for (const f of ["0001_core.sql", "0002_security_and_views.sql", "20261022082304_tenant_identity_foundation.sql"]) {
+  for (const f of ["0001_core.sql", "0002_security_and_views.sql", "20261022082304_tenant_identity_foundation.sql", "20261022083018_consultation_booking_capability.sql"]) {
     await db.exec(readFileSync(new URL(`../supabase/migrations/${f}`, import.meta.url), "utf8"));
   }
   T1 = (await db.query<any>(`insert into tenants (name, slug, country, currency, created_at) values ('Gulf Interiors','gulf-interiors','AE','AED', now() - interval '40 days') returning id`)).rows[0].id;
@@ -79,6 +79,22 @@ describe("tenant isolation (row-level security)", () => {
 });
 
 describe("data rules", () => {
+  it("atomically consumes a qualified consultation capability once", async () => {
+    const id = (await db.query<any>(`select id from leads where email = 'prospect@z.com'`)).rows[0].id;
+    const hash = "a".repeat(64);
+    await db.query(`update leads set status='qualified', booking_token_hash=$2, booking_token_expires_at='2026-11-02T05:00:00Z' where id=$1`, [id, hash]);
+    const claim = `update leads set booking_token_used_at='2026-11-02T04:00:00Z' where id=$1 and tenant_id is null and status='qualified' and booking_token_hash=$2 and booking_token_used_at is null and booking_token_expires_at>'2026-11-02T04:00:00Z' returning id`;
+    const attempts = await Promise.all([db.query<any>(claim, [id, hash]), db.query<any>(claim, [id, hash])]);
+    expect(attempts.flatMap(x => x.rows)).toHaveLength(1);
+    await db.query(`update leads set booking_token_hash=$2, booking_token_expires_at='2026-11-02T03:00:00Z', booking_token_used_at=null where id=$1`, [id, "b".repeat(64)]);
+    expect((await db.query<any>(claim, [id, "b".repeat(64)])).rows).toHaveLength(0);
+    await db.query(`update leads set booking_token_hash=null, booking_token_expires_at=null, booking_token_used_at=null, status='new' where id=$1`, [id]);
+  });
+  it("rejects a second active consultation for one lead at a different slot", async () => {
+    const lead = (await db.query<any>(`insert into leads (source,email) values ('book_form','twice@example.invalid') returning id`)).rows[0].id;
+    await db.query(`insert into meetings (lead_id,kind,start_at,end_at,attendee_email) values ($1,'discovery','2026-12-02 10:00+04','2026-12-02 10:15+04','twice@example.invalid')`, [lead]);
+    await expect(db.query(`insert into meetings (lead_id,kind,start_at,end_at,attendee_email) values ($1,'discovery','2026-12-03 10:00+04','2026-12-03 10:15+04','twice@example.invalid')`, [lead])).rejects.toThrow();
+  });
   it("rejects a foreign-tenant lead association even for a client owner or service role", async () => {
     const foreign = (await db.query<any>(`select id from leads where email = 'c@y.in'`)).rows[0].id;
     await expect(as(U1, `insert into deals (tenant_id, lead_id, name, stage, currency) values ('${T1}', '${foreign}', 'Cross-tenant', 'meeting', 'AED') returning id`)).rejects.toThrow();

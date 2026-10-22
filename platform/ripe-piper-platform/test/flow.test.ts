@@ -21,6 +21,7 @@ function matches(row: Row, query: URLSearchParams): boolean {
     if (op === "not" && val === "is.null" && cell == null) return false;
     if (op === "in" && !val.replace(/[()]/g, "").split(",").includes(String(cell))) return false;
     if (op === "gte" && !(String(cell) >= val)) return false;
+    if (op === "gt" && !(String(cell) > val)) return false;
     if (op === "lte" && !(String(cell) <= val)) return false;
     if (op === "lt" && !(Number(cell) < Number(val))) return false;
   }
@@ -130,7 +131,7 @@ describe("inquiry to booked call", () => {
     expect(j1.slots[0].label).toBe("Mon 2 Nov, 10:00 GST");
     expect(tables.leads[0]).toMatchObject({ status: "qualified", utm_source: "linkedin", country: "AE" });
 
-    const r2 = await call("POST", "/api/book", { lead_id: j1.lead_id, start: j1.slots[0].start });
+    const r2 = await call("POST", "/api/book", { lead_id: j1.lead_id, booking_token: j1.booking_token, start: j1.slots[0].start });
     const j2: any = await r2.json();
     expect(j2.ok).toBe(true);
     expect(j2.meet_url).toBe("https://meet.google.com/abc-defg-hij");
@@ -140,7 +141,7 @@ describe("inquiry to booked call", () => {
 
     // A second person cannot take the same slot.
     const other: any = await (await call("POST", "/api/lead", { name: "Raj", email: "raj@punetech.in", website: "punetech.in", package: "signal", country: "India", deal_band: 1, consent: true })).json();
-    const r3 = await call("POST", "/api/book", { lead_id: other.lead_id, start: j1.slots[0].start });
+    const r3 = await call("POST", "/api/book", { lead_id: other.lead_id, booking_token: other.booking_token, start: j1.slots[0].start });
     expect(r3.status).toBe(409);
   });
 
@@ -152,6 +153,29 @@ describe("inquiry to booked call", () => {
   it("rejects a form without consent", async () => {
     const r = await call("POST", "/api/lead", { name: "C", email: "c@x.ae", website: "x.ae", deal_band: 2 });
     expect(r.status).toBe(400);
+  });
+  it("rejects guessed UUIDs, a foreign lead token, and already-used consultation capability", async () => {
+    const a: any = await (await call("POST", "/api/lead", { name: "A", email: "a@first.ae", website: "first.ae", deal_band: 2, consent: true })).json();
+    const b: any = await (await call("POST", "/api/lead", { name: "B", email: "b@second.ae", website: "second.ae", deal_band: 2, consent: true })).json();
+    const start = a.slots[0].start;
+    expect((await call("POST", "/api/book", { lead_id: a.lead_id, start })).status).toBe(403);
+    expect((await call("POST", "/api/book", { lead_id: a.lead_id, booking_token: b.booking_token, start })).status).toBe(403);
+    expect((await call("POST", "/api/book", { lead_id: a.lead_id, booking_token: a.booking_token, start })).status).toBe(200);
+    expect((await call("POST", "/api/book", { lead_id: a.lead_id, booking_token: a.booking_token, start: a.slots[1].start })).status).toBe(403);
+    expect(calendarEvents).toHaveLength(1);
+    const again: any = await (await call("POST", "/api/lead", { name: "A", email: "a@first.ae", website: "first.ae", deal_band: 2, consent: true })).json();
+    expect(again.route).toBe("already_booked");
+    expect(again.booking_token).toBeUndefined();
+    expect(tables.leads[0].status).toBe("meeting_booked");
+  });
+  it("rejects expired or ineligible lead tokens before provider side effects", async () => {
+    const a: any = await (await call("POST", "/api/lead", { name: "A", email: "a@first.ae", website: "first.ae", deal_band: 2, consent: true })).json();
+    vi.setSystemTime(new Date("2026-11-02T04:16:00Z"));
+    expect((await call("POST", "/api/book", { lead_id: a.lead_id, booking_token: a.booking_token, start: a.slots[0].start })).status).toBe(403);
+    vi.setSystemTime(new Date("2026-11-02T04:00:00Z"));
+    tables.leads[0].status = "new";
+    expect((await call("POST", "/api/book", { lead_id: a.lead_id, booking_token: a.booking_token, start: a.slots[0].start })).status).toBe(403);
+    expect(calendarEvents).toHaveLength(0);
   });
 });
 
