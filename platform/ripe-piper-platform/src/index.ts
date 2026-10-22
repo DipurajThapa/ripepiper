@@ -7,7 +7,7 @@ import { processMeeting, draftProposal, sendProposal, createQuote, sendQuote, in
 import { json, html, HttpError } from "./routes/http";
 import { runScheduled } from "./jobs";
 import { recordSubjectRequest } from "./foundation/requests";
-import { prepareTenant } from "./foundation/tenants";
+import { prepareTenant, pauseTenant } from "./foundation/tenants";
 import { testAction } from "./foundation/actions";
 import { acceptInvites } from "./foundation/invites";
 
@@ -36,6 +36,7 @@ const routes: [string, RegExp, Handler][] = [
   ["POST", /^\/api\/admin\/ads\/sync$/, (r, e) => runAdsSync(r, e)],
   ["POST", /^\/api\/admin\/subject-requests$/, (r, e) => recordSubjectRequest(r, e)],
   ["POST", /^\/api\/admin\/tenants$/, (r, e) => prepareTenant(r, e)],
+  ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/pause$/, (r, e, _c, p) => pauseTenant(r, e, p[0])],
   ["POST", /^\/api\/admin\/actions\/([0-9a-f-]{36})\/test$/, (r, e, _c, p) => testAction(r, e, p[0])],
   ["GET", /^\/blog\/?$/, (_r, e) => blogIndex(e)],
   ["GET", /^\/blog\/([a-z0-9-]{3,90})\/?$/, (_r, e, _c, p) => blogPost(e, p[0])],

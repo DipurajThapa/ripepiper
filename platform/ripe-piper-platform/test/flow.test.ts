@@ -3,6 +3,7 @@
 // -> tenant + owner invite + fee + activity log -> idempotent replay.
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import worker from "../src/index";
+import { syncAds } from "../src/jobs";
 
 type Row = Record<string, any>;
 let tables: Record<string, Row[]>;
@@ -224,6 +225,27 @@ describe("staff-managed client setup", () => {
     tables.tenants[0].status = 'paused';
     expect((await call("POST", invite, { email: "new@example.invalid", role: "viewer" }, { Authorization: "Bearer test-admin" })).status).toBe(409);
     expect(tables.invites || []).toHaveLength(0);
+    expect(sentEmails).toHaveLength(0);
+  });
+  it("requires staff and a reason to pause, with no provider traffic", async () => {
+    const path = "/api/admin/tenants/11111111-1111-4111-8111-111111111111/pause";
+    expect((await call("POST", path, { reason: "Staff pause review" })).status).toBe(401);
+    expect((await call("POST", path, { reason: "Staff pause review" }, { Authorization: "Bearer client-token" })).status).toBe(403);
+    expect((await call("POST", path, { reason: "short" }, { Authorization: "Bearer test-admin" })).status).toBe(400);
+    const result = await call("POST", path, { reason: "Staff pause review" }, { Authorization: "Bearer test-admin" });
+    expect(result.status).toBe(200);
+    expect(await result.json()).toEqual({ ok: true, status: "paused" });
+    expect(rpcCalls).toEqual(["/rest/v1/rpc/pause_tenant_execution"]);
+    expect(sentEmails).toHaveLength(0);
+    expect(calendarEvents).toHaveLength(0);
+  });
+  it("skips stale ad connections for a paused tenant before contacting a provider", async () => {
+    const tenant = "11111111-1111-4111-8111-111111111111";
+    tables.tenants = [{ id: tenant, status: "paused", currency: "AED" }];
+    tables.ad_accounts = [{ id: "22222222-2222-4222-8222-222222222222", tenant_id: tenant, platform: "google_ads", account_ref: "fixture", status: "connected" }];
+    const result = await syncAds(env, 1);
+    expect(result).toEqual({ accounts: 1, rows: 0, errors: 0 });
+    expect(tables.ad_accounts[0].status).toBe("connected");
     expect(sentEmails).toHaveLength(0);
   });
 });

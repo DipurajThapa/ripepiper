@@ -25,3 +25,14 @@ export async function prepareTenant(req: Request, env: Env) {
     throw e;
   }
 }
+
+/** Staff emergency stop, recorded in the tenant's durable execution state. */
+export async function pauseTenant(req: Request, env: Env, id: string) {
+  await requireUser(req, env, true);
+  const body = await readJson(req);
+  const reason = cleanText(body.reason, 500);
+  if (reason.length < 8) return bad("Give a reason for pausing this client.");
+  const paused = await new Db(env).rpc<boolean>("pause_tenant_execution", { p_tenant_id: id, p_reason: reason });
+  if (!paused) return bad("Client not found or already ended.", 404);
+  return json({ ok: true, status: "paused" });
+}

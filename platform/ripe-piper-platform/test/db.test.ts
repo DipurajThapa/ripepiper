@@ -27,7 +27,7 @@ async function as(user: string, sql: string) {
 beforeAll(async () => {
   db = new PGlite({ extensions: { btree_gist } });
   await db.exec(STUB);
-  for (const f of ["0001_core.sql", "0002_security_and_views.sql", "20261022082304_tenant_identity_foundation.sql", "20261022083018_consultation_booking_capability.sql", "20261022083835_lead_provenance_and_rights.sql", "20261022084845_campaign_execution_core.sql", "20261022090405_verified_invite_acceptance.sql"]) {
+  for (const f of ["0001_core.sql", "0002_security_and_views.sql", "20261022082304_tenant_identity_foundation.sql", "20261022083018_consultation_booking_capability.sql", "20261022083835_lead_provenance_and_rights.sql", "20261022084845_campaign_execution_core.sql", "20261022090405_verified_invite_acceptance.sql", "20261022090907_tenant_pause_control.sql"]) {
     await db.exec(readFileSync(new URL(`../supabase/migrations/${f}`, import.meta.url), "utf8"));
   }
   T1 = (await db.query<any>(`insert into tenants (name, slug, country, currency, created_at) values ('Gulf Interiors','gulf-interiors','AE','AED', now() - interval '40 days') returning id`)).rows[0].id;
@@ -111,6 +111,30 @@ describe("tenant isolation (row-level security)", () => {
     const r = await db.query<any>(`select slug from posts`);
     await db.exec(`reset role;`);
     expect(r.rows.map(x => x.slug)).toEqual(["live-post"]);
+  });
+});
+
+describe("tenant execution pause", () => {
+  it("stops queued and claimed actions, disconnects local ad access and blocks direct reactivation", async () => {
+    const tenant = (await db.query<any>(`insert into tenants (name,slug,country,currency,status) values ('Pause fixture','pause-fixture','AE','AED','active') returning id`)).rows[0].id;
+    const lead = (await db.query<any>(`insert into leads (tenant_id,source,email) values ($1,'import','paused@example.invalid') returning id`, [tenant])).rows[0].id;
+    const campaign = (await db.query<any>(`insert into campaigns (tenant_id,capability,operator_id,purpose,channel,market,timezone,status,client_authority_ref,owner_authority_ref,cts_profile_ref,expires_at,max_actions) values ($1,'revive',$2,'appointment','email','AE','Asia/Dubai','approved','fixture-client','fixture-owner','fixture-cts','2026-11-04',3) returning id`, [tenant, ADMIN])).rows[0].id;
+    await db.query(`insert into outbound_actions (tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at,state) values ($1,$2,$3,'pause-queued',1,1,'2026-11-02','queued'),($1,$2,$3,'pause-claimed',1,1,'2026-11-02','claimed')`, [tenant,campaign,lead]);
+    await db.query(`insert into ad_accounts (tenant_id,platform,account_ref) values ($1,'google_ads','pause-fixture-id')`, [tenant]);
+    await expect(as(ADMIN, `select public.pause_tenant_execution('${tenant}','Staff pause review')`)).rejects.toThrow();
+    await db.exec('set role service_role');
+    try {
+      expect((await db.query<any>(`select public.pause_tenant_execution($1,'Staff pause review') as ok`, [tenant])).rows[0].ok).toBe(true);
+      expect((await db.query<any>(`select public.pause_tenant_execution($1,'Staff pause review') as ok`, [tenant])).rows[0].ok).toBe(true);
+    } finally { await db.exec('reset role'); }
+    expect((await db.query<any>(`select status from tenants where id=$1`, [tenant])).rows[0].status).toBe('paused');
+    expect((await db.query<any>(`select status from campaigns where id=$1`, [campaign])).rows[0].status).toBe('paused');
+    expect((await db.query<any>(`select state,error_code from outbound_actions where tenant_id=$1 order by correlation_key`, [tenant])).rows).toEqual([
+      {state:'review',error_code:'uncertain_at_tenant_pause'}, {state:'cancelled',error_code:'tenant_paused'}]);
+    expect((await db.query<any>(`select status from ad_accounts where tenant_id=$1`, [tenant])).rows[0].status).toBe('disconnected');
+    expect((await db.query<any>(`select count(*)::int n from outbound_stops where tenant_id=$1 and lifted_at is null`, [tenant])).rows[0].n).toBe(1);
+    await expect(db.query(`update campaigns set status='approved' where id=$1`, [campaign])).rejects.toThrow();
+    await expect(db.query(`update ad_accounts set status='connected' where tenant_id=$1`, [tenant])).rejects.toThrow();
   });
 });
 

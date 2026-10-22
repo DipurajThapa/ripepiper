@@ -80,13 +80,17 @@ export async function processFinishedMeetings(env: Env, now = new Date()) {
 /** Nightly: pull ad spend and results for every connected ad account, converted to the client's currency. */
 export async function syncAds(env: Env, days = 3) {
   const db = new Db(env);
-  const accounts = await db.select<any>("ad_accounts", "status=neq.disconnected&select=*,tenants(currency)");
+  const accounts = await db.select<any>("ad_accounts", "status=neq.disconnected&select=*,tenants(currency,status)");
   const rates = Object.fromEntries((await db.select<any>("fx_rates", "select=currency,aed_per_unit")).map(r => [r.currency, Number(r.aed_per_unit)]));
   const to = new Date(), from = new Date(to.getTime() - days * 86400_000);
   const d = (x: Date) => x.toISOString().slice(0, 10);
   const result = { accounts: accounts.length, rows: 0, errors: 0 };
   for (const acc of accounts) {
     try {
+      // Refresh state immediately before touching a provider; the list may be stale after a pause.
+      const current = await db.one<any>("tenants", `id=eq.${acc.tenant_id}&status=eq.active&select=id,currency`);
+      const connection = await db.one<any>("ad_accounts", `id=eq.${acc.id}&status=neq.disconnected&select=id`);
+      if (!current || !connection) continue;
       let rows: AdRow[] = [];
       if (acc.platform === "google_ads") rows = await googleAdsRows(env, acc.account_ref, d(from), d(to));
       if (acc.platform === "meta") rows = await metaRows(env, acc.account_ref, d(from), d(to));
@@ -95,15 +99,18 @@ export async function syncAds(env: Env, days = 3) {
         const cur = await linkedinCurrency(env, acc.account_ref);
         rows = rows.map(r => ({ ...r, currency: r.currency || cur }));
       }
-      const tenantCur = acc.tenants?.currency ?? "AED";
+      // A pause during a provider read must not reconnect the account or publish rows.
+      if (!await db.one("tenants", `id=eq.${acc.tenant_id}&status=eq.active&select=id`) ||
+          !await db.one("ad_accounts", `id=eq.${acc.id}&status=neq.disconnected&select=id`)) continue;
+      const tenantCur = current.currency;
       const payload = rows.map(r => ({ tenant_id: acc.tenant_id, platform: acc.platform, day: r.day, campaign_ref: r.campaign_ref, campaign_name: r.campaign_name,
         spend: toTenantCurrency(r.spend, r.currency, tenantCur, rates), currency: tenantCur, impressions: r.impressions, clicks: r.clicks, conversions: r.conversions }));
       for (let i = 0; i < payload.length; i += 500) await db.upsert("ad_metrics_daily", payload.slice(i, i + 500), "tenant_id,platform,day,campaign_ref");
-      await db.update("ad_accounts", `id=eq.${acc.id}`, { status: "connected", last_synced_at: new Date().toISOString(), last_error: null });
+      await db.update("ad_accounts", `id=eq.${acc.id}&status=neq.disconnected`, { status: "connected", last_synced_at: new Date().toISOString(), last_error: null });
       result.rows += payload.length;
     } catch (e) {
       result.errors++;
-      await db.update("ad_accounts", `id=eq.${acc.id}`, { status: "error", last_error: String(e).slice(0, 500) });
+      await db.update("ad_accounts", `id=eq.${acc.id}&status=neq.disconnected`, { status: "error", last_error: String(e).slice(0, 500) });
     }
   }
   return result;
