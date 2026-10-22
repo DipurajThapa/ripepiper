@@ -1,0 +1,13 @@
+# Modular pack M04 — shared foundation, incremental evidence
+
+Owner: Ripe Piper engineering. Branch `feature/pack-m04-foundation` from nonproduction integration candidate `6dda887`. Contract v1. No production writes, provider calls, messages or paid services.
+
+## Step 1a: tenant-safe deal/meeting lead relationships (RP-010)
+
+The existing `deals.lead_id` and `meetings.lead_id` FKs accepted any lead UUID while owner RLS checked only the relation's `tenant_id`. A service-role path could also create a misleading cross-tenant attribution. The CLI-generated local migration `20261022082304_tenant_identity_foundation.sql` introduces composite `(tenant_id, lead_id)` FKs to `(tenant_id, id)` on leads, preserving the relation's tenant when a linked lead is deleted. A client-prospect meeting now requires a tenant. It leaves legacy NULL-tenant public consultation intake intact. It intentionally fails rather than silently repairing pre-existing mismatches; the migration includes read-only preflight queries. For an approved rollout, obtain a backup and review preflight rows; test a restoration or forward repair plan first. Reversal in development: drop both new FKs and the meeting check, restore the original single-column FKs, then drop `leads_tenant_id_id_key` after checking dependencies. This reversal is not a production instruction.
+
+Local PGlite forward migration and adversarial tests pass: a tenant owner and privileged connection cannot insert a foreign-tenant deal/lead association; owner update is denied; same-tenant insert succeeds; deletion preserves the deal tenant. A client meeting cannot link to a foreign tenant lead, while the public NULL-tenant consultation still inserts. Node 24 typecheck and 63 backend tests passed (50 pre-pack, ten contract checks, three new database checks). Database grants/RLS remain active in the fixture. No deployed Supabase migration was run and no provider or frontend route consumes this change yet.
+
+## Remaining work within M04 step 1
+
+`proposals`, `quotes`, `payments` and other relationship paths still need a compatibility analysis before tenant FK changes; the legacy public consultation uses NULL tenant and some proposal onboarding later sets tenant. Validated imports, source provenance, contact rights, suppression, data requests, tenant deactivation and ordinary Ripe Piper tenant provisioning are unimplemented. The first change closes only the **deal/lead and meeting/lead cases** of RP-010, not M04-A or all identity acceptance. Continue one observable step at a time against contract v1. API authorization and background tests must run after persistence changes. CTS-01–08 and M04-B–H remain blocked/unverified. New channel adapter and real provider evidence are not started.

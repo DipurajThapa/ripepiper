@@ -2,6 +2,8 @@
 
 Owner and release authority: Dipuraj Thapa. Mission: production-grade multi-tenant B2B lead generation, with Ripe Piper as first operational customer. Existing branding, UX, database, integrations and live deployment are preservation constraints.
 
+Current production baseline after the owner's approved PR #3 merge: `main` at `7230e5f6e51d7903999991da8ab91984f983a3d5`, Cloudflare Pages deployment `d27fbc61-dac3-4383-a636-416b491b56a3`. Earlier audit/M01 baseline references describe the pre-merge state. The uploaded modular pack v1.3 is an instruction set, not implemented software. Its M02 baseline module reconciles with delivery M00/M01; its M03 shared contracts is next; its M04 foundation includes delivery M02 tenant/security. Its M05 campaigns/assets and M06–M09 products precede M10 integration and M11 release. See [pack M02 evidence](evidence/PACK_M02.md). Keep this tracker authoritative; no duplicate backlog.
+
 ## Authority
 
 Allowed: read-only audit; local synthetic development and tests; feature branches; isolated nonproduction previews; reversible protection controls. Explicit owner approval required for production data/schema writes, production merges/deployments, paid costs and any external prospect communications. No credentials or customer data in source, CI logs, fixtures or public previews. Passing CI never grants release authority.
@@ -65,3 +67,9 @@ Each milestone needs implementation, relevant passing acceptance checks, linked 
 - 2026-10-22 GitHub cleanup: active main ruleset fully verified; PR failure diagnosed as npm registry timeout, not failing application tests. Added bounded fail-closed audit retries, pinned Node 24 actions, removed duplicate feature push runs, documented repository usage and marked historical reports. See GITHUB_AUDIT_2026-10-22.md.
 
 - 2026-10-22 M01 VERIFIED: cleanup code candidate e1318d6e4cfe9889fc5fee65979778b65d51285e passed GitHub PR CI run 39741792158 (one run). 66 tests, typecheck, dependency gate and safe preview build passed. Active main protection read back; production remains unchanged. M02 is next; no production release authorized.
+
+- 2026-10-22 Approved PR #3 merge moved main to `7230e5f`; Cloudflare Pages static production deployment `d27fbc61-dac3-4383-a636-416b491b56a3` succeeded. Existing feature/review remote branches were removed after merge. This specific release does not authorize a later production merge, deployment, database write or prospect communication.
+
+- 2026-10-22 Modular pack v1.3 M02 audit on `feature/pack-m02-baseline`: reconciled baseline, module ownership/first-release boundaries and privacy inventory in evidence/PACK_M02.md. Existing RP defects remain open; all pack product modules remain SPECIFIED. Checks and publication evidence to be recorded on the candidate commit.
+
+- 2026-10-22 Pack M03 contract v1 on `feature/pack-m03-contracts`: typed shared boundary and ten fixture tests, 60 Worker tests passing; integrated locally into `integration/modular-pack`. Contract is SPECIFIED and fixture checks VERIFIED; durable runtime remains M04. Pack M04 step 1a on `feature/pack-m04-foundation`: local composite deal/lead and meeting/lead FKs with three adversarial PGlite checks; 63 tests passing. See evidence/PACK_M03.md and evidence/PACK_M04.md. No product module or release is marked implemented by this foundation slice.

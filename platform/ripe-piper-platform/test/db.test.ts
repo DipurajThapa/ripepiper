@@ -26,7 +26,7 @@ async function as(user: string, sql: string) {
 beforeAll(async () => {
   db = new PGlite({ extensions: { btree_gist } });
   await db.exec(STUB);
-  for (const f of ["0001_core.sql", "0002_security_and_views.sql"]) {
+  for (const f of ["0001_core.sql", "0002_security_and_views.sql", "20261022082304_tenant_identity_foundation.sql"]) {
     await db.exec(readFileSync(new URL(`../supabase/migrations/${f}`, import.meta.url), "utf8"));
   }
   T1 = (await db.query<any>(`insert into tenants (name, slug, country, currency, created_at) values ('Gulf Interiors','gulf-interiors','AE','AED', now() - interval '40 days') returning id`)).rows[0].id;
@@ -79,6 +79,32 @@ describe("tenant isolation (row-level security)", () => {
 });
 
 describe("data rules", () => {
+  it("rejects a foreign-tenant lead association even for a client owner or service role", async () => {
+    const foreign = (await db.query<any>(`select id from leads where email = 'c@y.in'`)).rows[0].id;
+    await expect(as(U1, `insert into deals (tenant_id, lead_id, name, stage, currency) values ('${T1}', '${foreign}', 'Cross-tenant', 'meeting', 'AED') returning id`)).rejects.toThrow();
+    await expect(db.query(`insert into deals (tenant_id, lead_id, name, stage, currency) values ($1,$2,'Privileged cross-tenant','meeting','AED')`, [T1, foreign])).rejects.toThrow();
+    const own = (await db.query<any>(`select id from leads where email = 'a@x.ae'`)).rows[0].id;
+    const r = await as(U1, `insert into deals (tenant_id, lead_id, name, stage, currency) values ('${T1}', '${own}', 'Same tenant', 'meeting', 'AED') returning id`);
+    expect(r).toHaveLength(1);
+    await expect(as(U1, `update deals set lead_id = '${foreign}' where id = '${r[0].id}' returning id`)).rejects.toThrow();
+  });
+  it("retains a deal's tenant when its linked lead is deleted", async () => {
+    const lead = (await db.query<any>(`insert into leads (tenant_id, source, email) values ($1,'import','deletable@x.ae') returning id`, [T1])).rows[0].id;
+    const deal = (await db.query<any>(`insert into deals (tenant_id, lead_id, name, stage, currency) values ($1,$2,'Preserved', 'meeting','AED') returning id`, [T1, lead])).rows[0].id;
+    await db.query(`delete from leads where id = $1`, [lead]);
+    const saved = (await db.query<any>(`select tenant_id, lead_id from deals where id = $1`, [deal])).rows[0];
+    expect(saved).toEqual({ tenant_id: T1, lead_id: null });
+  });
+  it("prevents client meetings from linking to a foreign lead but preserves public intake", async () => {
+    const foreign = (await db.query<any>(`select id from leads where email = 'c@y.in'`)).rows[0].id;
+    await expect(db.query(`insert into meetings (tenant_id, lead_id, kind, start_at, end_at, attendee_email) values ($1,$2,'client_prospect','2026-12-01 10:00+04','2026-12-01 10:15+04','x@y.in')`, [T1, foreign])).rejects.toThrow();
+    const own = (await db.query<any>(`select id from leads where email = 'a@x.ae'`)).rows[0].id;
+    const r = await db.query<any>(`insert into meetings (tenant_id, lead_id, kind, start_at, end_at, attendee_email) values ($1,$2,'client_prospect','2026-12-01 10:00+04','2026-12-01 10:15+04','a@x.ae') returning id`, [T1, own]);
+    expect(r.rows).toHaveLength(1);
+    const intake = (await db.query<any>(`select id from leads where email = 'prospect@z.com'`)).rows[0].id;
+    const publicMeeting = await db.query<any>(`insert into meetings (lead_id, kind, start_at, end_at, attendee_email) values ($1,'discovery','2026-12-01 11:00+04','2026-12-01 11:15+04','prospect@z.com') returning id`, [intake]);
+    expect(publicMeeting.rows).toHaveLength(1);
+  });
   it("rejects a duplicate lead email in the same pipeline", async () => {
     await expect(db.query(`insert into leads (tenant_id, source, email) values ($1,'outreach','A@X.AE')`, [T1])).rejects.toThrow();
   });
