@@ -13,7 +13,8 @@ npm ci --ignore-scripts --no-audit --no-fund
 npm run typecheck
 npm test
 cd ../..
-node --test scripts/safety.test.mjs
+node --test scripts/*.test.mjs
+node scripts/dependency-audit.mjs
 node scripts/preview.mjs serve
 ```
 
@@ -25,8 +26,8 @@ No .env or .dev.vars files are supplied. Do not add production secrets to develo
 
 - Create `feature/<milestone>-<purpose>` from the current verified integration candidate. Never commit directly to main, overwrite PR #2, force push or delete a baseline.
 - Local pre-push rejects main and baseline refs. It is defense in depth, not a replacement for GitHub protection; local config must be set on each checkout.
-- Required GitHub main protection: PR, one approval, stale approval dismissal, current `verify` from GitHub Actions, up-to-date branch, resolved conversations, admin enforcement, no force push/deletion. After owner re-authentication, the GitHub branch API confirms main is protected and the verify check is enforced for everyone (GitHub Actions app 15368). Full rule readback remains pending: the connected browser returns HTTP 401 and the integration has no administration permission (HTTP 403). Do not treat the remaining settings as verified until read back. A sole owner cannot approve their own PR; use an independent reviewer for release rather than disabling protection.
-- CI runs verification only, without deployment credentials or deployment steps. Passing checks do not authorize release or communications.
+- Required GitHub main protection: PR, one approval, stale approval dismissal, current `verify` from GitHub Actions, up-to-date branch, resolved conversations, admin enforcement, no force push/deletion. Active ruleset 25620118 was read back through the GitHub API: all these requirements are enforced, with no bypass actors and current_user_can_bypass=never. A sole owner cannot approve their own PR; use an independent reviewer for release rather than disabling protection.
+- CI runs on PR changes, main pushes and manual dispatch (open a draft PR for feature verification). Dependency audit retries transient registry failures at most three times and fails closed if unavailable. CI runs verification only, without deployment credentials or deployment steps. Passing checks do not authorize release or communications.
 - Cloudflare currently builds all non-main branches as public static previews. Keep site config blank/live=false and synthetic content only. The generated hardened preview is a separate CI build/local output; the existing Pages build uses `site`, not `.preview`. Do not confuse these environments or claim the Pages preview has the hardened CSP.
 - Do not put private operational records into this public GitHub repository.
 

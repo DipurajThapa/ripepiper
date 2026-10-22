@@ -1,7 +1,7 @@
 name: Ripe Piper review checks
 on:
   push:
-    branches: [main, 'review/**', 'feature/**']
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -17,13 +17,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Verify source layout
         run: |
           test -f site/index.html
           test -f platform/ripe-piper-platform/package.json
           test -f platform/ripe-piper-platform/package-lock.json
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           cache: npm
@@ -49,9 +51,9 @@ jobs:
       - name: Check frontend JavaScript syntax
         run: find site/assets -type f -name '*.js' -print0 | xargs -0 -r -n 1 node --check
       - name: Development safety acceptance
-        run: node --test scripts/safety.test.mjs
+        run: node --test scripts/*.test.mjs
       - name: Dependency security gate
-        working-directory: platform/ripe-piper-platform
-        run: npm audit --audit-level=high
+        timeout-minutes: 4
+        run: node scripts/dependency-audit.mjs
       - name: Build isolated UI preview
         run: node scripts/preview.mjs build

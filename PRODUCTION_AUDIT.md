@@ -1,5 +1,6 @@
 # Ripe Piper production-readiness audit
 
+> Historical report retained for traceability. Some findings are superseded. See [current audit](docs/AUDIT_2026-10-22.md), [delivery status](docs/DELIVERY.md) and [verification evidence](docs/evidence/M01.md) before acting on deployment instructions.
 Decision: NO-GO. Source review is not equivalent to deployment validation.
 
 ## Confirmed

@@ -1,5 +1,6 @@
 # Ripe Piper remediation report — 2026-10-19
 
+> Historical report retained for traceability. Some findings are superseded. See [current audit](docs/AUDIT_2026-10-22.md), [delivery status](docs/DELIVERY.md) and [verification evidence](docs/evidence/M01.md) before acting on deployment instructions.
 ## Changed in this revision
 - Frontend defaults to simulation/disabled-live unless explicitly enabled, avoiding accidental collection against an incomplete production backend.
 - Added Cloudflare Turnstile challenge execution to public form requests for lead, calculator, newsletter, and opt-out, and API base URL support. Live forms require a configured public site key.

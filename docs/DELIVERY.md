@@ -11,7 +11,7 @@ Allowed: read-only audit; local synthetic development and tests; feature branche
 | ID | Outcome | Acceptance and verification | State |
 |---|---|---|---|
 | M00 | Baseline audit | Existing source/review/deployment identified; findings and evidence gaps documented; production unchanged | Assessment recorded; see AUDIT_2026-10-22.md |
-| M01 | Reversible workflow | Main requires PR/review/verify; production SHA preserved; feature branch; no deploy jobs; preview cannot reach production; tests repeatable; rollback documented | Implemented; local and PR CI verification passed; full protection readback pending |
+| M01 | Reversible workflow | Main requires PR/review/verify; production SHA preserved; feature branch; no deploy jobs; preview cannot reach production; tests repeatable; rollback documented | Implemented; protection verified; cleanup candidate CI pending |
 | M02 | Tenant/security foundation | Ripe Piper synthetic tenant plus adversarial second tenant; anonymous/viewer/owner/admin authorization; cross-tenant reads/writes/relations denied; verified invite acceptance; no tenant-scoped NULL paths for new products | Next, depends M01 |
 | M03 | Shared operational core + Revive | Import report and stable row errors; case-normalized dedupe per tenant; permission/provenance and suppression; draft/version approval; zero actual sends; synthetic end-to-end outcomes | Queued, depends M02 |
 | M04 | Signal | Dated cited signal records; freshness/duplicate rejection; explainable scoring; account/contact association and reviewed draft; tenant isolation | Queued, depends M03 |
@@ -27,7 +27,7 @@ Each milestone needs implementation, relevant passing acceptance checks, linked 
 |---|---|---|---|---|
 | RP-001 | P0 | DEP-01 protect production | PR + current verify check + review enforced including admins; no force/deletion; baseline SHA unchanged | M01 |
 | RP-002 | P0 | DEP-05 isolated previews | Explicit sample config, no production API/data, no credentials or sends; unsafe configuration rejected | M01 |
-| RP-003 | P0 | FUN-01 repeatable evidence | Existing 50 tests pass; typecheck; JS syntax; workflow triggers on feature changes; no deploy command | M01 |
+| RP-003 | P0 | FUN-01 repeatable evidence | Existing 50 tests pass; typecheck; JS syntax; workflow verifies feature changes through draft PRs; no deploy command | M01 |
 | RP-004 | P1 | SEC-07 tooling | Pin corrected tooling; refresh lockfile; rerun tests and audit; document any residual findings | M01 |
 | RP-005 | P0 | FUN-02 truthful preview | No form claims booking/email/subscription/suppression success without an actual permitted operation | M01 |
 | RP-010 | P0 | SEC-01 tenant relationships | Adversarial foreign-tenant relation tests fail closed at DB/API | M02 |
@@ -61,3 +61,5 @@ Each milestone needs implementation, relevant passing acceptance checks, linked 
 - 2026-10-22 M01 access recheck: main protected=true; verify required for everyone; main unchanged. Updated dependency audit reports zero vulnerabilities. Full protection readback is blocked by browser HTTP 401 / connector administration HTTP 403. M02 remains gated.
 
 - 2026-10-22 M01 published: draft PR #3, code candidate fcdaa3c; PR CI run 39740153051 passed; Cloudflare automatic feature preview succeeded. No merge or production deployment.
+
+- 2026-10-22 GitHub cleanup: active main ruleset fully verified; PR failure diagnosed as npm registry timeout, not failing application tests. Added bounded fail-closed audit retries, pinned Node 24 actions, removed duplicate feature push runs, documented repository usage and marked historical reports. See GITHUB_AUDIT_2026-10-22.md.
