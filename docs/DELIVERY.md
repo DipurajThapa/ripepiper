@@ -11,7 +11,7 @@ Allowed: read-only audit; local synthetic development and tests; feature branche
 | ID | Outcome | Acceptance and verification | State |
 |---|---|---|---|
 | M00 | Baseline audit | Existing source/review/deployment identified; findings and evidence gaps documented; production unchanged | Assessment recorded; see AUDIT_2026-10-22.md |
-| M01 | Reversible workflow | Main requires PR/review/verify; production SHA preserved; feature branch; no deploy jobs; preview cannot reach production; tests repeatable; rollback documented | Implemented; protection verified; cleanup candidate CI pending |
+| M01 | Reversible workflow | Main requires PR/review/verify; production SHA preserved; feature branch; no deploy jobs; preview cannot reach production; tests repeatable; rollback documented | Implemented; VERIFIED in development; see evidence/M01.md |
 | M02 | Tenant/security foundation | Ripe Piper synthetic tenant plus adversarial second tenant; anonymous/viewer/owner/admin authorization; cross-tenant reads/writes/relations denied; verified invite acceptance; no tenant-scoped NULL paths for new products | Next, depends M01 |
 | M03 | Shared operational core + Revive | Import report and stable row errors; case-normalized dedupe per tenant; permission/provenance and suppression; draft/version approval; zero actual sends; synthetic end-to-end outcomes | Queued, depends M02 |
 | M04 | Signal | Dated cited signal records; freshness/duplicate rejection; explainable scoring; account/contact association and reviewed draft; tenant isolation | Queued, depends M03 |
@@ -63,3 +63,5 @@ Each milestone needs implementation, relevant passing acceptance checks, linked 
 - 2026-10-22 M01 published: draft PR #3, code candidate fcdaa3c; PR CI run 39740153051 passed; Cloudflare automatic feature preview succeeded. No merge or production deployment.
 
 - 2026-10-22 GitHub cleanup: active main ruleset fully verified; PR failure diagnosed as npm registry timeout, not failing application tests. Added bounded fail-closed audit retries, pinned Node 24 actions, removed duplicate feature push runs, documented repository usage and marked historical reports. See GITHUB_AUDIT_2026-10-22.md.
+
+- 2026-10-22 M01 VERIFIED: cleanup code candidate e1318d6e4cfe9889fc5fee65979778b65d51285e passed GitHub PR CI run 39741792158 (one run). 66 tests, typecheck, dependency gate and safe preview build passed. Active main protection read back; production remains unchanged. M02 is next; no production release authorized.

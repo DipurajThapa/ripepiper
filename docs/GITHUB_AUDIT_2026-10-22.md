@@ -28,3 +28,5 @@ Scope: DipurajThapa/ripepiper, current branches, PRs, Actions runs, repository l
 The new audit-gate tests exercise successful/low-severity results, high/critical rejection, transient recovery, timeouts, retry exhaustion and malformed reports without network calls. Existing application and preview suites remain required. CI must pass on the cleanup commit before M01 closure.
 
 Revert the cleanup commit on the feature branch to reverse these changes. No database reversal is needed. Full application readiness is still NO-GO until the remaining milestone acceptance criteria are met.
+
+Final result: cleanup candidate `e1318d6e4cfe9889fc5fee65979778b65d51285e` passed [GitHub CI](https://github.com/DipurajThapa/ripepiper/actions/runs/39741792158), including 66 tests and all remaining gates. Main protection is verified. M01 is complete for development; remaining application risks stay open in the backlog.
