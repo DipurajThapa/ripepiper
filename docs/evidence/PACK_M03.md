@@ -46,3 +46,5 @@ Ripe Piper public `/api/lead` → `/api/book` remains a separate intake flow. It
 | M03-E | SPECIFIED; fixture checks PASSED | Contact-rights types, objection and market/purpose/channel change tests pass. Subject requests/retention are types and operator obligations; functional tests remain M04/M10. |
 
 Node 24 typecheck and 60 Worker tests passed on this candidate (50 existing, 10 new); no schema write or provider call. Full integration against durable M04 services is pending. CTS-01–08 are not satisfied by a contract. Real provider, legal, data request, retention and release evidence remain blocked. Next: integrate on a nonproduction branch, then read M04 foundation one file at a time.
+
+The combined remote candidate `e300c4b` on draft [PR #4](https://github.com/DipurajThapa/ripepiper/pull/4) passed [CI run 39747852530](https://github.com/DipurajThapa/ripepiper/actions/runs/39747852530). It verifies the contract package with the first foundation migration; it does not prove any product implementation or real send.
