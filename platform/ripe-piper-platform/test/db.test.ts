@@ -27,7 +27,7 @@ async function as(user: string, sql: string) {
 beforeAll(async () => {
   db = new PGlite({ extensions: { btree_gist } });
   await db.exec(STUB);
-  for (const f of ["0001_core.sql", "0002_security_and_views.sql", "20261022082304_tenant_identity_foundation.sql", "20261022083018_consultation_booking_capability.sql", "20261022083835_lead_provenance_and_rights.sql"]) {
+  for (const f of ["0001_core.sql", "0002_security_and_views.sql", "20261022082304_tenant_identity_foundation.sql", "20261022083018_consultation_booking_capability.sql", "20261022083835_lead_provenance_and_rights.sql", "20261022084845_campaign_execution_core.sql"]) {
     await db.exec(readFileSync(new URL(`../supabase/migrations/${f}`, import.meta.url), "utf8"));
   }
   T1 = (await db.query<any>(`insert into tenants (name, slug, country, currency, created_at) values ('Gulf Interiors','gulf-interiors','AE','AED', now() - interval '40 days') returning id`)).rows[0].id;
@@ -186,5 +186,63 @@ describe("dashboard maths", () => {
     expect(Number(m.cost_per_meeting)).toBe(2500);       // 10,000 / 4 meetings held
     expect(Number(m.roi_pct)).toBe(500);                 // (60,000 - 10,000) / 10,000
     expect(Number(m.reply_rate_pct)).toBeCloseTo(7.69, 2);
+  });
+});
+
+describe("durable synthetic action gate", () => {
+  it("claims once with current authority, then pauses on an uncertain outcome", async () => {
+    await db.query(`update tenants set status='active' where id=$1`, [RIPE]);
+    await expect(db.query(`insert into campaigns (tenant_id,capability,operator_id,purpose,channel,market,timezone,status,max_actions) values ($1,'revive',$2,'appointment','email','AE','Asia/Dubai','approved',1)`, [RIPE, ADMIN])).rejects.toThrow();
+    const lead = (await db.query<any>(`insert into leads (tenant_id,source,email) values ($1,'import','synthetic@ripepiper.invalid') returning id`, [RIPE])).rows[0].id;
+    const source = (await db.query<any>(`insert into lead_observations (tenant_id,lead_id,source,external_ref,observed_at,original_purpose,synthetic) values ($1,$2,'controlled fixture','fixture-1','2026-10-22T10:00:00Z','appointment',true) returning id`, [RIPE, lead])).rows[0].id;
+    await db.query(`insert into contact_rights (tenant_id,lead_id,source_id,purpose,channel,market,decision,reviewer_id,notice_reference) values ($1,$2,$3,'appointment','email','AE','permitted',$4,'synthetic-notice')`, [RIPE, lead, source, ADMIN]);
+    const campaign = (await db.query<any>(`insert into campaigns (tenant_id,capability,operator_id,purpose,channel,market,timezone,status,client_authority_ref,owner_authority_ref,cts_profile_ref,expires_at,max_actions) values ($1,'revive',$2,'appointment','email','AE','Asia/Dubai','approved','synthetic-client','synthetic-owner','synthetic-cts','2026-11-04T00:00:00Z',1) returning id`, [RIPE, ADMIN])).rows[0].id;
+    const action = (await db.query<any>(`insert into outbound_actions (tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at) values ($1,$2,$3,'fixture-action-1',1,1,'2026-11-02T04:00:00Z') returning id`, [RIPE, campaign, lead])).rows[0].id;
+    const claim = async (id: string, at = '2026-11-02T04:00:00Z') => {
+      await db.exec('set role service_role');
+      try { return (await db.query<any>(`select public.claim_synthetic_action($1,$2) as accepted`, [id, at])).rows[0].accepted; }
+      finally { await db.exec('reset role'); }
+    };
+    const expire = async (id: string, at: string) => {
+      await db.exec('set role service_role');
+      try { return (await db.query<any>(`select public.expire_synthetic_claim($1,$2) as expired`, [id, at])).rows[0].expired; }
+      finally { await db.exec('reset role'); }
+    };
+    const complete = async (id: string, at = '2026-11-02T04:00:30Z') => {
+      await db.exec('set role service_role');
+      try { return (await db.query<any>(`select public.complete_synthetic_action($1,$2) as tested`, [id, at])).rows[0].tested; }
+      finally { await db.exec('reset role'); }
+    };
+    expect(await claim(action)).toBe(true);
+    expect(await claim(action)).toBe(false);
+    expect(await expire(action, '2026-11-02T04:01:00Z')).toBe(false);
+    expect(await expire(action, '2026-11-02T04:03:00Z')).toBe(true);
+    expect((await db.query<any>(`select state,error_code from outbound_actions where id=$1`, [action])).rows[0]).toEqual({ state:'review', error_code:'uncertain_result' });
+    expect((await db.query<any>(`select status from campaigns where id=$1`, [campaign])).rows[0].status).toBe('paused');
+    const second = (await db.query<any>(`insert into outbound_actions (tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at) values ($1,$2,$3,'fixture-action-2',1,1,'2026-11-02T04:00:00Z') returning id`, [RIPE, campaign, lead])).rows[0].id;
+    expect(await claim(second)).toBe(false);
+    expect((await db.query<any>(`select state from outbound_actions where id=$1`, [second])).rows[0].state).toBe('blocked');
+    await expect(db.query(`insert into outbound_actions (tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at) values ($1,$2,$3,'fixture-action-1',1,1,'2026-11-02T04:00:00Z')`, [RIPE, campaign, lead])).rejects.toThrow();
+    expect(await as(U3, `select id from outbound_actions where tenant_id='${RIPE}'`)).toEqual([]);
+    const another = (await db.query<any>(`insert into campaigns (tenant_id,capability,operator_id,purpose,channel,market,timezone,status,client_authority_ref,owner_authority_ref,cts_profile_ref,expires_at,max_actions) values ($1,'events',$2,'appointment','email','AE','Asia/Dubai','approved','synthetic-client','synthetic-owner','synthetic-cts','2026-11-04T00:00:00Z',3) returning id`, [RIPE, ADMIN])).rows[0].id;
+    const queue = async (key: string, version = 1) => (await db.query<any>(`insert into outbound_actions (tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at) values ($1,$2,$3,$4,$5,1,'2026-11-02T04:00:00Z') returning id`, [RIPE, another, lead, key, version])).rows[0].id;
+    const tested = await queue('fixture-test-sink');
+    expect(await claim(tested)).toBe(true);
+    expect(await complete(tested)).toBe(true);
+    expect(await complete(tested)).toBe(false);
+    expect((await db.query<any>(`select state,provider_ref from outbound_actions where id=$1`, [tested])).rows[0]).toEqual({state:'tested',provider_ref:`test-sink:${tested}`});
+    const stopped = await queue('fixture-stopped');
+    const stop = (await db.query<any>(`insert into outbound_stops (scope,reason) values ('global','synthetic stop') returning id`)).rows[0].id;
+    expect(await claim(stopped)).toBe(false);
+    await db.query(`update outbound_stops set lifted_at='2026-11-02T04:00:00Z' where id=$1`, [stop]);
+    const stale = await queue('fixture-stale', 2);
+    expect(await claim(stale)).toBe(false);
+    const objection = await queue('fixture-objection');
+    expect(await claim(objection)).toBe(true);
+    await db.query(`insert into subject_requests (tenant_id,lead_id,kind) values ($1,$2,'object')`, [RIPE, lead]);
+    expect(await complete(objection)).toBe(false);
+    expect((await db.query<any>(`select state from outbound_actions where id=$1`, [objection])).rows[0].state).toBe('blocked');
+    const foreign = (await db.query<any>(`select id from leads where email='c@y.in'`)).rows[0].id;
+    await expect(db.query(`insert into outbound_actions (tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at) values ($1,$2,$3,'foreign',1,1,'2026-11-02T04:00:00Z')`, [RIPE, another, foreign])).rejects.toThrow();
   });
 });

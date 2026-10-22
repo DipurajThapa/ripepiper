@@ -37,5 +37,6 @@ export interface Env {
   WHATSAPP_PHONE_ID?: string;
 
   TURNSTILE_SECRET?: string;
+  SYNTHETIC_SINK_ENABLED?: string;    // explicit development-only action test; never real delivery
   SITE_URL: string;                   // https://ripepiper.com
 }

@@ -14,7 +14,7 @@ Allowed: read-only audit; local synthetic development and tests; feature branche
 |---|---|---|---|
 | M00 | Baseline audit | Existing source/review/deployment identified; findings and evidence gaps documented; production unchanged | Assessment recorded; see AUDIT_2026-10-22.md |
 | M01 | Reversible workflow | Main requires PR/review/verify; production SHA preserved; feature branch; no deploy jobs; preview cannot reach production; tests repeatable; rollback documented | Implemented; VERIFIED in development; see evidence/M01.md |
-| M02 | Tenant/security foundation | Ripe Piper synthetic tenant plus adversarial second tenant; anonymous/viewer/owner/admin authorization; cross-tenant reads/writes/relations denied; verified invite acceptance; no tenant-scoped NULL paths for new products | Next, depends M01 |
+| M02 | Tenant/security foundation | Ripe Piper synthetic tenant plus adversarial second tenant; anonymous/viewer/owner/admin authorization; cross-tenant reads/writes/relations denied; verified invite acceptance; no tenant-scoped NULL paths for new products | In progress on pack M04 branch; partial controls only |
 | M03 | Shared operational core + Revive | Import report and stable row errors; case-normalized dedupe per tenant; permission/provenance and suppression; draft/version approval; zero actual sends; synthetic end-to-end outcomes | Queued, depends M02 |
 | M04 | Signal | Dated cited signal records; freshness/duplicate rejection; explainable scoring; account/contact association and reviewed draft; tenant isolation | Queued, depends M03 |
 | M05 | Response | Duplicate inbound event creates one lead/work item; deterministic qualification; SLA timestamps, assignment and escalation; sandbox reply queue within 60s; no automatic external delivery | Queued, depends M04 |
@@ -81,3 +81,5 @@ Each milestone needs implementation, relevant passing acceptance checks, linked 
 - 2026-10-22 Pack M04 step 1c: synthetic Ripe Piper ordinary-tenant membership; local lead provenance/contact-rights/suppression/subject-request schema and admin case intake. Objection freezes existing rights and adds suppression without a send. Production schema remains unchanged. See evidence/PACK_M04.md; durable outbound execution and subject-request fulfilment remain next.
 
 - 2026-10-22 Pack M04 step 1d: staff-only managed tenant preparation endpoint, always onboarding and without provider effects. 72 backend tests and 17 safety/UI tests passed locally with the new provenance/rights migration. Import and durable delivery remain blocked until explicit CTS/stop controls; no release implied.
+
+- 2026-10-22 Pack M04 step 2a: local campaign/stop/action ledger with atomic synthetic-only claim, test-sink completion, current-rights recheck and uncertain-result pause. Staff API is disabled by default. 75 backend tests pass. No provider send or real campaign is enabled; M04 runtime acceptance remains open. See evidence/PACK_M04.md.

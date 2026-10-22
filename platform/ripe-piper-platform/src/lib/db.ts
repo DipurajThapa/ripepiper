@@ -45,6 +45,10 @@ export class Db {
     return this.call<T[]>(`${table}?${query}`, { method: "PATCH", headers: this.headers({ Prefer: "return=representation" }), body: JSON.stringify(patch) });
   }
 
+  rpc<T>(name: string, args: object): Promise<T> {
+    return this.call<T>(`rpc/${name}`, { method: "POST", headers: this.headers(), body: JSON.stringify(args) });
+  }
+
   /** Verify a Supabase access token from the portal/admin and return the profile. */
   async userFromToken(token: string): Promise<{ id: string; email: string; is_admin: boolean } | null> {
     const res = await fetch(`${this.env.SUPABASE_URL}/auth/v1/user`, {

@@ -8,6 +8,7 @@ type Row = Record<string, any>;
 let tables: Record<string, Row[]>;
 let sentEmails: { to: string; raw: string }[];
 let calendarEvents: Row[];
+let rpcCalls: string[];
 const uuid = () => crypto.randomUUID();
 
 function matches(row: Row, query: URLSearchParams): boolean {
@@ -46,6 +47,7 @@ function defaults(table: string, row: Row): Row {
 async function fakeSupabase(url: URL, init: RequestInit): Promise<Response> {
   if (url.pathname === "/auth/v1/user") return Response.json(init.headers && (init.headers as Record<string,string>).Authorization === "Bearer client-token"
     ? { id: "client-1", email: "client@example.invalid" } : { id: "admin-1", email: "admin@ripepiper.com" });
+  if (url.pathname.startsWith("/rest/v1/rpc/")) { rpcCalls.push(url.pathname); return Response.json(true); }
   const table = url.pathname.replace("/rest/v1/", "");
   tables[table] ??= [];
   const t = tables[table], q = url.searchParams, method = init.method ?? "GET";
@@ -118,7 +120,7 @@ async function sign(secret: string, payload: string) {
 }
 
 beforeEach(() => {
-  tables = {}; sentEmails = []; calendarEvents = [];
+  tables = {}; sentEmails = []; calendarEvents = []; rpcCalls = [];
   vi.stubGlobal("fetch", fakeFetch);
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-11-02T04:00:00Z"));   // Monday 08:00 GST
@@ -207,6 +209,28 @@ describe("staff-managed client setup", () => {
     expect(tables.tenants).toMatchObject([{ slug: "synthetic-client", ownership: "managed", status: "onboarding", package: "revive" }]);
     expect(sentEmails).toHaveLength(0);
     expect(calendarEvents).toHaveLength(0);
+  });
+});
+
+describe("synthetic action endpoint", () => {
+  it("fails closed without an admin session or explicit test-sink flag", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    expect((await call("POST", `/api/admin/actions/${id}/test`)).status).toBe(401);
+    expect((await call("POST", `/api/admin/actions/${id}/test`, {}, { Authorization: "Bearer client-token" })).status).toBe(403);
+    expect((await call("POST", `/api/admin/actions/${id}/test`, {}, { Authorization: "Bearer test-admin" })).status).toBe(403);
+    expect(sentEmails).toHaveLength(0);
+  });
+  it("calls only the database claim and test-sink completion when explicitly enabled", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    env.SYNTHETIC_SINK_ENABLED = "true";
+    try {
+      const res = await call("POST", `/api/admin/actions/${id}/test`, {}, { Authorization: "Bearer test-admin" });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, state: "tested", action_id: id });
+      expect(rpcCalls).toEqual(["/rest/v1/rpc/claim_synthetic_action", "/rest/v1/rpc/complete_synthetic_action"]);
+      expect(sentEmails).toHaveLength(0);
+      expect(calendarEvents).toHaveLength(0);
+    } finally { delete env.SYNTHETIC_SINK_ENABLED; }
   });
 });
 

@@ -8,6 +8,7 @@ import { json, html, HttpError } from "./routes/http";
 import { runScheduled } from "./jobs";
 import { recordSubjectRequest } from "./foundation/requests";
 import { prepareTenant } from "./foundation/tenants";
+import { testAction } from "./foundation/actions";
 
 type Handler = (req: Request, env: Env, ctx: ExecutionContext, p: string[]) => Promise<Response>;
 const routes: [string, RegExp, Handler][] = [
@@ -33,6 +34,7 @@ const routes: [string, RegExp, Handler][] = [
   ["POST", /^\/api\/admin\/ads\/sync$/, (r, e) => runAdsSync(r, e)],
   ["POST", /^\/api\/admin\/subject-requests$/, (r, e) => recordSubjectRequest(r, e)],
   ["POST", /^\/api\/admin\/tenants$/, (r, e) => prepareTenant(r, e)],
+  ["POST", /^\/api\/admin\/actions\/([0-9a-f-]{36})\/test$/, (r, e, _c, p) => testAction(r, e, p[0])],
   ["GET", /^\/blog\/?$/, (_r, e) => blogIndex(e)],
   ["GET", /^\/blog\/([a-z0-9-]{3,90})\/?$/, (_r, e, _c, p) => blogPost(e, p[0])],
 ];
