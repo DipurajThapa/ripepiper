@@ -126,7 +126,7 @@
   /* ---------------------------------------------------------- clients */
   function renderTenants() {
     $("tenantsTable").innerHTML = RP.table([{ key: "name", label: "Client" }, { key: "currency", label: "Currency" }, { label: "Plan", render: function (t) { return RP.esc(t.plan + ", " + t.package); } },
-      { label: "Status", render: function (t) { return RP.badge(t.status); } }], data.tenants, { clickable: true, empty: "Client accounts are created automatically when an advance is paid." });
+      { label: "Status", render: function (t) { return RP.badge(t.status); } }], data.tenants, { clickable: true, empty: "No client accounts yet. Prepare one after a consultation." });
   }
   function tenantDetail(t) {
     cur.tenant = t;
@@ -196,6 +196,15 @@
 
   /* ---------------------------------------------------------- wiring */
   function wire() {
+    $("tenantForm").addEventListener("submit", function (e) {
+      e.preventDefault(); $("tenantErr").textContent = ""; $("tenantOk").hidden = true;
+      var body = { name: $("tName").value.trim(), slug: $("tSlug").value.trim().toLowerCase(), country: $("tCountry").value,
+        currency: $("tCurrency").value, package: $("tPkg").value };
+      if (!body.name || !/^[a-z0-9-]{2,60}$/.test(body.slug)) { $("tenantErr").textContent = "Enter a client name and a valid lowercase slug."; return; }
+      RP.api("/api/admin/tenants", body).then(function () { return fetchAll(); }).then(function () {
+        renderTenants(); done($("tenantOk"), "Account prepared in onboarding. No campaign is active.");
+      }).catch(function (error) { $("tenantErr").textContent = error.message; });
+    });
     $("leadFilter").addEventListener("change", renderLeads);
     RP.onRowClick($("meetingsTable"), function () { return data.meetings; }, meetingDetail);
     RP.onRowClick($("proposalsTable"), function () { return data.proposals; }, proposalDetail);
