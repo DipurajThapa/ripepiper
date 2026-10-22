@@ -11,7 +11,7 @@ Allowed: read-only audit; local synthetic development and tests; feature branche
 | ID | Outcome | Acceptance and verification | State |
 |---|---|---|---|
 | M00 | Baseline audit | Existing source/review/deployment identified; findings and evidence gaps documented; production unchanged | Assessment recorded; see AUDIT_2026-10-22.md |
-| M01 | Reversible workflow | Main requires PR/review/verify; production SHA preserved; feature branch; no deploy jobs; preview cannot reach production; tests repeatable; rollback documented | Implemented; local verification passed; remote checks and full protection readback pending |
+| M01 | Reversible workflow | Main requires PR/review/verify; production SHA preserved; feature branch; no deploy jobs; preview cannot reach production; tests repeatable; rollback documented | Implemented; local and PR CI verification passed; full protection readback pending |
 | M02 | Tenant/security foundation | Ripe Piper synthetic tenant plus adversarial second tenant; anonymous/viewer/owner/admin authorization; cross-tenant reads/writes/relations denied; verified invite acceptance; no tenant-scoped NULL paths for new products | Next, depends M01 |
 | M03 | Shared operational core + Revive | Import report and stable row errors; case-normalized dedupe per tenant; permission/provenance and suppression; draft/version approval; zero actual sends; synthetic end-to-end outcomes | Queued, depends M02 |
 | M04 | Signal | Dated cited signal records; freshness/duplicate rejection; explainable scoring; account/contact association and reviewed draft; tenant isolation | Queued, depends M03 |
@@ -59,3 +59,5 @@ Each milestone needs implementation, relevant passing acceptance checks, linked 
 - 2026-10-22 M01: Local feature branch from 684e29a; baseline tag at d6c1091; safety controls, truthful previews, CI and evidence prepared. Final verification is recorded in docs/evidence/M01.md.
 
 - 2026-10-22 M01 access recheck: main protected=true; verify required for everyone; main unchanged. Updated dependency audit reports zero vulnerabilities. Full protection readback is blocked by browser HTTP 401 / connector administration HTTP 403. M02 remains gated.
+
+- 2026-10-22 M01 published: draft PR #3, code candidate fcdaa3c; PR CI run 39740153051 passed; Cloudflare automatic feature preview succeeded. No merge or production deployment.
