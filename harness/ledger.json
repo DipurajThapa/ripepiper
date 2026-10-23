@@ -83,6 +83,62 @@
       "qa_reviewed": false,
       "evidence": {},
       "blocker": "Evidence and dependency gates not yet met"
+    },
+    "shared-provider-reliability": {
+      "status": "not_started",
+      "owner": "development",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "signal-qa": {
+      "status": "not_started",
+      "owner": "qa",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "response-qa": {
+      "status": "not_started",
+      "owner": "qa",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "events-qa": {
+      "status": "not_started",
+      "owner": "qa",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "security-and-operations": {
+      "status": "not_started",
+      "owner": "qa",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "first-customer-pilot": {
+      "status": "not_started",
+      "owner": "cto",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "project-handover": {
+      "status": "not_started",
+      "owner": "pm",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
     }
   }
 }
