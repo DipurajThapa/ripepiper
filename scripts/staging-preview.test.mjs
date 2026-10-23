@@ -1,0 +1,27 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile,writeFile,rm} from 'node:fs/promises';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+import {buildStagingPreview} from './preview.mjs';
+const root=new URL('../',import.meta.url),destination=new URL('.staging-site/',root);
+const key=role=>'fixture.'+Buffer.from(JSON.stringify({role,ref:'wgomywhuzyboxlckopca'})).toString('base64url')+'.test';
+const env={CLOUDFLARE_API_TOKEN:'synthetic-token',CLOUDFLARE_ACCOUNT_ID:'e888301f7b7d01c16eb17c947ff57e5e',RIPEPIPER_STAGING_SUPABASE_URL:'https://wgomywhuzyboxlckopca.supabase.co',RIPEPIPER_STAGING_SERVICE_ROLE_KEY:key('service_role'),RIPEPIPER_STAGING_ANON_KEY:key('anon')};
+test('linked staging copies the existing site, exposes only isolated public config and preserves source/production',async t=>{
+ t.after(()=>rm(destination,{recursive:true,force:true}));
+ const source=await readFile(new URL('site/assets/config.js',root),'utf8'),production=await readFile(new URL('platform/ripe-piper-platform/wrangler.toml',root),'utf8');
+ await buildStagingPreview(env);
+ const config=await readFile(new URL('assets/config.js',destination),'utf8');
+ const parsed=JSON.parse(config.slice(config.indexOf('{'),config.lastIndexOf('}')+1));
+ assert.deepEqual(parsed,{live:false,supabaseUrl:env.RIPEPIPER_STAGING_SUPABASE_URL,supabaseAnonKey:env.RIPEPIPER_STAGING_ANON_KEY,apiBase:'',turnstileSiteKey:''});
+ assert(!config.includes(env.RIPEPIPER_STAGING_SERVICE_ROLE_KEY));assert(!config.includes(env.CLOUDFLARE_API_TOKEN));
+ const html=await readFile(new URL('admin/index.html',destination),'utf8'),headers=await readFile(new URL('_headers',destination),'utf8');
+ assert.match(html,/Isolated staging/);assert.match(html,/Public lead and booking forms disabled/);
+ assert.match(headers,/connect-src 'self' https:\/\/wgomywhuzyboxlckopca\.supabase\.co wss:\/\/wgomywhuzyboxlckopca\.supabase\.co/);assert.match(headers,/frame-ancestors 'none'/);
+ assert.equal(await readFile(new URL('assets/site.css',destination),'utf8'),await readFile(new URL('site/assets/site.css',root),'utf8'));
+ await writeFile(new URL('obsolete-private.txt',destination),'must not upload');
+ const cli=spawnSync(process.execPath,['scripts/preview.mjs','staging'],{cwd:fileURLToPath(root),env:{...process.env,...env},encoding:'utf8'});
+ assert.equal(cli.status,0,cli.stderr);await assert.rejects(readFile(new URL('obsolete-private.txt',destination)));
+ await assert.rejects(buildStagingPreview({...env,RIPEPIPER_STAGING_SUPABASE_URL:'https://jtoafjjszqqrtwerxspw.supabase.co'}),/approved isolated/);
+ assert.equal(await readFile(new URL('site/assets/config.js',root),'utf8'),source);assert.equal(await readFile(new URL('platform/ripe-piper-platform/wrangler.toml',root),'utf8'),production);
+});

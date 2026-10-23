@@ -14,10 +14,13 @@ export interface Env {
   MAIL_FROM: string;                  // e.g. "Ripe Piper <hello@ripepiper.com>"
   ADMIN_ALERT_EMAIL: string;
 
+  SIGNAL_SOURCE_CONNECTIONS?: string; // server-only approved JSON feeds; no caller-supplied URLs or sending authority
   GOOGLE_TENANT_CONNECTIONS?: string; // server-secret JSON; explicit read-only pilot bindings, never exposed to browser
 
   // AI
   ANTHROPIC_API_KEY: string;
+  PAID_AI_ENABLED?: string;          // default off; never enabled by a development merge
+  AI_COST_POLICY?: string;            // server-only reviewed model/rate reference and expiry
   AI_MODEL: string;                   // e.g. "claude-sonnet-5-5"
 
   // Payments
@@ -38,7 +41,9 @@ export interface Env {
   WHATSAPP_TOKEN?: string;
   WHATSAPP_PHONE_ID?: string;
 
+  CONSULTATION_REMINDERS_ENABLED?: string; // default off; owner-authorized provider release only
   TURNSTILE_SECRET?: string;
   SYNTHETIC_SINK_ENABLED?: string;    // explicit development-only action test; never real delivery
+  EVENT_REGISTRATION_ENABLED?: string; // default-off, requires synthetic sink flag; .invalid contacts only
   SITE_URL: string;                   // https://ripepiper.com
 }

@@ -1,0 +1,359 @@
+{
+  "version": 1,
+  "project": "Ripe Piper",
+  "pm_owner": "PM agent",
+  "updated_at": "2026-10-23",
+  "stages": {
+    "baseline": {
+      "status": "verified",
+      "owner": "pm",
+      "pm_reviewed": true,
+      "qa_reviewed": true,
+      "evidence": {
+        "source_sha": "e4d976892af5e9c7d9d262d20b77310ca552f291",
+        "backlog_ref": "docs/DELIVERY.md",
+        "baseline_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39931781916"
+      },
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#baseline-receipt",
+      "qa_source_sha": "e4d976892af5e9c7d9d262d20b77310ca552f291"
+    },
+    "isolated-db": {
+      "status": "verified",
+      "owner": "development",
+      "pm_reviewed": true,
+      "qa_reviewed": true,
+      "evidence": {
+        "isolation_proof": "docs/evidence/HOSTED_STAGING_2026-10-23.md",
+        "cost_decision": "docs/evidence/HOSTED_STAGING_2026-10-23.md",
+        "database_ref": "supabase:wgomywhuzyboxlckopca"
+      },
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#independent-hosted-postgresql-verification--isolated-staging",
+      "qa_source_sha": "c8052d2961b148d01ff53068975c1eed0ee1359b"
+    },
+    "migration-rehearsal": {
+      "status": "verified",
+      "owner": "development",
+      "pm_reviewed": true,
+      "qa_reviewed": true,
+      "evidence": {
+        "migration_manifest": "docs/evidence/STAGING_MIGRATION_MANIFEST_2026-10-23.json",
+        "rehearsal_run": "docs/evidence/HOSTED_STAGING_2026-10-23.md",
+        "rollback_plan": "docs/evidence/HOSTED_STAGING_2026-10-23.md"
+      },
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-19-migration-composition-follow-up",
+      "qa_source_sha": "fee3d82f3768404e905df694cb65fee7589df04f",
+      "acceptance_scope": "Isolated hosted PostgreSQL19-file source manifest (16 initial plus explicitly appended Events, consultation and billing migrations), selected SQL role/RLS/receipt/owner/budget/Events/billing/attendance guards and transaction fixture rollback. Canonical sorted fresh order tested separately. Does not prove production baseline equivalence, backup restoration, Auth/PostgREST HTTP sessions, separate-connection concurrency, live providers or product operation."
+    },
+    "migration-qa": {
+      "status": "verified",
+      "owner": "qa",
+      "pm_reviewed": true,
+      "qa_reviewed": true,
+      "evidence": {
+        "independent_test_run": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#independent-hosted-postgresql-verification--isolated-staging",
+        "tenant_rls_results": "qa/staging-rollback-acceptance.sql",
+        "recovery_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-19-migration-composition-follow-up"
+      },
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-19-migration-composition-follow-up",
+      "qa_source_sha": "fee3d82f3768404e905df694cb65fee7589df04f",
+      "acceptance_scope": "Isolated hosted PostgreSQL19-file source manifest (16 initial plus explicitly appended Events, consultation and billing migrations), selected SQL role/RLS/receipt/owner/budget/Events/billing/attendance guards and transaction fixture rollback. Canonical sorted fresh order tested separately. Does not prove production baseline equivalence, backup restoration, Auth/PostgREST HTTP sessions, separate-connection concurrency, live providers or product operation."
+    },
+    "worker-routing": {
+      "status": "in_progress",
+      "owner": "development",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Read-only inventory confirms no API Worker in the selected Cloudflare account. Isolated config, guarded manual workflow and bounded HTTP runner are prepared; three secure staging secrets and manual branch workflow dispatch are required. No production deployment is authorized."
+    },
+    "worker-qa": {
+      "status": "blocked",
+      "owner": "qa",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "No isolated Worker endpoint deployed yet; actual routing/Auth/PostgREST runner and negative HTTP checks await prepared staging workflow credentials/dispatch. Offline code acceptance is complete and separate."
+    },
+    "tenant-sandbox": {
+      "status": "not_started",
+      "owner": "development",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "revive-sandbox": {
+      "status": "not_started",
+      "owner": "development",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "revive-qa": {
+      "status": "not_started",
+      "owner": "qa",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "operational-release": {
+      "status": "not_started",
+      "owner": "cto",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "shared-provider-reliability": {
+      "status": "not_started",
+      "owner": "development",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "signal-qa": {
+      "status": "not_started",
+      "owner": "qa",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "response-qa": {
+      "status": "not_started",
+      "owner": "qa",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "events-qa": {
+      "status": "not_started",
+      "owner": "qa",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "security-and-operations": {
+      "status": "not_started",
+      "owner": "qa",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "first-customer-pilot": {
+      "status": "not_started",
+      "owner": "cto",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "project-handover": {
+      "status": "not_started",
+      "owner": "pm",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "offline-provider-reliability": {
+      "status": "verified",
+      "owner": "development",
+      "pm_reviewed": true,
+      "qa_reviewed": true,
+      "evidence": {
+        "candidate_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
+        "ledger_contract": "docs/evidence/SYNTHETIC_ACKNOWLEDGEMENTS_2026-10-23.md",
+        "replay_and_uncertainty_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-fenced-acknowledgement--independent-component-review",
+        "suppression_and_pause_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-fenced-acknowledgement--independent-component-review",
+        "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39944568353",
+        "consultation_continuation_contract": "docs/evidence/CONSULTATION_RECEIPTS_ATTENDANCE_2026-10-23.md"
+      },
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
+      "qa_source_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
+      "tested_tree_sha": "ae0ea95a435237414c4062811fe1fef0e034255b",
+      "acceptance_scope": "Fenced synthetic sink acknowledgement/replay/recovery, plus default-off consultation reminder claim/strict Gmail-ack adapter and explicit attendance review checked with mocks and selected hosted SQL. Gmail acceptance is not recipient delivery; no real provider operation, automatic uncertain resend or legacy-backfill proof."
+    },
+    "offline-provider-qa": {
+      "status": "verified",
+      "owner": "qa",
+      "pm_reviewed": true,
+      "qa_reviewed": true,
+      "evidence": {
+        "independent_test_run": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "negative_and_concurrency_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-fenced-acknowledgement--independent-component-review",
+        "artifact_review": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-fenced-acknowledgement--independent-component-review",
+        "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39944568353",
+        "consultation_continuation_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance"
+      },
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
+      "qa_source_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
+      "tested_tree_sha": "ae0ea95a435237414c4062811fe1fef0e034255b",
+      "acceptance_scope": "Independent synthetic acknowledgement/stop/replay/uncertainty/API/UI checks at exact tested tree. No hosted separate-connection race or real provider proof."
+    },
+    "offline-response-review": {
+      "status": "verified",
+      "owner": "development",
+      "pm_reviewed": true,
+      "qa_reviewed": true,
+      "evidence": {
+        "candidate_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
+        "ownership_resolution_contract": "docs/evidence/RESPONSE_OWNERSHIP_2026-10-23.md",
+        "ingress_replay_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "thread_and_tenant_isolation_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39944568353"
+      },
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
+      "qa_source_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
+      "tested_tree_sha": "ae0ea95a435237414c4062811fe1fef0e034255b",
+      "acceptance_scope": "Staff tenant/contact/thread ownership, exact-version reviewed resolution and reopening on changed inbound, without releasing suppression or sequence holds. Not live inbox/SLA/client-calendar acceptance."
+    },
+    "offline-response-qa": {
+      "status": "verified",
+      "owner": "qa",
+      "pm_reviewed": true,
+      "qa_reviewed": true,
+      "evidence": {
+        "independent_test_run": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "new_inbound_reopen_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "owner_and_resolution_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39944568353"
+      },
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
+      "qa_source_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
+      "tested_tree_sha": "ae0ea95a435237414c4062811fe1fef0e034255b",
+      "acceptance_scope": "Independent owner/version/RPC receipt/auth boundary/reopen/hold tests and rendered workflow at exact tested tree. No actual mailbox or booked-client-meeting claim."
+    },
+    "offline-cost-control": {
+      "status": "verified",
+      "owner": "development",
+      "pm_reviewed": true,
+      "qa_reviewed": true,
+      "evidence": {
+        "candidate_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
+        "fail_closed_cost_contract": "docs/evidence/BUILD_BUDGET_2026-10-23.md",
+        "concurrent_reservation_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-paid-use-control--independent-component-review",
+        "uncertain_settlement_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39944568353"
+      },
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
+      "qa_source_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
+      "tested_tree_sha": "ae0ea95a435237414c4062811fe1fef0e034255b",
+      "acceptance_scope": "Default-off paid adapter, global budget reservation/settlement and strict boolean receipts using fixtures/selected hosted SQL. No authorization or claim of paid use, current tariff/token-bound validity or full prior-charge reconciliation."
+    },
+    "offline-cost-qa": {
+      "status": "verified",
+      "owner": "qa",
+      "pm_reviewed": true,
+      "qa_reviewed": true,
+      "evidence": {
+        "independent_test_run": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "cap_and_unknown_price_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-paid-use-control--independent-component-review",
+        "artifact_review": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39944568353"
+      },
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
+      "qa_source_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
+      "tested_tree_sha": "ae0ea95a435237414c4062811fe1fef0e034255b",
+      "acceptance_scope": "Independent cap/concurrency/unknown-price/receipt/uncertain-charge regressions at exact tested tree. Hosted test serialization is not independent-connection concurrency or real billing settlement proof."
+    },
+    "offline-signal-ingestion": {
+      "status": "verified",
+      "owner": "development",
+      "pm_reviewed": true,
+      "qa_reviewed": true,
+      "evidence": {
+        "candidate_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
+        "approved_source_contract": "docs/evidence/SIGNAL_SOURCES_2026-10-23.md",
+        "bounded_preview_and_review_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review",
+        "provenance_and_dedupe_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review",
+        "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39944568353"
+      },
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
+      "qa_source_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
+      "tested_tree_sha": "ae0ea95a435237414c4062811fe1fef0e034255b",
+      "acceptance_scope": "Operator-configured bounded JSON feed, human preview/review, cited idempotent import with no contact rights. Not web-wide autonomous discovery, live source entitlement or DNS-egress proof."
+    },
+    "offline-signal-qa": {
+      "status": "verified",
+      "owner": "qa",
+      "pm_reviewed": true,
+      "qa_reviewed": true,
+      "evidence": {
+        "independent_test_run": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review",
+        "source_boundary_and_injection_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review",
+        "ingress_idempotency_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review",
+        "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39944568353"
+      },
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
+      "qa_source_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
+      "tested_tree_sha": "ae0ea95a435237414c4062811fe1fef0e034255b",
+      "acceptance_scope": "Independent source boundary/digest/tenant/injection/replay/API/database/UI checks and rendered source workflow at exact tested tree; live egress/final configuration race remain release concerns."
+    },
+    "offline-events-lifecycle": {
+      "status": "verified",
+      "owner": "development",
+      "pm_reviewed": true,
+      "qa_reviewed": true,
+      "evidence": {
+        "candidate_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
+        "versioned_event_settings_contract": "docs/evidence/EVENTS_LIFECYCLE_2026-10-23.md",
+        "registration_capability_replay_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#events-lifecycle-and-combined-candidate-verification",
+        "cancel_and_reschedule_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-events-follow-up-and-final-local-composition",
+        "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39944568353"
+      },
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
+      "qa_source_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
+      "tested_tree_sha": "ae0ea95a435237414c4062811fe1fef0e034255b",
+      "acceptance_scope": "Default-off synthetic public registration/cancellation/recovery/reschedule acknowledgement on existing versioned Events campaigns; identity remains unverified, no contact rights/messages/provider writes."
+    },
+    "offline-events-qa": {
+      "status": "verified",
+      "owner": "qa",
+      "pm_reviewed": true,
+      "qa_reviewed": true,
+      "evidence": {
+        "independent_test_run": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#events-lifecycle-and-combined-candidate-verification",
+        "capability_and_identity_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-events-follow-up-and-final-local-composition",
+        "lifecycle_and_suppression_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-events-follow-up-and-final-local-composition",
+        "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39944568353"
+      },
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
+      "qa_source_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
+      "tested_tree_sha": "ae0ea95a435237414c4062811fe1fef0e034255b",
+      "acceptance_scope": "Independent local and selected staging SQL lifecycle/capability/retention/capacity/replay tests plus rendered workflow at exact tested tree. Not real identity, provider reminders or separate-connection concurrency proof."
+    }
+  },
+  "source_sha": "e4d976892af5e9c7d9d262d20b77310ca552f291",
+  "accepted_implementation_source": {
+    "commit": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
+    "tree": "ae0ea95a435237414c4062811fe1fef0e034255b",
+    "ci_run": "39944568353",
+    "qa_receipt": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
+    "environment": "synthetic/local controls with separately scoped19-migration hosted SQL evidence; no deployment, real provider, payment or communication",
+    "continuations": {
+      "RP-014": "docs/evidence/ATOMIC_BILLING_2026-10-23.md",
+      "RP-016": "docs/evidence/CONSULTATION_RECEIPTS_ATTENDANCE_2026-10-23.md"
+    }
+  }
+}

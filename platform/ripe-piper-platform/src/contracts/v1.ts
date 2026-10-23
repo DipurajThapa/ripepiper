@@ -39,7 +39,7 @@ export interface Appointment {
   id: string; tenantId: string; leadId: string; campaignId?: string;
   kind: "consultation" | "client_handoff"; ownerId: string;
   startsAt: string; endsAt: string; timezone: string; providerRef?: string;
-  status: "requested" | "confirmed" | "rescheduled" | "cancelled" | "attended" | "no_show";
+  status: "requested" | "confirmed" | "rescheduled" | "cancelled" | "attended" | "no_show" | "attendance_unknown";
 }
 export interface DataRequest {
   id: string; tenantId: string; contactId: string; type: "access" | "correct" | "object" | "erase" | "restrict" | "export";

@@ -1,4 +1,5 @@
 import type { Env } from "../env";
+import { reserveAI, settleAI } from "./build-budget";
 import { fixedScope, eventScope, advanceAmount, money, type Currency, type Plan, type Pkg } from "./pricing";
 
 /** AI meeting analysis and pre-proposal drafting (Claude API). Prices always come from code, never from the model. */
@@ -11,13 +12,16 @@ export interface MeetingAnalysis {
 }
 
 async function claude(env: Env, system: string, user: string, maxTokens = 2500): Promise<string> {
+  const reservation = await reserveAI(env,system,user,maxTokens);
   const res = await fetch("https://api.anthropic.com/v1/messages", {
+    signal: AbortSignal.timeout(15000),
     method: "POST",
     headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
     body: JSON.stringify({ model: env.AI_MODEL, max_tokens: maxTokens, system, messages: [{ role: "user", content: user }] }),
   });
-  if (!res.ok) throw new Error(`AI request failed: ${res.status} ${await res.text()}`);
-  const j = (await res.json()) as { content: { type: string; text?: string }[] };
+  if (!res.ok) throw new Error(`AI request failed (${res.status}); budget reservation retained for reconciliation.`);
+  const j = (await res.json()) as { usage: unknown; content: { type: string; text?: string }[] };
+  await settleAI(env,reservation,j.usage);
   return j.content.filter(c => c.type === "text").map(c => c.text).join("");
 }
 

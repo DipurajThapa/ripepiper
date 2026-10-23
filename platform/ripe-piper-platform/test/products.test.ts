@@ -30,6 +30,17 @@ describe('four standalone managed product reviews',()=>{
   expect(review([opt,o(reply)],'response').state).toBe('suppressed');
   for(const disposition of ['not_interested','wrong_person','human','uncertain','opt_out'] as const) expect(review([o({...reply,disposition})],'response').question).toBeNull();
  });
+ it('closed Response conversations have no overdue SLA or follow-up deadline',()=>{
+  for(const disposition of ['not_interested','wrong_person','opt_out'] as const){
+   const r=review([o({...reply,disposition})],'response');
+   expect(r.dueAt).toBeNull();
+   expect(r.overdue).toBe(false);
+   expect(r.contactAllowed).toBe(false);
+  }
+  for(const disposition of ['interested','human','uncertain'] as const){
+   expect(review([o({...reply,disposition})],'response').overdue).toBe(true);
+  }
+ });
  it('Events keeps registration, unknown attendance and verified no-show distinct',()=>{
   expect(review([o({...event,kind:'registration'})],'events').state).toBe('registered');
   expect(review([o(event)],'events').state).toBe('unknown');

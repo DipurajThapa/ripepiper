@@ -1,0 +1,362 @@
+{
+  "version": 1,
+  "project": "Ripe Piper",
+  "stages": [
+    {
+      "id": "baseline",
+      "owner": "pm",
+      "dependsOn": [],
+      "evidence": [
+        "source_sha",
+        "backlog_ref"
+      ]
+    },
+    {
+      "id": "isolated-db",
+      "owner": "development",
+      "dependsOn": [
+        "baseline"
+      ],
+      "evidence": [
+        "isolation_proof",
+        "cost_decision",
+        "database_ref"
+      ]
+    },
+    {
+      "id": "migration-rehearsal",
+      "owner": "development",
+      "dependsOn": [
+        "isolated-db"
+      ],
+      "evidence": [
+        "migration_manifest",
+        "rehearsal_run",
+        "rollback_plan"
+      ]
+    },
+    {
+      "id": "migration-qa",
+      "owner": "qa",
+      "dependsOn": [
+        "migration-rehearsal"
+      ],
+      "evidence": [
+        "independent_test_run",
+        "tenant_rls_results",
+        "recovery_results"
+      ]
+    },
+    {
+      "id": "worker-routing",
+      "owner": "development",
+      "dependsOn": [
+        "baseline"
+      ],
+      "evidence": [
+        "deployed_sha",
+        "route_probe",
+        "redacted_binding_inventory"
+      ]
+    },
+    {
+      "id": "worker-qa",
+      "owner": "qa",
+      "dependsOn": [
+        "worker-routing"
+      ],
+      "evidence": [
+        "independent_http_checks",
+        "failure_route_checks"
+      ]
+    },
+    {
+      "id": "tenant-sandbox",
+      "owner": "development",
+      "dependsOn": [
+        "migration-qa",
+        "worker-qa"
+      ],
+      "evidence": [
+        "tenant_fixture",
+        "membership_matrix",
+        "approved_brief"
+      ]
+    },
+    {
+      "id": "revive-sandbox",
+      "owner": "development",
+      "dependsOn": [
+        "tenant-sandbox"
+      ],
+      "evidence": [
+        "provenance_review",
+        "eligibility_decision",
+        "approved_message_version",
+        "sink_dispatch",
+        "outcome_attribution"
+      ]
+    },
+    {
+      "id": "revive-qa",
+      "owner": "qa",
+      "dependsOn": [
+        "revive-sandbox"
+      ],
+      "evidence": [
+        "replay_test",
+        "opt_out_test",
+        "pause_test",
+        "uncertain_send_test",
+        "isolation_test"
+      ]
+    },
+    {
+      "id": "operational-release",
+      "owner": "cto",
+      "dependsOn": [
+        "revive-qa"
+      ],
+      "evidence": [
+        "risk_review",
+        "release_plan",
+        "owner_authorization",
+        "rollback_proof"
+      ]
+    },
+    {
+      "id": "shared-provider-reliability",
+      "owner": "development",
+      "dependsOn": [
+        "revive-qa",
+        "offline-provider-qa",
+        "offline-cost-qa"
+      ],
+      "evidence": [
+        "oauth_scope_review",
+        "delivery_ack_replay",
+        "cost_cap_test",
+        "operator_gate_test"
+      ]
+    },
+    {
+      "id": "signal-qa",
+      "owner": "qa",
+      "dependsOn": [
+        "shared-provider-reliability",
+        "offline-signal-qa"
+      ],
+      "evidence": [
+        "source_freshness_test",
+        "discovery_fixture",
+        "independent_quality_test",
+        "human_approval_trace"
+      ]
+    },
+    {
+      "id": "response-qa",
+      "owner": "qa",
+      "dependsOn": [
+        "shared-provider-reliability",
+        "offline-response-qa"
+      ],
+      "evidence": [
+        "ingress_dedupe_test",
+        "sla_measurement",
+        "booking_adapter_test",
+        "human_owner_trace"
+      ]
+    },
+    {
+      "id": "events-qa",
+      "owner": "qa",
+      "dependsOn": [
+        "shared-provider-reliability",
+        "offline-events-qa"
+      ],
+      "evidence": [
+        "registration_replay_test",
+        "attendance_evidence",
+        "reminder_recovery_test",
+        "attribution_test"
+      ]
+    },
+    {
+      "id": "security-and-operations",
+      "owner": "qa",
+      "dependsOn": [
+        "signal-qa",
+        "response-qa",
+        "events-qa"
+      ],
+      "evidence": [
+        "privacy_review",
+        "monitoring_run",
+        "incident_recovery",
+        "backup_restore_evidence"
+      ]
+    },
+    {
+      "id": "first-customer-pilot",
+      "owner": "cto",
+      "dependsOn": [
+        "operational-release",
+        "security-and-operations"
+      ],
+      "evidence": [
+        "client_scope_approval",
+        "accepted_lead_cohort",
+        "verified_outcomes",
+        "release_review"
+      ]
+    },
+    {
+      "id": "project-handover",
+      "owner": "pm",
+      "dependsOn": [
+        "first-customer-pilot"
+      ],
+      "evidence": [
+        "four_product_acceptance",
+        "documentation_handover",
+        "support_ownership",
+        "owner_closure_signoff"
+      ]
+    },
+    {
+      "id": "offline-provider-reliability",
+      "owner": "development",
+      "dependsOn": [
+        "baseline"
+      ],
+      "evidence": [
+        "candidate_sha",
+        "ledger_contract",
+        "replay_and_uncertainty_tests",
+        "suppression_and_pause_tests"
+      ],
+      "environment": "local synthetic provider and database only"
+    },
+    {
+      "id": "offline-provider-qa",
+      "owner": "qa",
+      "dependsOn": [
+        "offline-provider-reliability"
+      ],
+      "evidence": [
+        "independent_test_run",
+        "negative_and_concurrency_results",
+        "artifact_review"
+      ],
+      "environment": "local synthetic provider and database only"
+    },
+    {
+      "id": "offline-response-review",
+      "owner": "development",
+      "dependsOn": [
+        "baseline"
+      ],
+      "evidence": [
+        "candidate_sha",
+        "ownership_resolution_contract",
+        "ingress_replay_tests",
+        "thread_and_tenant_isolation_tests"
+      ],
+      "environment": "local synthetic provider and database only"
+    },
+    {
+      "id": "offline-response-qa",
+      "owner": "qa",
+      "dependsOn": [
+        "offline-response-review"
+      ],
+      "evidence": [
+        "independent_test_run",
+        "new_inbound_reopen_results",
+        "owner_and_resolution_results"
+      ],
+      "environment": "local synthetic provider and database only"
+    },
+    {
+      "id": "offline-cost-control",
+      "owner": "development",
+      "dependsOn": [
+        "baseline"
+      ],
+      "evidence": [
+        "candidate_sha",
+        "fail_closed_cost_contract",
+        "concurrent_reservation_tests",
+        "uncertain_settlement_tests"
+      ],
+      "environment": "local tests without paid provider calls"
+    },
+    {
+      "id": "offline-cost-qa",
+      "owner": "qa",
+      "dependsOn": [
+        "offline-cost-control"
+      ],
+      "evidence": [
+        "independent_test_run",
+        "cap_and_unknown_price_results",
+        "artifact_review"
+      ],
+      "environment": "local tests without paid provider calls"
+    },
+    {
+      "id": "offline-signal-ingestion",
+      "owner": "development",
+      "dependsOn": [
+        "baseline"
+      ],
+      "evidence": [
+        "candidate_sha",
+        "approved_source_contract",
+        "bounded_preview_and_review_tests",
+        "provenance_and_dedupe_tests"
+      ],
+      "environment": "server-approved JSON feed fixtures only; no live acquisition"
+    },
+    {
+      "id": "offline-signal-qa",
+      "owner": "qa",
+      "dependsOn": [
+        "offline-signal-ingestion"
+      ],
+      "evidence": [
+        "independent_test_run",
+        "source_boundary_and_injection_results",
+        "ingress_idempotency_results"
+      ],
+      "environment": "server-approved JSON feed fixtures only; no live acquisition"
+    },
+    {
+      "id": "offline-events-lifecycle",
+      "owner": "development",
+      "dependsOn": [
+        "baseline"
+      ],
+      "evidence": [
+        "candidate_sha",
+        "versioned_event_settings_contract",
+        "registration_capability_replay_tests",
+        "cancel_and_reschedule_tests"
+      ],
+      "environment": "default-off synthetic registration only; no messages or calendar writes"
+    },
+    {
+      "id": "offline-events-qa",
+      "owner": "qa",
+      "dependsOn": [
+        "offline-events-lifecycle"
+      ],
+      "evidence": [
+        "independent_test_run",
+        "capability_and_identity_results",
+        "lifecycle_and_suppression_results"
+      ],
+      "environment": "default-off synthetic registration only; no messages or calendar writes"
+    }
+  ]
+}

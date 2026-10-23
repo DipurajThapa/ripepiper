@@ -2,77 +2,71 @@ import type { Env } from "./env";
 import { Db } from "./lib/db";
 import { sendEmail, meetTranscript, isMeetUrl } from "./lib/google";
 import { emails } from "./lib/email";
+import { validInstant } from "./foundation/prospecting";
+import { meetingSnapshot, saveMeetingDraft } from "./foundation/consultation-review";
 import { dueReminder } from "./lib/slots";
 import { syncSheet } from "./lib/sheets";
 import { analyseMeeting, minutesMarkdown } from "./lib/ai";
 import { googleAdsRows, metaRows, linkedinRows, toTenantCurrency, type AdRow } from "./lib/ads";
 
-/** Every 5 minutes: send due reminders (24 hours and 1 hour before each call). */
+/** Default-off consultation reminders. A claim is not delivery; uncertain attempts never retry automatically. */
 export async function sendReminders(env: Env, now = new Date()) {
-  const db = new Db(env);
-  const horizon = new Date(now.getTime() + 24 * 3600_000 + 10 * 60_000).toISOString();
-  const upcoming = await db.select<any>("meetings", `tenant_id=is.null&status=eq.booked&start_at=gte.${now.toISOString()}&start_at=lte.${horizon}&select=*`);
-  let sent = 0;
-  for (const m of upcoming) {
-    if (m.tenant_id != null || !m.google_event_id || !isMeetUrl(m.meet_url)) continue;
-    const which = dueReminder(new Date(m.start_at), now, !!m.reminder_24h_at, !!m.reminder_1h_at);
-    if (!which) continue;
-    const col = which === "24h" ? "reminder_24h_at" : "reminder_1h_at";
-    // Claim the reminder first, so two overlapping runs can never send it twice.
-    const claimed = await db.update("meetings", `id=eq.${m.id}&${col}=is.null`, { [col]: now.toISOString() });
-    if (!claimed.length) continue;
-    const e = emails.reminder(m.attendee_name ?? "there", m.start_at, m.meet_url ?? "", which);
-    await sendEmail(env, m.attendee_email, e.subject, e.text);
-    if (env.WHATSAPP_ENABLED === "true") await whatsappReminder(env, db, m, which).catch(() => {});
-    sent++;
+  if(env.CONSULTATION_REMINDERS_ENABLED!=="true")return {sent:0,review:0,disabled:true};
+  const db=new Db(env,15000),horizon=new Date(now.getTime()+24*3600_000+10*60_000).toISOString();
+  const upcoming=await db.select<any>("meetings",`tenant_id=is.null&status=eq.booked&start_at=gte.${now.toISOString()}&start_at=lte.${horizon}&select=*&order=start_at.asc&limit=51`);
+  if(upcoming.length>50)return {sent:0,review:0,blocked:"review_capacity"};
+  let sent=0,review=0;
+  for(const m of upcoming){
+    if(m.tenant_id!=null||!m.google_event_id||!isMeetUrl(m.meet_url))continue;
+    const which=dueReminder(new Date(m.start_at),now,!!m.reminder_24h_at,!!m.reminder_1h_at);if(!which)continue;
+    const token=crypto.randomUUID(),args={p_meeting:m.id,p_window:which,p_token:token};
+    try{
+      const claimed=await db.rpc<any>("claim_consultation_reminder",args);if(claimed===null)continue;
+      if(!validReminderReceipt(claimed,m,which,token,"claimed"))throw Error("Claim acknowledgement uncertain");
+      // This fenced authorization rereads the current booking immediately before the provider call.
+      const authorized=await db.rpc<any>("authorize_consultation_reminder",args);if(authorized===null){review++;continue;}
+      if(!validReminderReceipt(authorized,m,which,token,"dispatching"))throw Error("Authorization acknowledgement uncertain");
+      const email=emails.reminder(m.attendee_name??"there",m.start_at,m.meet_url,which);
+      const ack=await sendEmail(env,m.attendee_email,email.subject,email.text,undefined,async()=>{
+        // OAuth refresh may take time; fence the actual Gmail mutation after it completes.
+        if(await db.rpc("confirm_consultation_dispatch",args)!==true)throw Error("Booking changed before provider dispatch");
+      });
+      const finished=await db.rpc<any>("finish_consultation_reminder",{...args,p_message:ack.messageId});
+      if(!validReminderReceipt(finished,m,which,token,"acknowledged")||finished.messageId!==ack.messageId||!validInstant(finished.acknowledgedAt))throw Error("Delivery acknowledgement uncertain");
+      sent++;
+    }catch{
+      review++;
+      // Failure may follow a committed claim or send. Keep the original fence and never send again.
+      await db.rpc("hold_consultation_reminder",args).catch(()=>{});
+    }
   }
-  return { sent };
+  return {sent,review};
+}
+function validReminderReceipt(receipt:any,m:any,window:string,token:string,state:string){
+ return !!receipt&&receipt.meetingId===m.id&&receipt.window===window&&receipt.token===token&&receipt.state===state&&validInstant(receipt.leaseUntil)&&(state==="acknowledged"||Date.parse(receipt.leaseUntil)>Date.now())&&sameSnapshot(receipt.snapshot,meetingSnapshot(m));
 }
 
-/** WhatsApp reminder only for people who contacted us on WhatsApp first, using an approved utility template. */
-async function whatsappReminder(env: Env, db: Db, m: any, which: "24h" | "1h") {
-  const lead = m.lead_id ? await db.one<any>("leads", `id=eq.${m.lead_id}&source=eq.whatsapp&select=landing_page`) : null;
-  const phone = lead?.landing_page?.startsWith("wa:") ? lead.landing_page.slice(3) : null;
-  if (!phone) return;
-  await fetch(`https://graph.facebook.com/v23.0/${env.WHATSAPP_PHONE_ID}/messages`, {
-    method: "POST", headers: { Authorization: `Bearer ${env.WHATSAPP_TOKEN}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ messaging_product: "whatsapp", to: phone, type: "template",
-      template: { name: which === "24h" ? "meeting_reminder_24h" : "meeting_reminder_1h", language: { code: "en" },
-        components: [{ type: "body", parameters: [{ type: "text", text: m.meet_url ?? "" }] }] } }),
-  });
-}
+function sameSnapshot(actual:any,expected:Record<string,unknown>){return !!actual&&typeof actual==="object"&&!Array.isArray(actual)&&Object.keys(actual).length===Object.keys(expected).length&&Object.keys(expected).every(key=>actual[key]===expected[key]);}
 
-/** After a call: fetch the transcript, write notes and minutes with AI, or mark the call as a no-show. */
+/** Draft notes never establish prospect identity, attendance or a lead conversion. */
 export async function processFinishedMeetings(env: Env, now = new Date()) {
-  const db = new Db(env);
-  const ended = new Date(now.getTime() - 20 * 60_000).toISOString();
-  const giveUp = now.getTime() - 3 * 3600_000;
-  const list = await db.select<any>("meetings", `tenant_id=is.null&status=eq.booked&end_at=lte.${ended}&meet_code=not.is.null&ai_processed_at=is.null&select=*&limit=5`);
-  const out = { processed: 0, no_show: 0, waiting: 0 };
-  for (const m of list) {
-    try {
-      const t = await meetTranscript(env, m.meet_code);
-      if (t.status === "ready" && t.text && t.text.length > 200) {
-        const lead = m.lead_id ? await db.one<any>("leads", `id=eq.${m.lead_id}&select=company,website`) : null;
-        const a = await analyseMeeting(env, t.text, { company: lead?.company ?? lead?.website, attendee: m.attendee_name });
-        await db.update("meetings", `id=eq.${m.id}`, { transcript: t.text, notes: { summary: a.summary, ...a.notes },
-          minutes: minutesMarkdown(a, `Call with ${m.attendee_name ?? m.attendee_email}`, m.start_at.slice(0, 10)),
-          requirements: { ...a.requirements, decisions: a.minutes.decisions, actions: a.minutes.actions }, ai_processed_at: now.toISOString(), status: "held" });
-        if (m.lead_id) await db.update("leads", `id=eq.${m.lead_id}`, { status: "meeting_held" });
-        const e = emails.adminAlert("Call notes ready", `Notes and minutes are ready for your call with ${m.attendee_name ?? m.attendee_email}. Review them and draft the pre-proposal in the admin area.`);
-        await sendEmail(env, env.ADMIN_ALERT_EMAIL, e.subject, e.text);
-        out.processed++;
-      } else if (new Date(m.end_at).getTime() < giveUp) {
-        const status = t.status === "no_record" || (t.participants ?? 0) < 2 ? "no_show" : "held";
-        await db.update("meetings", `id=eq.${m.id}`, { status, ai_processed_at: now.toISOString() });
-        if (status === "held") {
-          const e = emails.adminAlert("Call held without a transcript", `Your call with ${m.attendee_email} has no transcript. Paste your notes in the admin area to create the minutes.`);
-          await sendEmail(env, env.ADMIN_ALERT_EMAIL, e.subject, e.text);
-        } else out.no_show++;
-      } else out.waiting++;
-    } catch (e) {
-      out.waiting++;
-      console.error("meeting processing failed", m.id, String(e));
+  const db=new Db(env,15000),ended=new Date(now.getTime()-20*60_000).toISOString(),giveUp=now.getTime()-3*3600_000;
+  const list=await db.select<any>("meetings",`tenant_id=is.null&status=eq.booked&end_at=lte.${ended}&ai_processed_at=is.null&select=*&order=end_at.asc&limit=5`);
+  const out={processed:0,no_show:0,waiting:0,review:0};
+  for(const m of list){
+    let transcript:string|undefined;
+    try{
+      const t=m.meet_code?await meetTranscript(env,m.meet_code):{status:"no_record" as const};transcript=t.text;
+      if(t.status==="ready"&&typeof transcript==="string"&&transcript.length>200){
+        const lead=m.lead_id?await db.one<any>("leads",`id=eq.${m.lead_id}&tenant_id=is.null&select=company,website`):null;
+        const a=await analyseMeeting(env,transcript,{company:lead?.company??lead?.website,attendee:m.attendee_name});
+        await saveMeetingDraft(db,m,{transcript,notes:{summary:a.summary,...a.notes},minutes:minutesMarkdown(a,`Call with ${m.attendee_name??m.attendee_email}`,m.start_at.slice(0,10)),requirements:{...a.requirements,decisions:a.minutes.decisions,actions:a.minutes.actions}},"transcript_unverified");out.processed++;out.review++;
+      }else if(new Date(m.end_at).getTime()<giveUp||!m.meet_code){
+        await saveMeetingDraft(db,m,{transcript},"attendance_source_unavailable");out.review++;
+      }else out.waiting++;
+    }catch{
+      if(new Date(m.end_at).getTime()<giveUp)try{await saveMeetingDraft(db,m,{transcript},"analysis_unavailable");out.review++;}catch{out.waiting++;}
+      else out.waiting++;
     }
   }
   return out;
