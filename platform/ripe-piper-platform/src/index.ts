@@ -3,7 +3,7 @@ import { Db, DbError } from "./lib/db";
 import { fillShell, postPage, indexPage, type Post } from "./lib/blog";
 import { postLead, getSlots, postBook, postCalculator, postNewsletter, getNewsletterConfirm, postOptOut } from "./routes/public";
 import { viewProposal, approveProposal, stripeWebhook, razorpayWebhook, acceptQuote } from "./routes/proposals";
-import { processMeeting, draftProposal, sendProposal, createQuote, sendQuote, inviteUser, runAdsSync } from "./routes/admin";
+import { processMeeting, reconcileBooking, draftProposal, sendProposal, createQuote, sendQuote, inviteUser, runAdsSync } from "./routes/admin";
 import { json, html, HttpError } from "./routes/http";
 import { runScheduled } from "./jobs";
 import { recordSubjectRequest } from "./foundation/requests";
@@ -34,6 +34,7 @@ const routes: [string, RegExp, Handler][] = [
   ["POST", /^\/webhooks\/stripe$/, (r, e) => stripeWebhook(r, e)],
   ["POST", /^\/webhooks\/razorpay$/, (r, e) => razorpayWebhook(r, e)],
   ["POST", /^\/api\/portal\/quotes\/([0-9a-f-]{36})\/accept$/, (r, e, _c, p) => acceptQuote(r, e, p[0])],
+  ["POST", /^\/api\/admin\/meetings\/([0-9a-f-]{36})\/reconcile$/, (r, e, _c, p) => reconcileBooking(r, e, p[0])],
   ["POST", /^\/api\/admin\/meetings\/([0-9a-f-]{36})\/process$/, (r, e, _c, p) => processMeeting(r, e, p[0])],
   ["POST", /^\/api\/admin\/meetings\/([0-9a-f-]{36})\/draft-proposal$/, (r, e, _c, p) => draftProposal(r, e, p[0])],
   ["POST", /^\/api\/admin\/proposals\/([0-9a-f-]{36})\/send$/, (r, e, _c, p) => sendProposal(r, e, p[0])],

@@ -2,7 +2,7 @@ import type { Env } from "../env";
 import { Db, DbError } from "../lib/db";
 import { cleanEmail, cleanText, cleanWebsite, routeLead, scoreLead, isFreeEmail, pickUtm } from "../lib/validate";
 import { freeSlots, isOfferedSlot, BOOKING } from "../lib/slots";
-import { busyTimes, createMeetEvent, sendEmail } from "../lib/google";
+import { busyTimes, calendarEventId, createMeetEvent, sendEmail } from "../lib/google";
 import { emails } from "../lib/email";
 import { BOOKING_TOKEN_TTL_MS, newBookingToken, hashBookingToken, validBookingToken } from "../lib/booking";
 import { json, bad, readJson, verifyTurnstile } from "./http";
@@ -90,7 +90,8 @@ export async function postBook(req: Request, env: Env) {
   if (!claimed.length) return bad("This booking link has expired or has already been used. Please complete the form again.", 403);
   let meeting: any;
   try {
-    meeting = (await db.insert("meetings", { lead_id: lead.id, kind: "discovery", start_at: slot.start, end_at: slot.end, attendee_email: lead.email, attendee_name: lead.name }))[0];
+    const meetingId = crypto.randomUUID();
+    meeting = (await db.insert("meetings", { id: meetingId, google_event_id: calendarEventId(meetingId), lead_id: lead.id, kind: "discovery", start_at: slot.start, end_at: slot.end, attendee_email: lead.email, attendee_name: lead.name }))[0];
   } catch (e) {
     if (e instanceof DbError && e.isConflict) return bad("That time was just booked or a consultation already exists. Please complete the form again to choose another time.", 409);
     throw e;
@@ -101,16 +102,18 @@ export async function postBook(req: Request, env: Env) {
       summary: `Ripe Piper call with ${lead.name ?? lead.email}`,
       description: `15-minute discovery call.\nCompany website: ${lead.website ?? ""}\nPackage of interest: ${lead.package_interest ?? ""}`,
     });
-    await db.update("meetings", `id=eq.${meeting.id}`, { google_event_id: ev.eventId, meet_url: ev.meetUrl, meet_code: ev.meetCode });
-    await db.update("leads", `id=eq.${lead.id}`, { status: "meeting_booked" });
+    const saved = await db.update("meetings", `id=eq.${meeting.id}&tenant_id=is.null&status=eq.booked&google_event_id=eq.${ev.eventId}`, { meet_url: ev.meetUrl, meet_code: ev.meetCode });
+    if (!saved.length) throw new Error("Reservation changed during confirmation");
+    await db.update("leads", `id=eq.${lead.id}&tenant_id=is.null&status=eq.qualified`, { status: "meeting_booked" });
     const m = emails.bookingConfirmed(lead.name ?? "there", slot.start, ev.meetUrl ?? "");
     try { await sendEmail(env, lead.email, m.subject, m.text); }
-    catch (mailError) { console.error("Booking confirmed but email delivery failed", meeting.id, String(mailError)); }
+    catch (mailError) { console.error("Booking confirmed but email delivery failed", meeting.id); }
     return json({ ok: true, meeting_id: meeting.id, start: slot.start, label: slot.label, meet_url: ev.meetUrl });
   } catch (e) {
-    // Never leave a reserved slot without a calendar event.
-    await db.update("meetings", `id=eq.${meeting.id}`, { status: "cancelled" });
-    throw e;
+    // A timeout or database failure does not prove Google failed to create the event.
+    // Preserve the reservation and stable event ID for staff reconciliation; never blindly resend.
+    console.error("Booking requires calendar reconciliation", meeting.id);
+    return bad("Your booking could not be confirmed. The requested time remains reserved for review. Please contact Ripe Piper before trying again.", 503);
   }
 }
 

@@ -1,6 +1,6 @@
 import type { Env } from "../env";
 import { Db } from "../lib/db";
-import { meetTranscript, sendEmail } from "../lib/google";
+import { meetTranscript, sendEmail, reconcileMeetEvent } from "../lib/google";
 import { analyseMeeting, minutesMarkdown, draftPreProposal, priceBlock, type MeetingAnalysis } from "../lib/ai";
 import { quoteTotal, money } from "../lib/pricing";
 import { emails } from "../lib/email";
@@ -107,4 +107,27 @@ export async function inviteUser(req: Request, env: Env, tenantId: string) {
 export async function runAdsSync(req: Request, env: Env) {
   await requireUser(req, env, true);
   return json({ ok: true, result: await syncAds(env, 7) });
+}
+
+/** Repair the existing public-consultation link using a provider read, without another invitation. */
+export async function reconcileBooking(req: Request, env: Env, id: string) {
+  const user = await requireUser(req, env, true);
+  const db = new Db(env);
+  const m = await db.one<any>("meetings", `id=eq.${id}&tenant_id=is.null&status=eq.booked&select=*`);
+  if (!m || !m.google_event_id) return bad("No reconcilable consultation reservation was found.", 404);
+  let ev;
+  try {
+    ev = await reconcileMeetEvent(env, { id: m.id, start: m.start_at, end: m.end_at, email: m.attendee_email,
+      name: m.attendee_name ?? "", summary: "", description: "" }, m.google_event_id);
+  } catch {
+    return bad("Calendar confirmation is still unavailable or does not match. The reservation remains held; check the configured calendar before changing it.", 409);
+  }
+  await db.insert("activity_log", { actor: user.id, kind: "note", visible_to_client: false,
+    message: `Calendar event verified for consultation ${m.id}; reconciliation requested without sending an invitation.` });
+  const changed = await db.update("meetings", `id=eq.${id}&tenant_id=is.null&status=eq.booked&google_event_id=eq.${encodeURIComponent(m.google_event_id)}&start_at=eq.${encodeURIComponent(m.start_at)}&end_at=eq.${encodeURIComponent(m.end_at)}`, {
+    meet_url: ev.meetUrl, meet_code: ev.meetCode,
+  });
+  if (!changed.length) return bad("The reservation changed. Reload before continuing.", 409);
+  if (m.lead_id) await db.update("leads", `id=eq.${m.lead_id}&tenant_id=is.null&status=eq.qualified`, { status: "meeting_booked" });
+  return json({ ok: true, meeting_id: m.id, meet_url: ev.meetUrl, delivery: "not_sent" });
 }

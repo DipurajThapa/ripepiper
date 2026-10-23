@@ -1,6 +1,6 @@
 import type { Env } from "./env";
 import { Db } from "./lib/db";
-import { sendEmail, meetTranscript } from "./lib/google";
+import { sendEmail, meetTranscript, isMeetUrl } from "./lib/google";
 import { emails } from "./lib/email";
 import { dueReminder } from "./lib/slots";
 import { syncSheet } from "./lib/sheets";
@@ -11,9 +11,10 @@ import { googleAdsRows, metaRows, linkedinRows, toTenantCurrency, type AdRow } f
 export async function sendReminders(env: Env, now = new Date()) {
   const db = new Db(env);
   const horizon = new Date(now.getTime() + 24 * 3600_000 + 10 * 60_000).toISOString();
-  const upcoming = await db.select<any>("meetings", `status=eq.booked&start_at=gte.${now.toISOString()}&start_at=lte.${horizon}&select=*`);
+  const upcoming = await db.select<any>("meetings", `tenant_id=is.null&status=eq.booked&start_at=gte.${now.toISOString()}&start_at=lte.${horizon}&select=*`);
   let sent = 0;
   for (const m of upcoming) {
+    if (m.tenant_id != null || !m.google_event_id || !isMeetUrl(m.meet_url)) continue;
     const which = dueReminder(new Date(m.start_at), now, !!m.reminder_24h_at, !!m.reminder_1h_at);
     if (!which) continue;
     const col = which === "24h" ? "reminder_24h_at" : "reminder_1h_at";
@@ -46,7 +47,7 @@ export async function processFinishedMeetings(env: Env, now = new Date()) {
   const db = new Db(env);
   const ended = new Date(now.getTime() - 20 * 60_000).toISOString();
   const giveUp = now.getTime() - 3 * 3600_000;
-  const list = await db.select<any>("meetings", `status=eq.booked&end_at=lte.${ended}&meet_code=not.is.null&ai_processed_at=is.null&select=*&limit=5`);
+  const list = await db.select<any>("meetings", `tenant_id=is.null&status=eq.booked&end_at=lte.${ended}&meet_code=not.is.null&ai_processed_at=is.null&select=*&limit=5`);
   const out = { processed: 0, no_show: 0, waiting: 0 };
   for (const m of list) {
     try {

@@ -93,7 +93,7 @@ async function fakeFetch(input: RequestInfo | URL, init: RequestInit = {}): Prom
   if (url.pathname.endsWith("/freeBusy")) return Response.json({ calendars: { primary: { busy: [] } } });
   if (url.pathname.includes("/calendar/v3/calendars/") && init.method === "POST") {
     const ev = JSON.parse(String(init.body)); calendarEvents.push(ev);
-    return Response.json({ id: "evt_" + calendarEvents.length, hangoutLink: "https://meet.google.com/abc-defg-hij", conferenceData: { conferenceId: "abc-defg-hij", entryPoints: [{ entryPointType: "video", uri: "https://meet.google.com/abc-defg-hij" }] } });
+    return Response.json({ ...ev, status: "confirmed", hangoutLink: "https://meet.google.com/abc-defg-hij", conferenceData: { conferenceId: "abc-defg-hij", entryPoints: [{ entryPointType: "video", uri: "https://meet.google.com/abc-defg-hij" }] } });
   }
   if (url.pathname.endsWith("/messages/send")) {
     const raw = atob(JSON.parse(String(init.body)).raw.replace(/-/g, "+").replace(/_/g, "/"));
@@ -339,7 +339,7 @@ describe("quotation checkout resilience", () => {
 describe("reminders", () => {
   it("sends the 24-hour reminder once, even if the job runs twice", async () => {
     const { sendReminders } = await import("../src/jobs");
-    tables.meetings = [{ id: "m1", status: "booked", start_at: "2026-11-03T04:00:00.000Z", end_at: "2026-11-03T04:15:00.000Z", attendee_email: "sara@gulfinteriors.ae", attendee_name: "Sara", meet_url: "https://meet.google.com/x", reminder_24h_at: null, reminder_1h_at: null }];
+    tables.meetings = [{ id: "m1", status: "booked", start_at: "2026-11-03T04:00:00.000Z", end_at: "2026-11-03T04:15:00.000Z", attendee_email: "sara@gulfinteriors.ae", attendee_name: "Sara", google_event_id: "evt_test", meet_url: "https://meet.google.com/abc-defg-hij", reminder_24h_at: null, reminder_1h_at: null }];
     expect((await sendReminders(env)).sent).toBe(1);
     expect((await sendReminders(env)).sent).toBe(0);
     expect(sentEmails.filter(e => e.to === "sara@gulfinteriors.ae")).toHaveLength(1);
@@ -444,4 +444,54 @@ it('campaign HTTP operations require staff, a loaded version and an enabled synt
  expect((await call('POST',path,{operation:'list'},headers)).status).toBe(200);
  expect((await call('POST',path,{operation:'save',campaign_id:campaign,version:0,body:{product:'revive',purpose:'reactivation',market:'AE',timezone:'UTC',steps:[{offsetHours:0,subject:'Fixture',body:'Is this a priority?',evidenceReference:'fixture-1'}]}},headers)).status).toBe(200);
  expect(rpcCalls.filter(p=>p.endsWith('/manage_campaign_plan'))).toHaveLength(1);expect(sentEmails).toHaveLength(0);
+});
+
+describe('calendar integration recovery',()=>{
+ const inquiry=async()=> (await (await call('POST','/api/lead',{name:'Fixture',email:'calendar@example.invalid',website:'fixture.example',package:'revive',country:'United Arab Emirates',deal_band:2,consent:true})).json()) as any;
+ it('keeps an uncertain reservation, blocks duplicate booking, and reconciles with a read only',async()=>{
+  const lead=await inquiry();let ready=false;
+  vi.stubGlobal('fetch',async(input:RequestInfo|URL,init:RequestInit={})=>{
+   const url=new URL(String(input));
+   if(url.pathname.includes('/calendar/v3/calendars/')&&init.method==='POST'){
+    await fakeFetch(input,init);throw Error('response lost after Google created event');
+   }
+   if(url.pathname.includes('/calendar/v3/calendars/')&&(!init.method||init.method==='GET'))return ready?Response.json({...calendarEvents[0],status:'confirmed',hangoutLink:'https://meet.google.com/abc-defg-hij'}):new Response('',{status:404});
+   return fakeFetch(input,init);
+  });
+  const result=await call('POST','/api/book',{lead_id:lead.lead_id,booking_token:lead.booking_token,start:lead.slots[0].start});
+  expect(result.status).toBe(503);expect(await result.json()).toMatchObject({ok:false});
+  const m=tables.meetings[0];expect(m.status).toBe('booked');expect(m.google_event_id).toBe(calendarEvents[0].id);expect(m.meet_url).toBeUndefined();
+  const slots:any=await (await call('GET','/api/slots')).json();expect(slots.slots.some((s:any)=>s.start===m.start_at)).toBe(false);
+  expect((await call('POST','/api/book',{lead_id:lead.lead_id,booking_token:lead.booking_token,start:lead.slots[1].start})).status).toBe(403);
+  const path='/api/admin/meetings/'+m.id+'/reconcile';
+  expect((await call('POST',path,{})).status).toBe(401);
+  expect((await call('POST',path,{}, {Authorization:'Bearer client-token'})).status).toBe(403);
+  const staff={Authorization:'Bearer test-admin'};
+  expect((await call('POST',path,{},staff)).status).toBe(409);
+  ready=true;await Promise.all(pending);const emailsBefore=sentEmails.length;
+  expect((await call('POST',path,{},staff)).status).toBe(200);expect(m.meet_url).toBe('https://meet.google.com/abc-defg-hij');
+  expect(tables.leads[0].status).toBe('meeting_booked');expect((await call('POST',path,{},staff)).status).toBe(200);
+  expect(sentEmails).toHaveLength(emailsBefore);expect(calendarEvents).toHaveLength(1);
+  expect(tables.activity_log.at(-1)).toMatchObject({actor:'admin-1',visible_to_client:false});
+  m.tenant_id='11111111-1111-4111-8111-111111111111';expect((await call('POST',path,{},staff)).status).toBe(404);
+ });
+ it('preserves a reservation when database persistence fails after Google succeeds',async()=>{
+  const lead=await inquiry();vi.stubGlobal('fetch',async(input:RequestInfo|URL,init:RequestInit={})=>{
+   if(String(input).includes('/rest/v1/meetings?')&&init.method==='PATCH')return new Response('DB offline',{status:503});
+   return fakeFetch(input,init);
+  });
+  expect((await call('POST','/api/book',{lead_id:lead.lead_id,booking_token:lead.booking_token,start:lead.slots[0].start})).status).toBe(503);
+  expect(tables.meetings[0].status).toBe('booked');expect(tables.meetings[0].google_event_id).toBe(calendarEvents[0].id);
+  expect(sentEmails.filter(e=>e.to==='calendar@example.invalid')).toHaveLength(0);
+ });
+ it('offers no slots when the configured calendar is missing or reports an error',async()=>{
+  vi.stubGlobal('fetch',async(input:RequestInfo|URL,init:RequestInit={})=>String(input).endsWith('/freeBusy')?Response.json({calendars:{primary:{errors:[{reason:'notFound'}],busy:[]}}}):fakeFetch(input,init));
+  const response=await call('GET','/api/slots');expect(response.status).toBe(500);expect(await response.json()).not.toHaveProperty('slots');
+ });
+ it('does not send global-account reminders for tenant meetings or unconfirmed conferences',async()=>{
+  const {sendReminders}=await import('../src/jobs');
+  const base={status:'booked',start_at:'2026-11-03T04:00:00.000Z',end_at:'2026-11-03T04:15:00.000Z',attendee_email:'fixture@example.invalid',google_event_id:'rpfixture',reminder_24h_at:null};
+  tables.meetings=[{...base,id:uuid(),meet_url:null},{...base,id:uuid(),tenant_id:uuid(),meet_url:'https://meet.google.com/abc-defg-hij'}];
+  expect((await sendReminders(env)).sent).toBe(0);expect(sentEmails).toHaveLength(0);expect(tables.meetings.every(m=>m.reminder_24h_at===null)).toBe(true);
+ });
 });

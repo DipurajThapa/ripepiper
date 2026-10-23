@@ -64,6 +64,40 @@ try {
  assert.match(await page.locator('#campaignError').textContent(),/Save your message changes/);
  assert.equal(await page.evaluate(()=>window.fixtureCalls.some(c=>c.body.operation==='approve')),false);
  for(const width of [1280,390]){await page.setViewportSize({width,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2),false,`Horizontal overflow at ${width}`);}
+
+ // Exercise the real meeting admin UI and shared helpers with a synthetic database/provider boundary.
+ await page.goto('https://fixture.example.invalid/');
+ await page.addStyleTag({content:await readFile(new URL('site/assets/site.css',root),'utf8')});
+ await page.addScriptTag({content:await readFile(new URL('site/assets/app-common.js',root),'utf8')});
+ await page.evaluate(()=>{
+  window.reconcileCalls=[];window.calendarReady=false;
+  window.fixtureMeeting={id:'11111111-1111-4111-8111-111111111111',start_at:'2026-11-01T08:00:00Z',end_at:'2026-11-01T08:15:00Z',attendee_email:'fixture@example.invalid',status:'booked',meet_url:null};
+  RP.demo=false;RP.auth=ready=>{document.getElementById('app').hidden=false;ready({id:'fixture',email:'staff@example.invalid'});};
+  RP.sb={from:table=>{
+   const result=()=>({data:table==='profiles'?{is_admin:true}:table==='meetings'?[{...window.fixtureMeeting}]:[]});
+   const q={select:()=>q,is:()=>q,order:()=>q,limit:()=>q,eq:()=>q,single:()=>q,then:(resolve,reject)=>Promise.resolve(result()).then(resolve,reject)};return q;
+  }};
+  RP.api=async(path,body)=>{
+   window.reconcileCalls.push({path,body});
+   if(!window.calendarReady)throw Error('Calendar confirmation is still unavailable.');
+   window.fixtureMeeting.meet_url='https://meet.google.com/abc-defg-hij';return {ok:true,delivery:'not_sent'};
+  };
+ });
+ await page.addScriptTag({content:await readFile(new URL('site/assets/admin.js',root),'utf8')});
+ await page.locator('[data-tab="meetings"]').click();
+ await page.locator('#meetingsTable tr.click').click();
+ assert.match(await page.locator('#meetingDetail').textContent(),/time remains reserved/);
+ await page.evaluate(()=>RP.demo=true);
+ await page.getByRole('button',{name:'Check calendar confirmation',exact:true}).click();
+ assert.equal(await page.evaluate(()=>window.reconcileCalls.length),0);
+ await page.evaluate(()=>RP.demo=false);
+ await page.getByRole('button',{name:'Check calendar confirmation',exact:true}).click();
+ await page.waitForFunction(()=>document.getElementById('calendarReview').textContent.includes('still unavailable'));
+ await page.evaluate(()=>window.calendarReady=true);
+ await page.getByRole('button',{name:'Check calendar confirmation',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('#meetingDetail a')?.href==='https://meet.google.com/abc-defg-hij');
+ assert.equal(await page.evaluate(()=>window.reconcileCalls.length),2);
+ for(const width of [1280,390]){await page.setViewportSize({width,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2),false,`Meeting overflow at ${width}`);}
  assert.deepEqual(failures,[]);
- console.log('PASS: four rendered product forms, import/report, campaign draft and dirty-approval guard, desktop/mobile overflow, no page errors; synthetic API only.');
+ console.log('PASS: four rendered product forms, import/report, campaign draft and dirty-approval guard, desktop/mobile overflow, meeting reconciliation/sample/error/recovery, no page errors; synthetic API only.');
 }finally{await browser.close();}

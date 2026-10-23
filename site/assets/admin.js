@@ -55,12 +55,15 @@
   /* ---------------------------------------------------------- meetings */
   function renderMeetings() {
     $("meetingsTable").innerHTML = RP.table([{ label: "When", render: function (m) { return RP.dateTime(m.start_at); } }, { label: "With", render: function (m) { return RP.esc(m.attendee_name || m.attendee_email); } },
-      { label: "Status", render: function (m) { return RP.badge(m.status); } }, { label: "Notes", render: function (m) { return m.notes ? "Ready" : "–"; } }], data.meetings, { clickable: true, empty: "No meetings booked yet." });
+      { label: "Status", render: function (m) { return RP.badge(m.status === "booked" && !m.meet_url ? "Calendar review required" : m.status); } }, { label: "Notes", render: function (m) { return m.notes ? "Ready" : "–"; } }], data.meetings, { clickable: true, empty: "No meetings booked yet." });
   }
   function list(xs) { return xs && xs.length ? "<ul>" + xs.map(function (x) { return "<li>" + RP.esc(x) + "</li>"; }).join("") + "</ul>" : '<p class="muted">Not discussed.</p>'; }
   function meetingDetail(m) {
     cur.meeting = m;
     var n = m.notes, q = m.requirements, h = '<h3>' + RP.esc(m.attendee_name || m.attendee_email) + "</h3><p class=\"muted\">" + RP.dateTime(m.start_at) + " · " + RP.badge(m.status) + (m.meet_url ? ' · <a href="' + RP.esc(m.meet_url) + '" rel="noopener">Meet link</a>' : "") + "</p>";
+    if (m.status === "booked") {
+      h += (m.meet_url ? '' : '<p>The time remains reserved. Check Google Calendar confirmation before changing this booking.</p>') + '<button class="btn btn-line" type="button" id="reconcileBooking">Check calendar confirmation</button><p id="calendarReview" role="status"></p>';
+    }
     if (n) {
       h += '<div class="prose"><h3>Summary</h3><p>' + RP.esc(n.summary) + "</p><h3>Pains</h3>" + list(n.pains) + "<h3>Goals</h3>" + list(n.goals) +
         "<p><strong>Budget:</strong> " + RP.esc(n.budget) + "<br><strong>Timeline:</strong> " + RP.esc(n.timeline) + "</p><h3>Decision makers</h3>" + list(n.decision_makers) + "<h3>Objections</h3>" + list(n.objections) +
@@ -79,6 +82,16 @@
         '<button class="btn btn-line" type="button" id="useT">Create notes from this text</button><p class="err" id="tErr"></p><div id="tOk" hidden></div>';
     }
     $("meetingDetail").innerHTML = h;
+    var reconcile = $("reconcileBooking");
+    if (reconcile) reconcile.addEventListener("click", function () {
+      var meetingId = m.id, result = $("calendarReview");
+      if (RP.demo || !RP.sb) { result.textContent = "Calendar reconciliation requires the connected admin site."; return; }
+      reconcile.disabled = true;
+      RP.api("/api/admin/meetings/" + meetingId + "/reconcile", {})
+        .then(function () { return fetchAll(); })
+        .then(function () { renderMeetings(); if (cur.meeting && cur.meeting.id === meetingId) meetingDetail(data.meetings.find(function (x) { return x.id === meetingId; }) || m); })
+        .catch(function (e) { result.textContent = e.message; reconcile.disabled = false; });
+    });
     if (q) { $("dPlan").value = q.recommended_plan; $("dPkg").value = q.recommended_package; }
   }
   function processMeeting(transcript) {
