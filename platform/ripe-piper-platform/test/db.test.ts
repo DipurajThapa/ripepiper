@@ -405,8 +405,7 @@ describe('versioned campaign to synthetic sequence',()=>{
   const campaign=crypto.randomUUID(),start=new Date(Date.now()+60000).toISOString();
   const plan={product:'revive',purpose:'reactivation',market:'AE',timezone:'UTC',steps:[{offsetHours:0,subject:'Fixture subject',body:'Is this still a priority?',evidenceReference:'fixture:source'},{offsetHours:24,subject:'Fixture follow-up',body:'Should we close the loop?',evidenceReference:'fixture:source'}]};
   await db.query(`insert into business_briefs(tenant_id,version,body,created_by) values($1,1,jsonb_build_object('maxAgeDays',90,'source',jsonb_build_object('observedAt',now())),$2)`,[t,ADMIN]);
-  const source=(await db.query<any>(`insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,synthetic) values($1,$2,'fixture','campaign-source',now(),'reactivation',true) returning id`,[t,l])).rows[0].id;
-  await db.query(`insert into contact_rights(tenant_id,lead_id,source_id,purpose,channel,market,decision,reviewer_id,notice_reference) values($1,$2,$3,'reactivation','email','AE','permitted',$4,'fixture-notice')`,[t,l,source,ADMIN]);
+  const source=(await db.query<any>(`insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,synthetic,rights_reference,assessment_reviewed_by) values($1,$2,'fixture','campaign-source',now(),'reactivation',true,'fixture-rights',$3) returning id`,[t,l,ADMIN])).rows[0].id;
   const call=async(op:string,version:number,body:any)=>(await db.query<any>(`select manage_campaign_plan($1,$2,$3,$4,$5,$6) result`,[t,campaign,ADMIN,op,version,JSON.stringify(body)])).rows[0].result;
   await expect(as(U1,`select manage_campaign_plan('${t}','${campaign}','${U1}','save',0,'{}')`)).rejects.toThrow();
   await db.exec('set role service_role');
@@ -418,6 +417,8 @@ describe('versioned campaign to synthetic sequence',()=>{
    await expect(call('approve',1,{...authority,ctsProfile:''})).rejects.toThrow('authority');
    expect(await call('approve',1,authority)).toMatchObject({status:'approved'});
    await expect(call('approve',1,{...authority,maxActions:1})).rejects.toThrow('approval scope');
+   await expect(call('rights',1,{leadId:l,sourceId:crypto.randomUUID(),noticeReference:'fixture-notice'})).rejects.toThrow('Eligible synthetic source');
+   await call('rights',1,{leadId:l,sourceId:source,noticeReference:'fixture-notice'});
    const queued=await call('queue',1,{leadId:l,startAt:start});expect(queued.actionIds).toHaveLength(2);
    expect((await call('queue',1,{leadId:l,startAt:start})).actionIds).toEqual(queued.actionIds);
    await expect(call('queue',1,{leadId:l,startAt:new Date(Date.now()+120000).toISOString()})).rejects.toThrow('schedule');

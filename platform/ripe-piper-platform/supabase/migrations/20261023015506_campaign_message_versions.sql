@@ -125,6 +125,19 @@ begin
   update public.campaigns set status='approved',client_authority_ref=p_body->>'clientAuthority',owner_authority_ref=p_body->>'ownerAuthority',cts_profile_ref=p_body->>'ctsProfile',max_actions=(p_body->>'maxActions')::integer,expires_at=(p_body->>'expiresAt')::timestamptz where id=c.id;
   return jsonb_build_object('id',c.id,'status','approved','version',c.asset_version);
  end if;
+ if p_operation='rights' then
+  lead:=(p_body->>'leadId')::uuid;
+  if c.status<>'approved' or c.expires_at<=now() or coalesce(length(trim(p_body->>'noticeReference')),0) not between 1 and 240
+   or not exists(select 1 from public.leads where id=lead and tenant_id=p_tenant and lower(email) like '%.invalid' and status<>'unsubscribed')
+   or not exists(select 1 from public.lead_observations where id=(p_body->>'sourceId')::uuid and tenant_id=p_tenant and lead_id=lead and synthetic and assessment_reviewed_by is not null and coalesce(length(trim(rights_reference)),0)>0)
+   or exists(select 1 from public.lead_suppression where tenant_id=p_tenant and lead_id=lead)
+   or exists(select 1 from public.suppression where email=(select lower(email) from public.leads where id=lead))
+   or exists(select 1 from public.contact_rights where tenant_id=p_tenant and lead_id=lead and purpose=c.purpose and channel=c.channel and market=c.market and (decision='denied' or objected_at is not null or withdrawn_at is not null)) then raise exception 'Eligible synthetic source required; stops cannot be overridden' using errcode='22023'; end if;
+  insert into public.contact_rights(tenant_id,lead_id,source_id,purpose,channel,market,decision,reviewer_id,notice_reference,expires_at)
+   values(p_tenant,lead,(p_body->>'sourceId')::uuid,c.purpose,c.channel,c.market,'permitted',p_actor,'synthetic:'||(p_body->>'noticeReference'),c.expires_at)
+   on conflict(tenant_id,lead_id,purpose,channel,market) do update set source_id=excluded.source_id,reviewer_id=excluded.reviewer_id,notice_reference=excluded.notice_reference,expires_at=excluded.expires_at,decision='permitted',version=public.contact_rights.version+1,updated_at=now();
+  return jsonb_build_object('id',c.id,'status','synthetic_rights_recorded');
+ end if;
  if p_operation='queue' then
   lead:=(p_body->>'leadId')::uuid;
   if not exists(select 1 from public.leads where id=lead and tenant_id=p_tenant and lower(email) like '%.invalid') then raise exception 'Synthetic same-tenant lead required' using errcode='22023'; end if;
@@ -186,3 +199,75 @@ revoke all on function public.synthetic_action_allowed(uuid,timestamptz) from pu
 grant execute on function public.synthetic_action_allowed(uuid,timestamptz) to service_role;
 
 
+
+-- Match plan edit/pause lock ordering: tenant, campaign, then action.
+create or replace function public.claim_synthetic_action(p_id uuid, p_now timestamptz) returns boolean
+language plpgsql security invoker set search_path = '' as $$
+declare a public.outbound_actions%rowtype; c public.campaigns%rowtype;
+begin
+  if current_user <> 'service_role' then raise exception 'Service role required' using errcode='42501'; end if;
+  if p_now is null then return false; end if;
+  select * into a from public.outbound_actions where id=p_id;
+  if not found then return false; end if;
+  perform 1 from public.tenants where id=a.tenant_id for update;
+  perform 1 from public.campaigns where id=a.campaign_id and tenant_id=a.tenant_id for update;
+  select * into a from public.outbound_actions where id=p_id for update skip locked;
+  if not found or a.state <> 'queued' or a.attempts >= 3 or a.due_at > p_now then return false; end if;
+  select * into c from public.campaigns where id=a.campaign_id and tenant_id=a.tenant_id for update;
+  if not found or not public.synthetic_action_allowed(a.id,p_now) or
+     (select count(*) from public.outbound_actions x where x.campaign_id=c.id and x.state in ('claimed','tested','delivered')) >= c.max_actions
+  then
+    update public.outbound_actions set state='blocked', error_code='eligibility_or_authority_changed' where id=a.id;
+    return false;
+  end if;
+  update public.outbound_actions set state='claimed', attempts=attempts+1, lease_until=p_now+interval '2 minutes'
+    where id=a.id;
+  return true;
+end $$;
+revoke all on function public.claim_synthetic_action(uuid,timestamptz) from public, anon, authenticated;
+grant execute on function public.claim_synthetic_action(uuid,timestamptz) to service_role;
+
+-- A local test sink result. `tested` is deliberately distinct from provider delivery.
+create or replace function public.complete_synthetic_action(p_id uuid, p_now timestamptz) returns boolean
+language plpgsql security invoker set search_path = '' as $$
+declare a public.outbound_actions%rowtype;
+begin
+  if current_user <> 'service_role' then raise exception 'Service role required' using errcode='42501'; end if;
+  select * into a from public.outbound_actions where id=p_id;
+  if not found then return false; end if;
+  perform 1 from public.tenants where id=a.tenant_id for update;
+  perform 1 from public.campaigns where id=a.campaign_id and tenant_id=a.tenant_id for update;
+  select * into a from public.outbound_actions where id=p_id for update skip locked;
+  if not found or a.state <> 'claimed' or p_now is null or a.lease_until is null or a.lease_until<=p_now then return false; end if;
+  perform 1 from public.campaigns where id=a.campaign_id and tenant_id=a.tenant_id for update;
+  if not public.synthetic_action_allowed(a.id,p_now) then
+    update public.outbound_actions set state='blocked', error_code='eligibility_or_authority_changed', lease_until=null where id=a.id;
+    return false;
+  end if;
+  update public.outbound_actions set state='tested', provider_ref='test-sink:' || a.id::text, lease_until=null where id=a.id;
+  return true;
+end $$;
+revoke all on function public.complete_synthetic_action(uuid,timestamptz) from public, anon, authenticated;
+grant execute on function public.complete_synthetic_action(uuid,timestamptz) to service_role;
+
+-- Restart after an uncertain result routes to review; never blindly repeats a send.
+create or replace function public.expire_synthetic_claim(p_id uuid, p_now timestamptz) returns boolean
+language plpgsql security invoker set search_path = '' as $$
+declare expired boolean; a public.outbound_actions%rowtype;
+begin
+  if current_user <> 'service_role' then raise exception 'Service role required' using errcode='42501'; end if;
+  select * into a from public.outbound_actions where id=p_id;
+  if not found then return false; end if;
+  perform 1 from public.tenants where id=a.tenant_id for update;
+  perform 1 from public.campaigns where id=a.campaign_id and tenant_id=a.tenant_id for update;
+  update public.outbound_actions set state='review', error_code='uncertain_result', lease_until=null
+  where id=p_id and state='claimed' and lease_until<=p_now;
+  expired := found;
+  if expired then
+    update public.campaigns set status='paused'
+      where id=(select campaign_id from public.outbound_actions where id=p_id) and status='approved';
+  end if;
+  return expired;
+end $$;
+revoke all on function public.expire_synthetic_claim(uuid,timestamptz) from public, anon, authenticated;
+grant execute on function public.expire_synthetic_claim(uuid,timestamptz) to service_role;

@@ -24,13 +24,19 @@ export async function campaignPlans(req:Request,env:Env,tenantId:string){
   const campaigns=await db.select('campaigns',`tenant_id=eq.${tenantId}&order=created_at.desc&limit=101`);
   const assets=await db.select('campaign_assets',`tenant_id=eq.${tenantId}&order=version.desc&limit=1000`);
   const actions=await db.select('outbound_actions',`tenant_id=eq.${tenantId}&order=due_at&limit=1000`);
-  if(campaigns.length>100||assets.length>=1000||actions.length>=1000)return bad('This review needs pagination before more records can be displayed.',409);
-  return json({ok:true,campaigns,assets,actions,delivery:'synthetic_only'});
+  const leads=await db.select<any>('leads',`tenant_id=eq.${tenantId}&select=id,email,company&limit=101`);
+  const sources=await db.select<any>('lead_observations',`tenant_id=eq.${tenantId}&synthetic=eq.true&select=id,lead_id,external_ref&limit=1000`);
+  if(leads.length>100||sources.length>=1000||campaigns.length>100||assets.length>=1000||actions.length>=1000)return bad('This review needs pagination before more records can be displayed.',409);
+  return json({ok:true,campaigns,assets,actions,leads:leads.filter(l=>l.email.toLowerCase().endsWith('.invalid')),sources,delivery:'synthetic_only'});
  }
  if(!uuid.test(b.campaign_id??'') || !Number.isInteger(b.version) || b.version<0)return bad('Provide the campaign and loaded version.');
  if(b.operation==='save'){const error=planError(b.body);if(error)return bad(error);}
  else if(b.operation==='approve'){
   if(!b.body || !['clientAuthority','ownerAuthority','ctsProfile'].every(k=>bounded(b.body[k],240)) || !Number.isInteger(b.body.maxActions)||b.body.maxActions<1||b.body.maxActions>100||!validInstant(b.body.expiresAt))return bad('Record the authority references, expiry and a maximum of 1–100 actions.');
+ }
+ else if(b.operation==='rights'){
+  if(env.SYNTHETIC_SINK_ENABLED!=='true')return bad('Synthetic sequence testing is disabled.',403);
+  if(!uuid.test(b.body?.leadId??'')||!uuid.test(b.body?.sourceId??'')||!bounded(b.body?.noticeReference,240))return bad('Choose a test contact, its source and a synthetic notice reference.');
  }
  else if(b.operation==='queue'){
   if(env.SYNTHETIC_SINK_ENABLED!=='true')return bad('Synthetic sequence testing is disabled.',403);
