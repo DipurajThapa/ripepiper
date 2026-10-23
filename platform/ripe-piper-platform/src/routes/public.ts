@@ -77,12 +77,27 @@ export async function postBook(req: Request, env: Env) {
   if (!validBookingToken(b.booking_token) || !/^[0-9a-f-]{36}$/i.test(String(b.lead_id))) return bad("Please complete the booking form again.", 403);
   const db = new Db(env);
   const lead = await db.one<any>("leads", `id=eq.${encodeURIComponent(String(b.lead_id))}&tenant_id=is.null&select=*`);
-  if (!lead || lead.status !== "qualified") return bad("Please complete the booking form again.", 403);
+  if (!lead || !["qualified", "meeting_booked"].includes(lead.status)) return bad("Please complete the booking form again.", 403);
   const now = new Date();
   const hash = await hashBookingToken(b.booking_token);
-  if (lead.booking_token_hash !== hash || lead.booking_token_used_at ||
+  if (lead.booking_token_hash !== hash ||
       !lead.booking_token_expires_at || Date.parse(lead.booking_token_expires_at) <= now.getTime())
     return bad("This booking link has expired or has already been used. Please complete the form again.", 403);
+  // A retry may read its own confirmed reservation, never create another event or email.
+  // Keep the original capability expiry and require the same requested slot and attendee.
+  if (lead.booking_token_used_at) {
+    const requested = Date.parse(String(b.start));
+    if (!Number.isFinite(requested)) return bad("Invalid booking time.", 400);
+    const existing = await db.one<any>("meetings",
+      `tenant_id=is.null&lead_id=eq.${lead.id}&kind=eq.discovery&status=in.(booked,rescheduled)&start_at=eq.${encodeURIComponent(new Date(requested).toISOString())}&attendee_email=eq.${encodeURIComponent(lead.email)}&select=*`);
+    if (!existing) return bad("This booking link has already been used. Please contact Ripe Piper.", 403);
+    if (!existing.google_event_id || !/^https:\/\/meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}$/.test(existing.meet_url ?? ""))
+      return bad("Your requested time remains reserved for review. Please contact Ripe Piper before trying again.", 503);
+    return json({ ok: true, meeting_id: existing.id, start: existing.start_at,
+      label: freeSlots(now, []).find(s => Date.parse(s.start) === requested)?.label ?? existing.start_at,
+      meet_url: existing.meet_url });
+  }
+  if (lead.status !== "qualified") return bad("Please complete the booking form again.", 403);
   const slot = isOfferedSlot(String(b.start), now, await busyWithMeetings(env, db, now));
   if (!slot) return bad("That time is no longer available. Please choose another time.", 409);
   // Atomic conditional claim in PostgREST prevents replay or concurrent reservations for a lead.

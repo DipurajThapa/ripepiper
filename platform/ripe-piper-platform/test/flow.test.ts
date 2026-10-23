@@ -151,6 +151,38 @@ describe("inquiry to booked call", () => {
     expect(r3.status).toBe(409);
   });
 
+  it("returns a confirmed retry without provider calls or duplicate emails", async () => {
+    const lead: any = await (await call("POST", "/api/lead", { name: "A", email: "a@first.ae", website: "first.ae", deal_band: 2, consent: true })).json();
+    const request = { lead_id: lead.lead_id, booking_token: lead.booking_token, start: lead.slots[0].start };
+    const first = await (await call("POST", "/api/book", request)).json();
+    const fetchSpy = vi.fn(fakeFetch); vi.stubGlobal("fetch", fetchSpy);
+    const emailCount = sentEmails.length;
+    expect(await (await call("POST", "/api/book", request)).json()).toEqual(first);
+    expect(fetchSpy.mock.calls.every(([url]) => new URL(String(url)).host === "test.supabase.co")).toBe(true);
+    expect(calendarEvents).toHaveLength(1); expect(sentEmails).toHaveLength(emailCount);
+    // Also recover when confirmation persisted but the lead-status update did not.
+    tables.leads[0].status = "qualified";
+    expect((await call("POST", "/api/book", request)).status).toBe(200);
+    tables.meetings[0].meet_url = null;
+    expect((await call("POST", "/api/book", request)).status).toBe(503);
+  });
+
+  it("does not expose cancelled, tenant-owned, changed-attendee or expired retry details", async () => {
+    const lead: any = await (await call("POST", "/api/lead", { name: "A", email: "a@first.ae", website: "first.ae", deal_band: 2, consent: true })).json();
+    const request = { lead_id: lead.lead_id, booking_token: lead.booking_token, start: lead.slots[0].start };
+    await call("POST", "/api/book", request);
+    const meeting = tables.meetings[0];
+    for (const patch of [{ status: "cancelled" }, { tenant_id: uuid() }, { attendee_email: "other@example.invalid" }]) {
+      const original = { ...meeting }; Object.assign(meeting, patch);
+      expect((await call("POST", "/api/book", request)).status).toBe(403);
+      for (const key of Object.keys(patch)) delete meeting[key];
+      Object.assign(meeting, original);
+    }
+    vi.setSystemTime(new Date("2026-11-02T04:16:00Z"));
+    expect((await call("POST", "/api/book", request)).status).toBe(403);
+    expect(calendarEvents).toHaveLength(1);
+  });
+
   it("routes Gmail users to the work-email step and small deals to 'not yet'", async () => {
     expect((await (await call("POST", "/api/lead", { name: "A", email: "a@gmail.com", website: "a.com", deal_band: 2, consent: true })).json() as any).route).toBe("work_email");
     expect((await (await call("POST", "/api/lead", { name: "B", email: "b@small.ae", website: "small.ae", deal_band: 0, consent: true })).json() as any).route).toBe("not_fit");
