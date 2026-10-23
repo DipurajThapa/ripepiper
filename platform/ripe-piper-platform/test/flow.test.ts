@@ -50,7 +50,7 @@ function defaults(table: string, row: Row): Row {
 async function fakeSupabase(url: URL, init: RequestInit): Promise<Response> {
   if (url.pathname === "/auth/v1/user") return Response.json(init.headers && (init.headers as Record<string,string>).Authorization === "Bearer client-token"
     ? { id: "client-1", email: "client@example.invalid" } : { id: "admin-1", email: "admin@ripepiper.com" });
-  if (url.pathname.startsWith("/rest/v1/rpc/")) { rpcCalls.push(url.pathname); rpcBodies.push(JSON.parse(String(init.body))); return Response.json(true); }
+  if (url.pathname.startsWith("/rest/v1/rpc/")) { rpcCalls.push(url.pathname); const b=JSON.parse(String(init.body)); rpcBodies.push(b); return Response.json(url.pathname.endsWith("/claim_fenced_synthetic_action") ? {token:b.p_token,approvalVersion:1,assetVersion:1} : true); }
   const table = url.pathname.replace("/rest/v1/", "");
   tables[table] ??= [];
   const t = tables[table], q = url.searchParams, method = init.method ?? "GET";
@@ -292,14 +292,15 @@ describe("synthetic action endpoint", () => {
     expect((await call("POST", `/api/admin/actions/${id}/test`, {}, { Authorization: "Bearer test-admin" })).status).toBe(403);
     expect(sentEmails).toHaveLength(0);
   });
-  it("calls only the database claim and test-sink completion when explicitly enabled", async () => {
+  it("calls only fenced database claim and test-sink completion when explicitly enabled", async () => {
     const id = "11111111-1111-4111-8111-111111111111";
     env.SYNTHETIC_SINK_ENABLED = "true";
+    tables.outbound_actions=[{id,tenant_id:"22222222-2222-4222-8222-222222222222",state:"queued"}];
     try {
       const res = await call("POST", `/api/admin/actions/${id}/test`, {}, { Authorization: "Bearer test-admin" });
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ ok: true, state: "tested", action_id: id });
-      expect(rpcCalls).toEqual(["/rest/v1/rpc/claim_synthetic_action", "/rest/v1/rpc/complete_synthetic_action"]);
+      expect(rpcCalls).toEqual(["/rest/v1/rpc/claim_fenced_synthetic_action", "/rest/v1/rpc/complete_fenced_synthetic_action"]);
       expect(sentEmails).toHaveLength(0);
       expect(calendarEvents).toHaveLength(0);
     } finally { delete env.SYNTHETIC_SINK_ENABLED; }

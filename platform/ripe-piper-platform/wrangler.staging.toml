@@ -1,0 +1,23 @@
+# Prepared only. No deployment is authorized by this file.
+# Deliberately separate from production wrangler.toml: no custom routes or cron.
+name = "ripe-piper-api-staging"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+routes = []
+
+[triggers]
+crons = []
+
+[vars]
+SITE_URL = "https://staging.example.invalid"
+GOOGLE_CALENDAR_ID = "unconfigured-staging-calendar"
+AI_MODEL = "unconfigured"
+MAIL_FROM = "Ripe Piper Test <test@example.invalid>"
+PAID_AI_ENABLED = "false"
+WHATSAPP_ENABLED = "false"
+SYNTHETIC_SINK_ENABLED = "true"
+# Add only the isolated Supabase URL/keys through secure environment setup.
+# No production key, global Google send/calendar grant, payment key or AI key.
+# Configure permitted read-only tenant Google bindings separately after consent.

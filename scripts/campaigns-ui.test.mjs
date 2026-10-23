@@ -30,3 +30,19 @@ test('failed loads cannot save or approve a campaign',async()=>{
  const calls=[];const ui=mount(async(path,body)=>{calls.push(body);throw Error('Unconfigured preview');});ui.select('tenant-a');await tick();
  ui.nodes.campaignDraft.onsubmit({preventDefault(){}});assert.equal(calls.length,1);assert.match(ui.nodes.campaignError.textContent,/Load the current campaign/);
 });
+
+test('existing action review reads the tenant receipt without starting another test',async()=>{
+ const calls=[];const fixture={campaigns:[{id:'campaign-1',capability:'revive',purpose:'fixture',status:'approved',asset_version:1}],assets:[],actions:[{id:'action-1',campaign_id:'campaign-1',state:'tested',due_at:'2026-10-23',message_step:0}]};
+ const ui=mount(async(path,body)=>{calls.push({path,body});return path.endsWith('/receipt')?{state:'tested',receipt:{acknowledgedAt:'2026-10-23T12:00:00Z'},delivery:'not_sent'}:fixture;});
+ ui.select('tenant-a');await tick();ui.nodes.campaignSelect.value='campaign-1';ui.nodes.campaignSelect.onchange();
+ assert.match(ui.nodes.campaignActions.innerHTML,/Check test acknowledgement/);
+ ui.nodes.campaignActions.onclick({target:{getAttribute:name=>name==='data-action-receipt'?'action-1':null}});await tick();
+ assert.equal(calls.at(-1).path,'/api/admin/tenants/tenant-a/actions/action-1/receipt');assert.equal(calls.some(c=>c.path.endsWith('/test')),false);
+ assert.match(ui.nodes.campaignReceipt.textContent,/No email was sent/);
+});
+test('late receipt reads cannot expose the previous tenant result',async()=>{
+ let finish;const ui=mount((path)=>path.endsWith('/receipt')?new Promise(r=>finish=r):Promise.resolve(empty()));
+ ui.select('tenant-a');await tick();ui.nodes.campaignActions.onclick({target:{getAttribute:name=>name==='data-action-receipt'?'action-1':null}});
+ ui.select('tenant-b');await tick();finish({state:'tested',receipt:{acknowledgedAt:'PRIVATE previous tenant'}});await tick();
+ assert.doesNotMatch(ui.nodes.campaignReceipt.textContent,/PRIVATE/);
+});

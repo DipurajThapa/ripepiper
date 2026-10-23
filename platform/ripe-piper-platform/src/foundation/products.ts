@@ -8,6 +8,7 @@ export type ProductContext =
  | {product:'revive';kind:'history';lastContactAt:string;previousInterest:'yes'|'no'|'unknown';stalledReason:string}
  | {product:'signal';kind:'trigger';relevance:string;expiresAt:string}
  | {product:'response';kind:'enquiry'|'reply';threadRef:string;disposition:typeof DISPOSITIONS[number];need:string;authority:string;timing:string;nextContactAt?:string}
+ | {product:'response';kind:'conversation_review';threadRef:string;ownerId:string;ownerLabel:string;version:number;inboundSnapshot:string;state:'open'|'resolved';reason:string}
  | {product:'events';kind:'registration'|'attendance';eventRef:string;endsAt:string;timezone:string;attendance:'unknown'|'attended'|'verified_no_show';rosterComplete:boolean}
  | {product:Product;kind:'outcome';outcome:typeof OUTCOMES[number];reason:string;threadRef?:string;eventRef?:string};
 const text=(v:unknown,n=500):v is string=>typeof v==='string' && !!v.trim() && v.length<=n;
@@ -23,6 +24,11 @@ export function productError(v:any,observedAt:string,now:number,requireOutcomeSc
  }
  if(v.product==='revive' && v.kind==='history') return validDate(v.lastContactAt,Date.parse(observedAt)) && ['yes','no','unknown'].includes(v.previousInterest) && text(v.stalledReason) ? null : 'Record last contact, previous interest and the known reason or explicitly unknown reason.';
  if(v.product==='signal' && v.kind==='trigger') return text(v.relevance) && validInstant(v.expiresAt) && Date.parse(v.expiresAt)>Date.parse(observedAt) && Date.parse(v.expiresAt)-Date.parse(observedAt)<=365*86400000 ? null : 'Record business relevance and an expiry within one year of observation.';
+ if(v.product==='response' && v.kind==='conversation_review') {
+   if(requireOutcomeScope)return 'Use the conversation ownership review controls for assignment or resolution.';
+   return text(v.threadRef,240) && /^[0-9a-f-]{36}$/i.test(v.ownerId??'') && text(v.ownerLabel,320) && Number.isInteger(v.version) && v.version>0 &&
+    text(v.inboundSnapshot,37000) && /^[0-9a-f,-]+$/.test(v.inboundSnapshot) && ['open','resolved'].includes(v.state) && text(v.reason,1000) ? null : 'Invalid reviewed conversation record.';
+ }
  if(v.product==='response' && ['enquiry','reply'].includes(v.kind)) {
    if(!text(v.threadRef,240) || !DISPOSITIONS.includes(v.disposition) || ![v.need,v.authority,v.timing].every(answer)) return 'Record the thread, reviewed disposition and known qualification answers; leave unknown answers blank.';
    if(v.disposition==='later' && (!validInstant(v.nextContactAt) || Date.parse(v.nextContactAt)<=Date.parse(observedAt))) return 'A later response needs its agreed future review time.';
@@ -37,7 +43,7 @@ export function productError(v:any,observedAt:string,now:number,requireOutcomeSc
  }
  return 'This event belongs to a different product workflow.';
 }
-export function reviewProducts(observations:Observation[],now:number,suppressed:boolean,fitState:string) {
+export function reviewProducts(observations:Observation[],now:number,suppressed:boolean,fitState:string,authorizedOwners?:{id:string;label:string}[]) {
  const source = observations.filter(o=>o.assessment_reviewed_by && o.product_context && !productError(o.product_context,o.observed_at,now))
   .sort((a,b)=>Date.parse(b.observed_at)-Date.parse(a.observed_at) || a.id.localeCompare(b.id));
  const replies=source.filter(o=>o.product_context?.product==='response' && ['reply','enquiry'].includes(o.product_context.kind));
@@ -48,7 +54,7 @@ export function reviewProducts(observations:Observation[],now:number,suppressed:
  });
  return work.map(({product,key})=>{
    const history=source.filter(o=>{const c=o.product_context!;return c.product===product && (('threadRef' in c?c.threadRef:'eventRef' in c?c.eventRef:'')===key);});
-   const latest=history.find(o=>o.product_context!.kind!=='outcome');
+   const latest=history.find(o=>!['outcome','conversation_review'].includes(o.product_context!.kind));
    const context=latest?.product_context;
    let state='needs_evidence', nextAction='Record reviewed source evidence.', dueAt:string|null=null;
    let question:string|null=null;
@@ -88,9 +94,24 @@ export function reviewProducts(observations:Observation[],now:number,suppressed:
      nextAction=state==='attended'?'Review the discussion and agreed next step.':state==='verified_no_show'?'Offer a relevant recap only under the applicable contact authority.':'Reconcile attendance; do not assume a no-show.';
      dueAt=new Date(Date.parse(context.endsAt)+86400000).toISOString();
    }
+   let conversation=null;
+   if(product==='response' && key) {
+     const incoming=history.filter(o=>['enquiry','reply'].includes(o.product_context!.kind));
+     const inboundSnapshot=incoming.map(o=>o.id).sort().join(',');
+     const reviews=history.filter(o=>o.product_context?.kind==='conversation_review').sort((a,b)=>(b.product_context as any).version-(a.product_context as any).version);
+     const review=reviews[0], current=review?.product_context as Extract<ProductContext,{kind:'conversation_review'}>|undefined;
+     const reopened=!!current && current.inboundSnapshot!==inboundSnapshot;
+     const owner=authorizedOwners?.find(o=>o.id===current?.ownerId);
+     const ownerUnavailable=!!current && authorizedOwners!==undefined && !owner;
+     if(incoming.length)conversation={version:current?.version??0,inboundSnapshot,ownerId:current?.ownerId??null,ownerLabel:owner?.label??current?.ownerLabel??null,ownerAvailable:current? !ownerUnavailable:null,
+       state:ownerUnavailable?'owner_unavailable':reopened?'open':current?.state??'unassigned',reason:current?.reason??null,reviewedAt:review?.observed_at??null,reopened};
+     if(current && !reopened && !ownerUnavailable && current.state==='resolved') {state='resolved';question=null;dueAt=null;nextAction='Human review resolved. Outbound follow-ups remain held; no message or booking was created.';}
+     if(ownerUnavailable){state='human';question=null;nextAction='The previous owner is no longer authorized. Assign a current verified owner before continuing.';}
+     if(reopened) {state='human';question=null;nextAction='New inbound evidence arrived after the last review. The owner must review this conversation again.';}
+   }
    if(product!=='response' && replies.length) {state='reply_hold';nextAction='A reply or enquiry exists. Review the conversation before any further prospecting.';question=null;}
    if(stopped) {state='suppressed';nextAction='No marketing follow-up. Route any service request to staff.';question=null;dueAt=null;}
-   return {product,reference:key || null,state,nextAction,question,missing,dueAt,overdue:dueAt!==null && Date.parse(dueAt)<now,
+   return {product,reference:key || null,conversation,state,nextAction,question,missing,dueAt,overdue:dueAt!==null && Date.parse(dueAt)<now,
      contactAllowed:false,bookingAvailable:false,outcomeScope:(product==='response'||product==='events') && !key?(history.some(o=>o.product_context?.kind==='outcome')?'unattributed':null):'product_reference',history:history.map(o=>({id:o.id,reference:o.external_ref,observedAt:o.observed_at,excerpt:o.assessment_excerpt,context:o.product_context,briefVersion:o.brief_version ?? null})),
      outcomes:history.filter(o=>o.product_context?.kind==='outcome').map(o=>({at:o.observed_at,...o.product_context as Extract<ProductContext,{kind:'outcome'}>}))};
  });

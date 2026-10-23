@@ -2,7 +2,7 @@ import type { Env } from "../env";
 
 /** Minimal Supabase (PostgREST) client using the service role. Server-side only. */
 export class Db {
-  constructor(private env: Env) {}
+  constructor(private env: Env, private requestTimeoutMs?: number) {}
 
   private headers(extra: Record<string, string> = {}) {
     return {
@@ -14,7 +14,9 @@ export class Db {
   }
 
   private async call<T>(path: string, init: RequestInit): Promise<T> {
-    const res = await fetch(`${this.env.SUPABASE_URL}/rest/v1/${path}`, init);
+    const res = await fetch(`${this.env.SUPABASE_URL}/rest/v1/${path}`, { ...init,
+      ...(this.requestTimeoutMs ? { signal: AbortSignal.timeout(this.requestTimeoutMs) } : {}),
+    });
     const text = await res.text();
     if (!res.ok) throw new DbError(res.status, text);
     return (text ? JSON.parse(text) : null) as T;

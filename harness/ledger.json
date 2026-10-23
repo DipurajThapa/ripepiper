@@ -5,44 +5,70 @@
   "updated_at": "2026-10-23",
   "stages": {
     "baseline": {
-      "status": "not_started",
+      "status": "verified",
       "owner": "pm",
-      "pm_reviewed": false,
-      "qa_reviewed": false,
-      "evidence": {},
-      "blocker": "Evidence and dependency gates not yet met"
+      "pm_reviewed": true,
+      "qa_reviewed": true,
+      "evidence": {
+        "source_sha": "e4d976892af5e9c7d9d262d20b77310ca552f291",
+        "backlog_ref": "docs/DELIVERY.md",
+        "baseline_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39931781916"
+      },
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#baseline-receipt",
+      "qa_source_sha": "e4d976892af5e9c7d9d262d20b77310ca552f291"
     },
     "isolated-db": {
-      "status": "not_started",
+      "status": "verified",
       "owner": "development",
-      "pm_reviewed": false,
-      "qa_reviewed": false,
-      "evidence": {},
-      "blocker": "Evidence and dependency gates not yet met"
+      "pm_reviewed": true,
+      "qa_reviewed": true,
+      "evidence": {
+        "isolation_proof": "docs/evidence/HOSTED_STAGING_2026-10-23.md",
+        "cost_decision": "docs/evidence/HOSTED_STAGING_2026-10-23.md",
+        "database_ref": "supabase:wgomywhuzyboxlckopca"
+      },
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#independent-hosted-postgresql-verification--isolated-staging",
+      "qa_source_sha": "c8052d2961b148d01ff53068975c1eed0ee1359b"
     },
     "migration-rehearsal": {
-      "status": "not_started",
+      "status": "verified",
       "owner": "development",
-      "pm_reviewed": false,
-      "qa_reviewed": false,
-      "evidence": {},
-      "blocker": "Evidence and dependency gates not yet met"
+      "pm_reviewed": true,
+      "qa_reviewed": true,
+      "evidence": {
+        "migration_manifest": "docs/evidence/STAGING_MIGRATION_MANIFEST_2026-10-23.json",
+        "rehearsal_run": "docs/evidence/HOSTED_STAGING_2026-10-23.md",
+        "rollback_plan": "docs/evidence/HOSTED_STAGING_2026-10-23.md"
+      },
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-events-follow-up-and-final-local-composition",
+      "qa_source_sha": "b8d6a1223345f6ba7dd551cafe4c724ec863fb44",
+      "acceptance_scope": "Isolated hosted PostgreSQL 17-file upgrade manifest (16 initial plus explicitly appended Events migration), selected SQL role/RLS/receipt/owner/budget/Events checks and transaction fixture rollback. Canonical sorted fresh order tested separately. Does not prove production baseline equivalence, backup restoration, Auth/PostgREST HTTP sessions, separate-connection concurrency or product operation."
     },
     "migration-qa": {
-      "status": "not_started",
+      "status": "verified",
       "owner": "qa",
-      "pm_reviewed": false,
-      "qa_reviewed": false,
-      "evidence": {},
-      "blocker": "Evidence and dependency gates not yet met"
+      "pm_reviewed": true,
+      "qa_reviewed": true,
+      "evidence": {
+        "independent_test_run": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#independent-hosted-postgresql-verification--isolated-staging",
+        "tenant_rls_results": "qa/staging-rollback-acceptance.sql",
+        "recovery_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-events-follow-up-and-final-local-composition"
+      },
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-events-follow-up-and-final-local-composition",
+      "qa_source_sha": "b8d6a1223345f6ba7dd551cafe4c724ec863fb44",
+      "acceptance_scope": "Isolated hosted PostgreSQL 17-file upgrade manifest (16 initial plus explicitly appended Events migration), selected SQL role/RLS/receipt/owner/budget/Events checks and transaction fixture rollback. Canonical sorted fresh order tested separately. Does not prove production baseline equivalence, backup restoration, Auth/PostgREST HTTP sessions, separate-connection concurrency or product operation."
     },
     "worker-routing": {
-      "status": "not_started",
+      "status": "in_progress",
       "owner": "development",
       "pm_reviewed": false,
       "qa_reviewed": false,
       "evidence": {},
-      "blocker": "Evidence and dependency gates not yet met"
+      "blocker": "Read-only runtime inventory and route probes assigned to CTO; no new deployment or route change authorized by this stage."
     },
     "worker-qa": {
       "status": "not_started",
@@ -139,6 +165,132 @@
       "qa_reviewed": false,
       "evidence": {},
       "blocker": "Evidence and dependency gates not yet met"
+    },
+    "offline-provider-reliability": {
+      "status": "in_progress",
+      "owner": "development",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {
+        "candidate_sha": "2dfb99f8ed2e12da446be8195be9cbf13539e662",
+        "ledger_contract": "docs/evidence/SYNTHETIC_ACKNOWLEDGEMENTS_2026-10-23.md",
+        "replay_and_uncertainty_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-fenced-acknowledgement--independent-component-review",
+        "suppression_and_pause_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-fenced-acknowledgement--independent-component-review"
+      },
+      "blocker": "Implementation and independent combined backend/typecheck evidence are complete at 2dfb99f; PM verification awaits current implementation Chromium/CI receipt. No billing or live-provider prerequisite for this offline stage."
+    },
+    "offline-provider-qa": {
+      "status": "in_progress",
+      "owner": "qa",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {
+        "independent_test_run": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "negative_and_concurrency_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-fenced-acknowledgement--independent-component-review",
+        "artifact_review": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-fenced-acknowledgement--independent-component-review"
+      },
+      "blocker": "Independent local component and combined suite evidence received; all Q-001 through Q-004 locally closed. Current implementation Chromium/CI receipt and PM acceptance pending; hosted API/provider/release gates remain separate."
+    },
+    "offline-response-review": {
+      "status": "in_progress",
+      "owner": "development",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {
+        "candidate_sha": "2dfb99f8ed2e12da446be8195be9cbf13539e662",
+        "ownership_resolution_contract": "docs/evidence/RESPONSE_OWNERSHIP_2026-10-23.md",
+        "ingress_replay_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "thread_and_tenant_isolation_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect"
+      },
+      "blocker": "Implementation and independent combined backend/typecheck evidence are complete at 2dfb99f; PM verification awaits current implementation Chromium/CI receipt. No billing or live-provider prerequisite for this offline stage."
+    },
+    "offline-response-qa": {
+      "status": "in_progress",
+      "owner": "qa",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {
+        "independent_test_run": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "new_inbound_reopen_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "owner_and_resolution_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect"
+      },
+      "blocker": "Independent local component and combined suite evidence received; all Q-001 through Q-004 locally closed. Current implementation Chromium/CI receipt and PM acceptance pending; hosted API/provider/release gates remain separate."
+    },
+    "offline-cost-control": {
+      "status": "in_progress",
+      "owner": "development",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {
+        "candidate_sha": "2dfb99f8ed2e12da446be8195be9cbf13539e662",
+        "fail_closed_cost_contract": "docs/evidence/BUILD_BUDGET_2026-10-23.md",
+        "concurrent_reservation_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-paid-use-control--independent-component-review",
+        "uncertain_settlement_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect"
+      },
+      "blocker": "Implementation and independent combined backend/typecheck evidence are complete at 2dfb99f; PM verification awaits current implementation Chromium/CI receipt. No billing or live-provider prerequisite for this offline stage."
+    },
+    "offline-cost-qa": {
+      "status": "in_progress",
+      "owner": "qa",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {
+        "independent_test_run": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "cap_and_unknown_price_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-paid-use-control--independent-component-review",
+        "artifact_review": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect"
+      },
+      "blocker": "Independent local component and combined suite evidence received; all Q-001 through Q-004 locally closed. Current implementation Chromium/CI receipt and PM acceptance pending; hosted API/provider/release gates remain separate."
+    },
+    "offline-signal-ingestion": {
+      "status": "in_progress",
+      "owner": "development",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {
+        "candidate_sha": "2dfb99f8ed2e12da446be8195be9cbf13539e662",
+        "approved_source_contract": "docs/evidence/SIGNAL_SOURCES_2026-10-23.md",
+        "bounded_preview_and_review_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review",
+        "provenance_and_dedupe_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review"
+      },
+      "blocker": "Implementation and independent combined backend/typecheck evidence are complete at 2dfb99f; PM verification awaits current implementation Chromium/CI receipt. No billing or live-provider prerequisite for this offline stage."
+    },
+    "offline-signal-qa": {
+      "status": "in_progress",
+      "owner": "qa",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {
+        "independent_test_run": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review",
+        "source_boundary_and_injection_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review",
+        "ingress_idempotency_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review"
+      },
+      "blocker": "Independent local component and combined suite evidence received; all Q-001 through Q-004 locally closed. Current implementation Chromium/CI receipt and PM acceptance pending; hosted API/provider/release gates remain separate."
+    },
+    "offline-events-lifecycle": {
+      "status": "in_progress",
+      "owner": "development",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {
+        "candidate_sha": "2dfb99f8ed2e12da446be8195be9cbf13539e662",
+        "versioned_event_settings_contract": "docs/evidence/EVENTS_LIFECYCLE_2026-10-23.md",
+        "registration_capability_replay_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#events-lifecycle-and-combined-candidate-verification",
+        "cancel_and_reschedule_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-events-follow-up-and-final-local-composition"
+      },
+      "blocker": "Implementation and independent combined backend/typecheck evidence are complete at 2dfb99f; PM verification awaits current implementation Chromium/CI receipt. No billing or live-provider prerequisite for this offline stage."
+    },
+    "offline-events-qa": {
+      "status": "in_progress",
+      "owner": "qa",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {
+        "independent_test_run": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#events-lifecycle-and-combined-candidate-verification",
+        "capability_and_identity_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-events-follow-up-and-final-local-composition",
+        "lifecycle_and_suppression_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-events-follow-up-and-final-local-composition"
+      },
+      "blocker": "Independent local component and combined suite evidence received; all Q-001 through Q-004 locally closed. Current implementation Chromium/CI receipt and PM acceptance pending; hosted API/provider/release gates remain separate."
     }
-  }
+  },
+  "source_sha": "e4d976892af5e9c7d9d262d20b77310ca552f291"
 }

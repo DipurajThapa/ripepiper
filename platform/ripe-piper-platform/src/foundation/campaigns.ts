@@ -27,7 +27,7 @@ export async function campaignPlans(req:Request,env:Env,tenantId:string){
   const leads=await db.select<any>('leads',`tenant_id=eq.${tenantId}&select=id,email,company&limit=101`);
   const sources=await db.select<any>('lead_observations',`tenant_id=eq.${tenantId}&synthetic=eq.true&select=id,lead_id,external_ref&limit=1000`);
   if(leads.length>100||sources.length>=1000||campaigns.length>100||assets.length>=1000||actions.length>=1000)return bad('This review needs pagination before more records can be displayed.',409);
-  return json({ok:true,campaigns,assets,actions,leads:leads.filter(l=>l.email.toLowerCase().endsWith('.invalid')),sources,delivery:'synthetic_only'});
+  return json({ok:true,campaigns,assets,actions:actions.map(({dispatch_token,...row}:any)=>row),leads:leads.filter(l=>l.email.toLowerCase().endsWith('.invalid')),sources,delivery:'synthetic_only'});
  }
  if(!uuid.test(b.campaign_id??'') || !Number.isInteger(b.version) || b.version<0)return bad('Provide the campaign and loaded version.');
  if(b.operation==='save'){const error=planError(b.body);if(error)return bad(error);}

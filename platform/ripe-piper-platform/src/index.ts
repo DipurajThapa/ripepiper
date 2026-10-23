@@ -9,14 +9,25 @@ import { runScheduled } from "./jobs";
 import { recordSubjectRequest } from "./foundation/requests";
 import { prepareTenant, pauseTenant } from "./foundation/tenants";
 import { testAction } from "./foundation/actions";
+import { inspectActionReceipt } from "./foundation/action-reliability";
 import { acceptInvites } from "./foundation/invites";
 import { saveBrief, addProspectEvidence, prospectShortlist, recordProductEvent, importReviewLeads } from "./foundation/prospecting-routes";
 
+import { eventOperations, publicEventMetadata, publicEventRegistration } from "./foundation/events";
+import { conversationReview } from "./foundation/conversation-review";
 import { tenantConnection } from "./foundation/connections";
 import { campaignPlans } from "./foundation/campaigns";
+import { signalSource } from "./foundation/signal-sources";
 
 type Handler = (req: Request, env: Env, ctx: ExecutionContext, p: string[]) => Promise<Response>;
 const routes: [string, RegExp, Handler][] = [
+  ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/signal-source$/, (r,e,_c,p)=>signalSource(r,e,p[0])],
+  ["GET", /^\/api\/health$/, async () => json({ok:true,service:"ripe-piper-api",contract:1,database:"not_probed",providers:"not_probed"})],
+  ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/actions\/([0-9a-f-]{36})\/receipt$/, (r,e,_c,p)=>inspectActionReceipt(r,e,p[0],p[1])],
+  ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/events$/, (r,e,_c,p)=>eventOperations(r,e,p[0])],
+  ["GET", /^\/api\/events\/([0-9a-f-]{36})$/, (r,e,_c,p)=>publicEventMetadata(r,e,p[0])],
+  ["POST", /^\/api\/events\/([0-9a-f-]{36})$/, (r,e,_c,p)=>publicEventRegistration(r,e,p[0])],
+  ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/conversation-review$/, (r,e,_c,p)=>conversationReview(r,e,p[0])],
   ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/connection$/, (r,e,_c,p)=>tenantConnection(r,e,p[0])],
   ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/campaigns$/, (r,e,_c,p)=>campaignPlans(r,e,p[0])],
   ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/brief$/, (r,e,_c,p)=>saveBrief(r,e,p[0])],

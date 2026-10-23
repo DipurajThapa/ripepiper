@@ -123,3 +123,13 @@ npm test        # 49 tests
 3. **Ad data access needs approvals** from Google, Meta and LinkedIn, and each client must grant access to their ad account.
 4. **The newsletter** collects sign-ups with double opt-in. Sending the monthly issue needs a sending tool (for example Google Workspace for small lists, or a newsletter service as the list grows).
 5. **Policy to confirm:** the website currently says the Revive Sprint fee is refundable if fewer than two qualified meetings are booked. The new flow takes a 10% advance on the fixed-scope price. Decide how the refund applies to the advance and update the terms page before launch.
+
+### Events lifecycle rehearsal (default off)
+
+The existing Clients area has an **Events registration rehearsal** card. Use an existing Events campaign with its current reviewed brief and approved message version; configure title, UTC start/end, display timezone, event-only notice reference, capacity (1–100) and registration intent. Explicit staff review is required. A material settings change invalidates current message approval, cancels queued actions and holds claimed actions; re-review the message plan before reopening registration. Identical settings retries do not create a new event version.
+
+The public metadata and registration handlers remain unavailable unless both `EVENT_REGISTRATION_ENABLED=true` and the existing `SYNTHETIC_SINK_ENABLED=true` are configured in an authorized isolated environment. They only accept `.invalid` contacts, enforce Turnstile outside localhost, and never send mail/calendar events or grant marketing rights. No live deployment setting is changed by committing this code.
+
+A browser-generated random control code is needed for cancellation or acknowledgement of a changed schedule. Keep that code privately; only its SHA-256 digest is stored. Lost response retries use the same identity, event version and code; committed receipt recovery is read-only before repeating verification. A different code cannot recover/control an earlier registration for the same address. Capability changes expire seven days after the retained event end.
+
+Intake remains identity-unverified and unreviewed. It is excluded from prospect qualification and the reviewed product timeline until staff records reviewed source evidence using the existing product history form. Registration is never attendance or a no-show. The event operator card lists the synthetic lifecycle without exposing control codes/digests. Reminder queuing/delivery, real attendee verification, public registration rollout, provider/calendar reconciliation and operational acceptance remain separate open milestones.

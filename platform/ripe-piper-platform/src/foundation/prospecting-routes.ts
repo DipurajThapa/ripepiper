@@ -44,7 +44,7 @@ export async function addProspectEvidence(req: Request, env: Env, tenantId: stri
 
 /** Recompute from current evidence and brief; no stale cached score and no sending. */
 export async function prospectShortlist(req: Request, env: Env, tenantId: string) {
-  await requireUser(req,env,true);
+  const actor=await requireUser(req,env,true);
   const b = await readJson(req);
   if (typeof b.synthetic !== "boolean") return bad("Choose synthetic or business evidence.");
   const db = new Db(env);
@@ -58,6 +58,7 @@ export async function prospectShortlist(req: Request, env: Env, tenantId: string
   const stops = leads.length ? await db.select<any>("lead_suppression",`tenant_id=eq.${tenantId}&lead_id=in.(${leads.map(l=>l.id).join(',')})&select=lead_id`) : [];
   const emailFilter = encodeURIComponent(`(${leads.map(l=>JSON.stringify(l.email.toLowerCase())).join(',')})`);
   const globalStops = leads.length ? await db.select<any>("suppression",`email=in.${emailFilter}&select=email`) : [];
+  const reviewOwners=observations.some(o=>o.product_context?.kind==='conversation_review')?await db.rpc<{id:string;label:string}[]>('response_review_owners',{p_tenant:tenantId,p_actor:actor.id}):undefined;
   const results = [];
   for (const lead of leads) {
     if (b.synthetic !== lead.email.toLowerCase().endsWith(".invalid")) continue;
@@ -65,7 +66,7 @@ export async function prospectShortlist(req: Request, env: Env, tenantId: string
     const assessment = brief ? assessProspect(tenantId,lead.id,brief.body,observations.filter(o=>o.lead_id===lead.id),{
       now:Date.now(),synthetic:b.synthetic,suppressed:lead.status==="unsubscribed" || globalStops.some(s=>s.email===lead.email.toLowerCase()) || stops.some(s=>s.lead_id===lead.id),
     }) : {leadId:lead.id,state:suppressed?"excluded":"unknown",score:null,fields:[],contactAllowed:false,reasons:suppressed?["suppressed"]:["brief_required"],nextAction:"Save a business brief before assessing fit."};
-    results.push({...assessment,company:lead.company || lead.email,products:reviewProducts(observations.filter(o=>o.lead_id===lead.id),Date.now(),assessment.reasons.includes("suppressed"),assessment.state)});
+    results.push({...assessment,company:lead.company || lead.email,products:reviewProducts(observations.filter(o=>o.lead_id===lead.id),Date.now(),assessment.reasons.includes("suppressed"),assessment.state,reviewOwners)});
   }
   const latest = await db.one<any>("business_briefs",`tenant_id=eq.${tenantId}&order=version.desc&select=version`);
   if (latest?.version !== brief?.version) return bad("The brief changed during assessment. Refresh the shortlist.",409);
