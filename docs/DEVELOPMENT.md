@@ -6,6 +6,8 @@ Historical M01 baseline above was superseded by the owner's approved PR #3 merge
 
 Pre-merge baseline (23 October 2026): protected main `6b84b389610ca712c5e78284d8446141623ea2e5`, Pages deployment `72d6c30d-1820-414e-9a62-e3e006c964b8`. The owner subsequently explicitly instructed engineering to push, merge the branches, fix issues and update documentation. This authorizes the protected PR #6 merge and its existing static Pages publication after checks. It does not authorize production database migrations, API Worker activation, paid operations or prospect communications. See DELIVERY.md for the actual merge/deployment receipt; CI alone does not supply release authority.
 
+Observed consolidation: [PR #6](https://github.com/DipurajThapa/ripepiper/pull/6) merged as `1d3bc7c3dd6ca71ece040fc8225291d83656a0cb`, tree `39598a3eedb47444902e421b582817fcd9dd13c3`, after [final PR CI](https://github.com/DipurajThapa/ripepiper/actions/runs/39965598770) passed. Cloudflare reported static deployment `cacf77b0-93de-48b5-a2a5-6ba9d67dbf23` successful. The homepage, admin Clients screen and portal rendered publicly in sample mode after publication. This is the new application-source/static checkpoint; later documentation-only receipts can have different main SHAs. The API and production database were not deployed/migrated by this merge.
+
 ## Local setup and checks
 
 ```sh
