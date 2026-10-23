@@ -92,6 +92,23 @@ Each milestone needs implementation, relevant passing acceptance checks, linked 
 | RP-050 | P1 | Events vertical slice | Staff registration/attendance records, per-event history and no-show guard implemented. Public registration, campaign reminders, cancellation/rescheduling and provider reconciliation remain open. | M06 |
 | RP-060 | P0 before release | Deployment/integration proof | Confirm API Worker, domains, environment routing, costs, backups and restoration in isolated environment | M07 |
 
+
+## Engineering delivery sweep — 2026-10-23 (PM accountable)
+
+The goal is **verified, consent-aware lead-to-outcome operation**, not merely passing mocked UI tests. The existing 17-stage harness retains all stages open until independently evidenced. Continue these specific functional tracks without a replacement platform:
+
+| Track | Existing functional foundations | Required next accepted proof |
+|---|---|---|
+| Acquisition / ingestion | Staff import, cited Signal trigger, manual Response message review, Events registration records | Source connector authorization, bounded durable ingress, exact external idempotency and tenant isolation tests |
+| Evidence / qualification | Reviewed brief, aliases, human shortlist and missing-answer handling | Authoritative business brief, evaluated precision-at-20, owner/role routing and stale/conflicting evidence handling |
+| Consent / suppression | Rights and stop state, synthetic action claims, opt-out propagation | Dispatch-time rights recheck for every real provider; stop/revoke/timeout/replay acceptance |
+| Delivery / scheduling | Versioned campaigns and synthetic sink, conservative consultation booking | Provider receipt, uncertain result ledger, retries, client calendar consent, actual SLA instrumentation |
+| Outcome / optimization | Reviewed Response/Events attribution and product histories | Verified accepted prospect, meeting held and opportunity attribution; frozen baseline before any learned changes |
+| Infrastructure | Protected main, synthetic migration upgrades and CI | Host-isolated real Postgres/Supabase staging, backup restore, deployed Worker routes, scoped provider connections |
+| Operational governance | PM/QA/CTO evidence graph | Independent QA per stage, owner-authorized release, monitored first customer pilot and signed handover |
+
+**Current code repair:** Response terminal dispositions (`not_interested`, `wrong_person`, `opt_out`) no longer carry overdue follow-up timestamps in the operator review, while interested/human/uncertain dispositions retain their review deadline. Associated regression tests on the feature PR are required to pass before integration. This avoids false escalation, but does not by itself provide the 60-second live SLA. PM retains the remaining RP-040 SLA/owner-routing/inbound OAuth work as open.
+
 ## Decisions and unresolved evidence
 
 - ADR-001: Extend the existing static frontend and Worker; no replacement site or framework rewrite.
