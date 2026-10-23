@@ -1,0 +1,128 @@
+{
+  "version": 1,
+  "project": "Ripe Piper",
+  "stages": [
+    {
+      "id": "baseline",
+      "owner": "pm",
+      "dependsOn": [],
+      "evidence": [
+        "source_sha",
+        "backlog_ref"
+      ]
+    },
+    {
+      "id": "isolated-db",
+      "owner": "development",
+      "dependsOn": [
+        "baseline"
+      ],
+      "evidence": [
+        "isolation_proof",
+        "cost_decision",
+        "database_ref"
+      ]
+    },
+    {
+      "id": "migration-rehearsal",
+      "owner": "development",
+      "dependsOn": [
+        "isolated-db"
+      ],
+      "evidence": [
+        "migration_manifest",
+        "rehearsal_run",
+        "rollback_plan"
+      ]
+    },
+    {
+      "id": "migration-qa",
+      "owner": "qa",
+      "dependsOn": [
+        "migration-rehearsal"
+      ],
+      "evidence": [
+        "independent_test_run",
+        "tenant_rls_results",
+        "recovery_results"
+      ]
+    },
+    {
+      "id": "worker-routing",
+      "owner": "development",
+      "dependsOn": [
+        "baseline"
+      ],
+      "evidence": [
+        "deployed_sha",
+        "route_probe",
+        "redacted_binding_inventory"
+      ]
+    },
+    {
+      "id": "worker-qa",
+      "owner": "qa",
+      "dependsOn": [
+        "worker-routing"
+      ],
+      "evidence": [
+        "independent_http_checks",
+        "failure_route_checks"
+      ]
+    },
+    {
+      "id": "tenant-sandbox",
+      "owner": "development",
+      "dependsOn": [
+        "migration-qa",
+        "worker-qa"
+      ],
+      "evidence": [
+        "tenant_fixture",
+        "membership_matrix",
+        "approved_brief"
+      ]
+    },
+    {
+      "id": "revive-sandbox",
+      "owner": "development",
+      "dependsOn": [
+        "tenant-sandbox"
+      ],
+      "evidence": [
+        "provenance_review",
+        "eligibility_decision",
+        "approved_message_version",
+        "sink_dispatch",
+        "outcome_attribution"
+      ]
+    },
+    {
+      "id": "revive-qa",
+      "owner": "qa",
+      "dependsOn": [
+        "revive-sandbox"
+      ],
+      "evidence": [
+        "replay_test",
+        "opt_out_test",
+        "pause_test",
+        "uncertain_send_test",
+        "isolation_test"
+      ]
+    },
+    {
+      "id": "operational-release",
+      "owner": "cto",
+      "dependsOn": [
+        "revive-qa"
+      ],
+      "evidence": [
+        "risk_review",
+        "release_plan",
+        "owner_authorization",
+        "rollback_proof"
+      ]
+    }
+  ]
+}
