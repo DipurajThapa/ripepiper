@@ -123,6 +123,100 @@
         "owner_authorization",
         "rollback_proof"
       ]
+    },
+    {
+      "id": "shared-provider-reliability",
+      "owner": "development",
+      "dependsOn": [
+        "revive-qa"
+      ],
+      "evidence": [
+        "oauth_scope_review",
+        "delivery_ack_replay",
+        "cost_cap_test",
+        "operator_gate_test"
+      ]
+    },
+    {
+      "id": "signal-qa",
+      "owner": "qa",
+      "dependsOn": [
+        "shared-provider-reliability"
+      ],
+      "evidence": [
+        "source_freshness_test",
+        "discovery_fixture",
+        "independent_quality_test",
+        "human_approval_trace"
+      ]
+    },
+    {
+      "id": "response-qa",
+      "owner": "qa",
+      "dependsOn": [
+        "shared-provider-reliability"
+      ],
+      "evidence": [
+        "ingress_dedupe_test",
+        "sla_measurement",
+        "booking_adapter_test",
+        "human_owner_trace"
+      ]
+    },
+    {
+      "id": "events-qa",
+      "owner": "qa",
+      "dependsOn": [
+        "shared-provider-reliability"
+      ],
+      "evidence": [
+        "registration_replay_test",
+        "attendance_evidence",
+        "reminder_recovery_test",
+        "attribution_test"
+      ]
+    },
+    {
+      "id": "security-and-operations",
+      "owner": "qa",
+      "dependsOn": [
+        "signal-qa",
+        "response-qa",
+        "events-qa"
+      ],
+      "evidence": [
+        "privacy_review",
+        "monitoring_run",
+        "incident_recovery",
+        "backup_restore_evidence"
+      ]
+    },
+    {
+      "id": "first-customer-pilot",
+      "owner": "cto",
+      "dependsOn": [
+        "operational-release",
+        "security-and-operations"
+      ],
+      "evidence": [
+        "client_scope_approval",
+        "accepted_lead_cohort",
+        "verified_outcomes",
+        "release_review"
+      ]
+    },
+    {
+      "id": "project-handover",
+      "owner": "pm",
+      "dependsOn": [
+        "first-customer-pilot"
+      ],
+      "evidence": [
+        "four_product_acceptance",
+        "documentation_handover",
+        "support_ownership",
+        "owner_closure_signoff"
+      ]
     }
   ]
 }
