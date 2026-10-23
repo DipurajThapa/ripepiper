@@ -495,3 +495,15 @@ describe('calendar integration recovery',()=>{
   expect((await sendReminders(env)).sent).toBe(0);expect(sentEmails).toHaveLength(0);expect(tables.meetings.every(m=>m.reminder_24h_at===null)).toBe(true);
  });
 });
+
+it('does not repair a booking whose attendee changes during the provider read',async()=>{
+ const id=uuid(),leadId=uuid();const m={id,lead_id:leadId,status:'booked',google_event_id:'rpfixture',start_at:'2026-11-03T04:00:00.000Z',end_at:'2026-11-03T04:15:00.000Z',attendee_email:'original@example.invalid',meet_url:null};tables.meetings=[m];
+ vi.stubGlobal('fetch',async(input:RequestInfo|URL,init:RequestInit={})=>{
+  if(String(input).includes('/calendar/v3/calendars/')){
+   const event={id:m.google_event_id,status:'confirmed',extendedProperties:{private:{ripe_meeting_id:id}},start:{dateTime:m.start_at},end:{dateTime:m.end_at},attendees:[{email:m.attendee_email}],hangoutLink:'https://meet.google.com/abc-defg-hij'};
+   m.attendee_email='changed@example.invalid';return Response.json(event);
+  }
+  return fakeFetch(input,init);
+ });
+ expect((await call('POST','/api/admin/meetings/'+id+'/reconcile',{}, {Authorization:'Bearer test-admin'})).status).toBe(409);expect(m.meet_url).toBeNull();expect(sentEmails).toHaveLength(0);
+});

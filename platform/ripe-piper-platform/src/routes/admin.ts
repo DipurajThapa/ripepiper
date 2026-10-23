@@ -124,7 +124,7 @@ export async function reconcileBooking(req: Request, env: Env, id: string) {
   }
   await db.insert("activity_log", { actor: user.id, kind: "note", visible_to_client: false,
     message: `Calendar event verified for consultation ${m.id}; reconciliation requested without sending an invitation.` });
-  const changed = await db.update("meetings", `id=eq.${id}&tenant_id=is.null&status=eq.booked&google_event_id=eq.${encodeURIComponent(m.google_event_id)}&start_at=eq.${encodeURIComponent(m.start_at)}&end_at=eq.${encodeURIComponent(m.end_at)}`, {
+  const changed = await db.update("meetings", `id=eq.${id}&tenant_id=is.null&status=eq.booked&google_event_id=eq.${encodeURIComponent(m.google_event_id)}&start_at=eq.${encodeURIComponent(m.start_at)}&end_at=eq.${encodeURIComponent(m.end_at)}&attendee_email=eq.${encodeURIComponent(m.attendee_email)}&lead_id=${m.lead_id ? "eq." + encodeURIComponent(m.lead_id) : "is.null"}`, {
     meet_url: ev.meetUrl, meet_code: ev.meetCode,
   });
   if (!changed.length) return bad("The reservation changed. Reload before continuing.", 409);
