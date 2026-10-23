@@ -68,15 +68,15 @@
       "pm_reviewed": false,
       "qa_reviewed": false,
       "evidence": {},
-      "blocker": "Read-only runtime inventory and route probes assigned to CTO; no new deployment or route change authorized by this stage."
+      "blocker": "Read-only inventory confirms no API Worker in the selected Cloudflare account. Isolated config, guarded manual workflow and bounded HTTP runner are prepared; three secure staging secrets and manual branch workflow dispatch are required. No production deployment is authorized."
     },
     "worker-qa": {
-      "status": "not_started",
+      "status": "blocked",
       "owner": "qa",
       "pm_reviewed": false,
       "qa_reviewed": false,
       "evidence": {},
-      "blocker": "Evidence and dependency gates not yet met"
+      "blocker": "No isolated Worker endpoint deployed yet; actual routing/Auth/PostgREST runner and negative HTTP checks await prepared staging workflow credentials/dispatch. Offline code acceptance is complete and separate."
     },
     "tenant-sandbox": {
       "status": "not_started",
@@ -167,130 +167,187 @@
       "blocker": "Evidence and dependency gates not yet met"
     },
     "offline-provider-reliability": {
-      "status": "in_progress",
+      "status": "verified",
       "owner": "development",
-      "pm_reviewed": false,
-      "qa_reviewed": false,
+      "pm_reviewed": true,
+      "qa_reviewed": true,
       "evidence": {
-        "candidate_sha": "2dfb99f8ed2e12da446be8195be9cbf13539e662",
+        "candidate_sha": "461bd4bc66403757db6129301e22adf9d8d0f181",
         "ledger_contract": "docs/evidence/SYNTHETIC_ACKNOWLEDGEMENTS_2026-10-23.md",
         "replay_and_uncertainty_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-fenced-acknowledgement--independent-component-review",
-        "suppression_and_pause_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-fenced-acknowledgement--independent-component-review"
+        "suppression_and_pause_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-fenced-acknowledgement--independent-component-review",
+        "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39939829986"
       },
-      "blocker": "Implementation and independent combined backend/typecheck evidence are complete at 2dfb99f; PM verification awaits current implementation Chromium/CI receipt. No billing or live-provider prerequisite for this offline stage."
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#published-exact-tree-ci-acceptance",
+      "qa_source_sha": "461bd4bc66403757db6129301e22adf9d8d0f181",
+      "tested_tree_sha": "bc8f9d0a46cc09b926b85f0aa8acf5ea127475da",
+      "acceptance_scope": "Fenced synthetic sink acknowledgement, replay, token redaction, uncertain-result hold and read-only receipt recovery. Not real email/provider delivery or legacy reminder acceptance."
     },
     "offline-provider-qa": {
-      "status": "in_progress",
+      "status": "verified",
       "owner": "qa",
-      "pm_reviewed": false,
-      "qa_reviewed": false,
+      "pm_reviewed": true,
+      "qa_reviewed": true,
       "evidence": {
         "independent_test_run": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
         "negative_and_concurrency_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-fenced-acknowledgement--independent-component-review",
-        "artifact_review": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-fenced-acknowledgement--independent-component-review"
+        "artifact_review": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-fenced-acknowledgement--independent-component-review",
+        "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39939829986"
       },
-      "blocker": "Independent local component and combined suite evidence received; all Q-001 through Q-004 locally closed. Current implementation Chromium/CI receipt and PM acceptance pending; hosted API/provider/release gates remain separate."
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#published-exact-tree-ci-acceptance",
+      "qa_source_sha": "461bd4bc66403757db6129301e22adf9d8d0f181",
+      "tested_tree_sha": "bc8f9d0a46cc09b926b85f0aa8acf5ea127475da",
+      "acceptance_scope": "Independent synthetic acknowledgement/stop/replay/uncertainty/API/UI checks at exact tested tree. No hosted separate-connection race or real provider proof."
     },
     "offline-response-review": {
-      "status": "in_progress",
+      "status": "verified",
       "owner": "development",
-      "pm_reviewed": false,
-      "qa_reviewed": false,
+      "pm_reviewed": true,
+      "qa_reviewed": true,
       "evidence": {
-        "candidate_sha": "2dfb99f8ed2e12da446be8195be9cbf13539e662",
+        "candidate_sha": "461bd4bc66403757db6129301e22adf9d8d0f181",
         "ownership_resolution_contract": "docs/evidence/RESPONSE_OWNERSHIP_2026-10-23.md",
         "ingress_replay_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
-        "thread_and_tenant_isolation_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect"
+        "thread_and_tenant_isolation_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39939829986"
       },
-      "blocker": "Implementation and independent combined backend/typecheck evidence are complete at 2dfb99f; PM verification awaits current implementation Chromium/CI receipt. No billing or live-provider prerequisite for this offline stage."
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#published-exact-tree-ci-acceptance",
+      "qa_source_sha": "461bd4bc66403757db6129301e22adf9d8d0f181",
+      "tested_tree_sha": "bc8f9d0a46cc09b926b85f0aa8acf5ea127475da",
+      "acceptance_scope": "Staff tenant/contact/thread ownership, exact-version reviewed resolution and reopening on changed inbound, without releasing suppression or sequence holds. Not live inbox/SLA/client-calendar acceptance."
     },
     "offline-response-qa": {
-      "status": "in_progress",
+      "status": "verified",
       "owner": "qa",
-      "pm_reviewed": false,
-      "qa_reviewed": false,
+      "pm_reviewed": true,
+      "qa_reviewed": true,
       "evidence": {
         "independent_test_run": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
         "new_inbound_reopen_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
-        "owner_and_resolution_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect"
+        "owner_and_resolution_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39939829986"
       },
-      "blocker": "Independent local component and combined suite evidence received; all Q-001 through Q-004 locally closed. Current implementation Chromium/CI receipt and PM acceptance pending; hosted API/provider/release gates remain separate."
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#published-exact-tree-ci-acceptance",
+      "qa_source_sha": "461bd4bc66403757db6129301e22adf9d8d0f181",
+      "tested_tree_sha": "bc8f9d0a46cc09b926b85f0aa8acf5ea127475da",
+      "acceptance_scope": "Independent owner/version/RPC receipt/auth boundary/reopen/hold tests and rendered workflow at exact tested tree. No actual mailbox or booked-client-meeting claim."
     },
     "offline-cost-control": {
-      "status": "in_progress",
+      "status": "verified",
       "owner": "development",
-      "pm_reviewed": false,
-      "qa_reviewed": false,
+      "pm_reviewed": true,
+      "qa_reviewed": true,
       "evidence": {
-        "candidate_sha": "2dfb99f8ed2e12da446be8195be9cbf13539e662",
+        "candidate_sha": "461bd4bc66403757db6129301e22adf9d8d0f181",
         "fail_closed_cost_contract": "docs/evidence/BUILD_BUDGET_2026-10-23.md",
         "concurrent_reservation_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-paid-use-control--independent-component-review",
-        "uncertain_settlement_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect"
+        "uncertain_settlement_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39939829986"
       },
-      "blocker": "Implementation and independent combined backend/typecheck evidence are complete at 2dfb99f; PM verification awaits current implementation Chromium/CI receipt. No billing or live-provider prerequisite for this offline stage."
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#published-exact-tree-ci-acceptance",
+      "qa_source_sha": "461bd4bc66403757db6129301e22adf9d8d0f181",
+      "tested_tree_sha": "bc8f9d0a46cc09b926b85f0aa8acf5ea127475da",
+      "acceptance_scope": "Default-off paid adapter, global budget reservation/settlement and strict boolean receipts using fixtures/selected hosted SQL. No authorization or claim of paid use, current tariff/token-bound validity or full prior-charge reconciliation."
     },
     "offline-cost-qa": {
-      "status": "in_progress",
+      "status": "verified",
       "owner": "qa",
-      "pm_reviewed": false,
-      "qa_reviewed": false,
+      "pm_reviewed": true,
+      "qa_reviewed": true,
       "evidence": {
         "independent_test_run": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
         "cap_and_unknown_price_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-paid-use-control--independent-component-review",
-        "artifact_review": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect"
+        "artifact_review": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39939829986"
       },
-      "blocker": "Independent local component and combined suite evidence received; all Q-001 through Q-004 locally closed. Current implementation Chromium/CI receipt and PM acceptance pending; hosted API/provider/release gates remain separate."
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#published-exact-tree-ci-acceptance",
+      "qa_source_sha": "461bd4bc66403757db6129301e22adf9d8d0f181",
+      "tested_tree_sha": "bc8f9d0a46cc09b926b85f0aa8acf5ea127475da",
+      "acceptance_scope": "Independent cap/concurrency/unknown-price/receipt/uncertain-charge regressions at exact tested tree. Hosted test serialization is not independent-connection concurrency or real billing settlement proof."
     },
     "offline-signal-ingestion": {
-      "status": "in_progress",
+      "status": "verified",
       "owner": "development",
-      "pm_reviewed": false,
-      "qa_reviewed": false,
+      "pm_reviewed": true,
+      "qa_reviewed": true,
       "evidence": {
-        "candidate_sha": "2dfb99f8ed2e12da446be8195be9cbf13539e662",
+        "candidate_sha": "461bd4bc66403757db6129301e22adf9d8d0f181",
         "approved_source_contract": "docs/evidence/SIGNAL_SOURCES_2026-10-23.md",
         "bounded_preview_and_review_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review",
-        "provenance_and_dedupe_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review"
+        "provenance_and_dedupe_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review",
+        "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39939829986"
       },
-      "blocker": "Implementation and independent combined backend/typecheck evidence are complete at 2dfb99f; PM verification awaits current implementation Chromium/CI receipt. No billing or live-provider prerequisite for this offline stage."
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#published-exact-tree-ci-acceptance",
+      "qa_source_sha": "461bd4bc66403757db6129301e22adf9d8d0f181",
+      "tested_tree_sha": "bc8f9d0a46cc09b926b85f0aa8acf5ea127475da",
+      "acceptance_scope": "Operator-configured bounded JSON feed, human preview/review, cited idempotent import with no contact rights. Not web-wide autonomous discovery, live source entitlement or DNS-egress proof."
     },
     "offline-signal-qa": {
-      "status": "in_progress",
+      "status": "verified",
       "owner": "qa",
-      "pm_reviewed": false,
-      "qa_reviewed": false,
+      "pm_reviewed": true,
+      "qa_reviewed": true,
       "evidence": {
         "independent_test_run": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review",
         "source_boundary_and_injection_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review",
-        "ingress_idempotency_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review"
+        "ingress_idempotency_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review",
+        "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39939829986"
       },
-      "blocker": "Independent local component and combined suite evidence received; all Q-001 through Q-004 locally closed. Current implementation Chromium/CI receipt and PM acceptance pending; hosted API/provider/release gates remain separate."
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#published-exact-tree-ci-acceptance",
+      "qa_source_sha": "461bd4bc66403757db6129301e22adf9d8d0f181",
+      "tested_tree_sha": "bc8f9d0a46cc09b926b85f0aa8acf5ea127475da",
+      "acceptance_scope": "Independent source boundary/digest/tenant/injection/replay/API/database/UI checks and rendered source workflow at exact tested tree; live egress/final configuration race remain release concerns."
     },
     "offline-events-lifecycle": {
-      "status": "in_progress",
+      "status": "verified",
       "owner": "development",
-      "pm_reviewed": false,
-      "qa_reviewed": false,
+      "pm_reviewed": true,
+      "qa_reviewed": true,
       "evidence": {
-        "candidate_sha": "2dfb99f8ed2e12da446be8195be9cbf13539e662",
+        "candidate_sha": "461bd4bc66403757db6129301e22adf9d8d0f181",
         "versioned_event_settings_contract": "docs/evidence/EVENTS_LIFECYCLE_2026-10-23.md",
         "registration_capability_replay_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#events-lifecycle-and-combined-candidate-verification",
-        "cancel_and_reschedule_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-events-follow-up-and-final-local-composition"
+        "cancel_and_reschedule_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-events-follow-up-and-final-local-composition",
+        "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39939829986"
       },
-      "blocker": "Implementation and independent combined backend/typecheck evidence are complete at 2dfb99f; PM verification awaits current implementation Chromium/CI receipt. No billing or live-provider prerequisite for this offline stage."
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#published-exact-tree-ci-acceptance",
+      "qa_source_sha": "461bd4bc66403757db6129301e22adf9d8d0f181",
+      "tested_tree_sha": "bc8f9d0a46cc09b926b85f0aa8acf5ea127475da",
+      "acceptance_scope": "Default-off synthetic public registration/cancellation/recovery/reschedule acknowledgement on existing versioned Events campaigns; identity remains unverified, no contact rights/messages/provider writes."
     },
     "offline-events-qa": {
-      "status": "in_progress",
+      "status": "verified",
       "owner": "qa",
-      "pm_reviewed": false,
-      "qa_reviewed": false,
+      "pm_reviewed": true,
+      "qa_reviewed": true,
       "evidence": {
         "independent_test_run": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#events-lifecycle-and-combined-candidate-verification",
         "capability_and_identity_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-events-follow-up-and-final-local-composition",
-        "lifecycle_and_suppression_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-events-follow-up-and-final-local-composition"
+        "lifecycle_and_suppression_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-events-follow-up-and-final-local-composition",
+        "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39939829986"
       },
-      "blocker": "Independent local component and combined suite evidence received; all Q-001 through Q-004 locally closed. Current implementation Chromium/CI receipt and PM acceptance pending; hosted API/provider/release gates remain separate."
+      "blocker": null,
+      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#published-exact-tree-ci-acceptance",
+      "qa_source_sha": "461bd4bc66403757db6129301e22adf9d8d0f181",
+      "tested_tree_sha": "bc8f9d0a46cc09b926b85f0aa8acf5ea127475da",
+      "acceptance_scope": "Independent local and selected staging SQL lifecycle/capability/retention/capacity/replay tests plus rendered workflow at exact tested tree. Not real identity, provider reminders or separate-connection concurrency proof."
     }
   },
-  "source_sha": "e4d976892af5e9c7d9d262d20b77310ca552f291"
+  "source_sha": "e4d976892af5e9c7d9d262d20b77310ca552f291",
+  "accepted_implementation_source": {
+    "commit": "461bd4bc66403757db6129301e22adf9d8d0f181",
+    "tree": "bc8f9d0a46cc09b926b85f0aa8acf5ea127475da",
+    "ci_run": "39939829986",
+    "qa_receipt": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#published-exact-tree-ci-acceptance",
+    "environment": "synthetic/local controls with separately scoped hosted SQL evidence; no deployment or communication"
+  }
 }
