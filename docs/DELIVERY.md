@@ -109,6 +109,24 @@ The goal is **verified, consent-aware lead-to-outcome operation**, not merely pa
 
 **Current code repair:** Response terminal dispositions (`not_interested`, `wrong_person`, `opt_out`) no longer carry overdue follow-up timestamps in the operator review, while interested/human/uncertain dispositions retain their review deadline. Associated regression tests on the feature PR are required to pass before integration. This avoids false escalation, but does not by itself provide the 60-second live SLA. PM retains the remaining RP-040 SLA/owner-routing/inbound OAuth work as open.
 
+
+## PM parallel execution plan — 2026-10-23
+
+**Directive:** Solve technical blockers with CTO before escalating. Continue independent development while live provider or paid-hosted environments are unavailable. A stage not yet accepted does not prevent implementation and synthetic QA on an independent branch. Do not represent draft code as live service.
+
+| Work lane | Autonomous work now | External verification gate |
+|---|---|---|
+| Provider reliability | Refine outbox acknowledgement/retry/reconciliation; add synthetic concurrency and suppression tests | Actual consented provider sandbox and controlled receipts |
+| Data/tenancy | Rehearse baseline-to-head SQL on disposable PGlite, review migration drift/preflight and RLS tests | Independent hosted Supabase schema and backup/restore rehearsal |
+| Cloudflare | Review Worker route patterns, add testable health/404 probes, document safe redacted deployment checks | Cloudflare runtime inventory and permission to configure routes |
+| Revive | Complete deterministic lead/source rights, versioned approvals, sink dispatch and response-outcome correlation tests | Approved sandbox mailbox and later scoped prospect send |
+| Signal | Build reviewed candidate import and frozen precision-at-20 fixture tests; stale-source exclusions | Source access and permissioned live acquisition |
+| Response | Finish stop-state, idempotent inbound fixture, owner-routing and measured mock latency tests | Tenant-bound OAuth callback and live mailbox ingestion |
+| Events | Registration/attendance replay and reminder simulation with evidence checks | Provider calendar/events and approved notifications |
+| Governance | Keep graph evidence current, independently verify code and list practical unblock actions | Owner authorizes only required live actions |
+
+**Unresolved owner inputs, when necessary:** (1) hourly-billed hosted Supabase branch at quoted US$0.01344/hour after reconciling the US$20 total budget; (2) account selection/OAuth consent for a dedicated Ripe Piper test inbox/calendar; (3) separate authorization for production migration/deployment and prospect communications. No owner intervention needed to continue offline code, fixtures, safety checks, or PR review.
+
 ## Decisions and unresolved evidence
 
 - ADR-001: Extend the existing static frontend and Worker; no replacement site or framework rewrite.
