@@ -21,6 +21,12 @@ try {
   window.fixtureCalls=[];window.fixtureCampaigns=[];window.fixtureAssets=[];
   window.RP={esc:s=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'),api:async(path,body)=>{
    window.fixtureCalls.push({path,body});
+   if(path.endsWith('/connection')){
+    if(body.operation==='check')return {state:'identity_verified',mailbox:'staff@example.invalid',calendarId:'calendar@example.invalid'};
+    if(body.operation==='list')return {messages:{items:[{id:'message1',subject:'Fixture question',observedAt:'2026-10-22T12:00:00Z'}],moreAvailable:false,excluded:0}};
+    if(body.operation==='preview')return {message:{excerpt:'<script>untrusted message</script>',digest:'reviewed-source',truncated:false}};
+    return {ok:true,delivery:'not_sent'};
+   }
    if(path.endsWith('/campaigns')){
     if(body.operation==='list')return {campaigns:window.fixtureCampaigns,assets:window.fixtureAssets,actions:[]};
     if(body.operation==='save'){
@@ -29,7 +35,7 @@ try {
     }
     return {ok:true,id:body.campaign_id};
    }
-   if(path.endsWith('/shortlist'))return {brief:null,leads:[{id:'lead-fixture',email:'fixture@example.invalid',company:'Synthetic company'}],results:[],synthetic:true};
+   if(path.endsWith('/shortlist'))return {brief:null,leads:[{id:'lead-fixture',email:'fixture@example.invalid',company:'Synthetic company'},{id:'business-fixture',email:'contact@business.example',company:'Business fixture'}],results:[],synthetic:true};
    return {ok:true,results:[{row:1,state:'created'}]};
   }};
  });
@@ -65,6 +71,24 @@ try {
  assert.equal(await page.evaluate(()=>window.fixtureCalls.some(c=>c.body.operation==='approve')),false);
  for(const width of [1280,390]){await page.setViewportSize({width,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2),false,`Horizontal overflow at ${width}`);}
 
+ // Review and import selected inbox evidence through the existing prospect workspace.
+ await page.selectOption('#prospectMode','business');
+ await page.waitForFunction(()=>document.getElementById('inboxLead').value==='business-fixture');
+ await page.getByText('Read selected inbox messages',{exact:true}).click();
+ await page.getByRole('button',{name:'Check inbox and calendar connection',exact:true}).click();
+ await page.waitForFunction(()=>document.getElementById('inboxStatus').textContent.includes('Account identity verified'));
+ await page.getByRole('button',{name:'Find recent messages for this contact',exact:true}).click();
+ await page.waitForFunction(()=>document.getElementById('inboxMessage').value==='message1');
+ await page.getByRole('button',{name:'Import for human review',exact:true}).click();
+ assert.equal(await page.evaluate(()=>window.fixtureCalls.some(c=>c.body.operation==='import')),false);
+ await page.getByRole('button',{name:'Preview selected message',exact:true}).click();
+ await page.waitForFunction(()=>document.getElementById('inboxExcerpt').textContent.includes('untrusted message'));
+ assert.equal(await page.locator('#inboxExcerpt script').count(),0);
+ await page.check('#inboxReviewed');
+ await page.getByRole('button',{name:'Import for human review',exact:true}).click();
+ await page.waitForFunction(()=>document.getElementById('inboxStatus').textContent.includes('no reply was sent'));
+ assert.equal(await page.evaluate(()=>window.fixtureCalls.find(c=>c.body.operation==='import').body.digest),'reviewed-source');
+ for(const width of [1280,390]){await page.setViewportSize({width,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2),false,`Inbox overflow at ${width}`);}
  // Exercise the real meeting admin UI and shared helpers with a synthetic database/provider boundary.
  await page.goto('https://fixture.example.invalid/');
  await page.addStyleTag({content:await readFile(new URL('site/assets/site.css',root),'utf8')});
@@ -99,5 +123,5 @@ try {
  assert.equal(await page.evaluate(()=>window.reconcileCalls.length),2);
  for(const width of [1280,390]){await page.setViewportSize({width,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2),false,`Meeting overflow at ${width}`);}
  assert.deepEqual(failures,[]);
- console.log('PASS: four rendered product forms, import/report, campaign draft and dirty-approval guard, desktop/mobile overflow, meeting reconciliation/sample/error/recovery, no page errors; synthetic API only.');
+ console.log('PASS: four rendered product forms, import/report, campaign draft and dirty-approval guard, desktop/mobile overflow, inbox preview/review/import, meeting reconciliation/sample/error/recovery, no page errors; synthetic API only.');
 }finally{await browser.close();}

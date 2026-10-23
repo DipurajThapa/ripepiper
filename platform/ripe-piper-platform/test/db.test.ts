@@ -3,7 +3,10 @@
 import { PGlite } from "@electric-sql/pglite";
 import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { readFileSync } from "node:fs";
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
+
+import {readInboundMessage} from "../src/lib/google";
+import type {Env} from "../src/env";
 
 const STUB = `
 create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;
@@ -441,4 +444,25 @@ describe('versioned campaign to synthetic sequence',()=>{
   }finally{await db.exec('reset role');}
   expect(await as(U2,`select * from campaign_assets where tenant_id='${t}'`)).toHaveLength(0);
  });
+});
+
+it('persists selected Gmail evidence through the existing RPC once and atomically stops follow-ups',async()=>{
+ const lead=(await db.query<any>(`insert into leads(tenant_id,source,email) values($1,'import','inbound@business.example') returning id`,[T1])).rows[0].id;
+ const campaign=(await db.query<any>(`insert into campaigns(tenant_id,capability,operator_id,purpose,channel,market,timezone) values($1,'revive',$2,'revive','email','AE','UTC') returning id`,[T1,ADMIN])).rows[0].id;
+ await db.query(`insert into campaign_assets(tenant_id,campaign_id,version,steps,created_by) values($1,$2,1,'[{"subject":"Fixture","body":"Test","offsetHours":0,"evidenceReference":"fixture"}]',$3)`,[T1,campaign,ADMIN]);
+ await db.query(`insert into outbound_actions(tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at) values($1,$2,$3,'gmail-stop',1,1,now())`,[T1,campaign,lead]);
+ const incoming={id:'message1',threadId:'thread1',internalDate:String(Date.now()-1000),sizeEstimate:100,labelIds:['INBOX'],payload:{mimeType:'text/plain',headers:[{name:'From',value:'inbound@business.example'},{name:'To',value:'staff@example.invalid'},{name:'Subject',value:'Question'}],body:{data:btoa('Could we discuss?')}}};
+ vi.stubGlobal('fetch',async(input:string)=>Response.json(input.includes('oauth2.googleapis.com')?{access_token:'fixture',expires_in:3600}:incoming));
+ const message=await readInboundMessage({GOOGLE_CLIENT_ID:'id',GOOGLE_CLIENT_SECRET:'secret',GOOGLE_REFRESH_TOKEN:'token'} as Env,'message1','inbound@business.example','staff@example.invalid');
+ const context={product:'response',kind:'reply',threadRef:'gmail:fixture:thread1',disposition:'human',need:'',authority:'',timing:''};
+ const args=[T1,lead,ADMIN,'gmail:fixture:message1','approved-source',message.excerpt,message.observedAt,false,JSON.stringify(context)];
+ await db.exec('set role service_role');
+ try{
+  const sql='select record_product_event($1,$2,$3,$4,$5,$6,$7,$8,$9) id';
+  const first=(await db.query<any>(sql,args)).rows[0].id;expect((await db.query<any>(sql,args)).rows[0].id).toBe(first);
+  expect((await db.query(`select * from lead_observations where tenant_id=$1 and external_ref=$2`,[T1,args[3]])).rows).toHaveLength(1);
+  expect((await db.query<any>(`select state,error_code from outbound_actions where lead_id=$1`,[lead])).rows[0]).toEqual({state:'cancelled',error_code:'conversation_hold'});
+  await expect(db.query(sql,[T2,...args.slice(1)])).rejects.toThrow('Lead scope mismatch');
+ }finally{await db.exec('reset role');}
+ expect(await as(U2,`select * from lead_observations where lead_id='${lead}'`)).toHaveLength(0);
 });

@@ -51,3 +51,25 @@ test('import sends distinct rows with stable source references and shows row err
  ui.nodes.prospectImportForm.onsubmit({preventDefault(){}});await tick();await tick();
  const saved=calls.find(c=>c.path.endsWith('/prospect-import'));assert.equal(saved.body.rows[0].reference,'source-1');assert.equal(saved.body.rows.length,2);assert.match(ui.nodes.prospectImportReport.textContent,/Row 2: rejected/);
 });
+
+test('inbox import requires a current preview and explicit review, passes digest and reloads existing history',async()=>{
+ const calls=[];const ui=mount(async(path,body)=>{
+  calls.push({path,body});if(path.endsWith('/shortlist'))return response();
+  if(body.operation==='preview')return {message:{excerpt:'<script>untrusted</script>',digest:'source-digest',truncated:false}};
+  return {ok:true};
+ });ui.select('tenant-a');await tick();const n=ui.nodes;n.inboxLead.value='lead-a';n.inboxMessage.value='message-a';
+ n.inboxImport.onclick();assert.equal(calls.some(c=>c.body.operation==='import'),false);
+ n.inboxPreview.onclick();await tick();assert.equal(n.inboxExcerpt.textContent,'<script>untrusted</script>');
+ n.inboxImport.onclick();assert.equal(calls.some(c=>c.body.operation==='import'),false);
+ n.inboxReviewed.checked=true;n.inboxImport.onclick();await tick();await tick();
+ const saved=calls.find(c=>c.body.operation==='import');assert.equal(saved.path,'/api/admin/tenants/tenant-a/connection');assert.equal(saved.body.digest,'source-digest');assert.equal(saved.body.lead_id,'lead-a');assert.match(n.inboxStatus.textContent,/no reply was sent/);
+});
+test('late inbox previews cannot populate a different tenant or contact',async()=>{
+ let finish;const ui=mount((path,body)=>body.operation==='preview'?new Promise(r=>finish=r):Promise.resolve(response()));ui.select('tenant-a');await tick();
+ ui.nodes.inboxLead.value='lead-a';ui.nodes.inboxMessage.value='message-a';ui.nodes.inboxPreview.onclick();ui.select('tenant-b');await tick();
+ finish({message:{excerpt:'PRIVATE previous tenant',digest:'old'}});await tick();assert.doesNotMatch(ui.nodes.inboxExcerpt.textContent,/PRIVATE/);
+ ui.nodes.inboxImport.onclick();assert.match(ui.nodes.inboxStatus.textContent,/Preview this message/);
+});
+test('missing tenant connection never reports an import or exposes a stale excerpt',async()=>{
+ const ui=mount(async(path)=>path.endsWith('/shortlist')?response():{ok:true,state:'not_connected'});ui.select('tenant-a');await tick();ui.nodes.inboxCheck.onclick();await tick();assert.match(ui.nodes.inboxStatus.textContent,/No active tenant connection/);
+});

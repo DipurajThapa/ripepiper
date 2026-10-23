@@ -14,7 +14,12 @@
       '<details><summary>Import permitted contacts</summary><form id="prospectImportForm" class="stack"><label for="prospectImportRows">Paste up to 50 spreadsheet rows, without a header: email, company, source reference, permitted-use reference, observed date (YYYY-MM-DD). Separate columns with tabs.</label><textarea id="prospectImportRows" rows="6" required></textarea><button class="btn btn-line" type="submit">Validate and import</button><p id="prospectImportReport" role="status"></p></form></details><button id="prospectExport" class="btn btn-line" type="button">Download internal review</button><p id="productMetrics" role="status"></p><details><summary>Business brief</summary><form id="briefForm" class="stack"><div class="field"><label for="briefOffer">Offer and problem solved</label><textarea id="briefOffer" maxlength="500" required></textarea></div><div class="form-grid">'+
       fields.map(function(f,i){return input('brief_'+f,labels[i]+' (comma-separated)');}).join('')+ ['industry','market','role','need'].map(function(f){return input('alias_'+f,f+' aliases: target = alias; target = alias');}).join('')+input('briefAge','Evidence validity in days','number')+input('briefReference','Brief source reference')+input('briefObserved','Source date','date')+'</div><div class="field"><label for="briefExcerpt">Supporting source excerpt or interview note</label><textarea id="briefExcerpt" maxlength="2000" required></textarea></div><button class="btn btn-dark" type="submit">Save reviewed brief version</button></form></details>'+
       '<details><summary>Add reviewed prospect evidence</summary><form id="evidenceForm" class="stack"><div class="field"><label for="evidenceLead">Existing lead</label><select id="evidenceLead"></select></div><div class="form-grid">'+input('evidenceSource','Source type, e.g. client interview')+input('evidenceReference','Unique dated source reference')+input('evidenceRights','Permitted-use reference')+input('evidenceObserved','Observation date','date')+
-      ['industry','market','role','need'].map(function(f){return input('evidence_'+f,f.charAt(0).toUpperCase()+f.slice(1)+' (leave unknown blank)');}).join('')+'</div><div class="field"><label for="evidenceExcerpt">Source excerpt containing the recorded values</label><textarea id="evidenceExcerpt" maxlength="2000" required></textarea></div><button class="btn btn-line" type="submit">Record reviewed evidence</button></form></details>'+productForm()+'<div id="prospectResults" aria-live="polite"></div>';
+      ['industry','market','role','need'].map(function(f){return input('evidence_'+f,f.charAt(0).toUpperCase()+f.slice(1)+' (leave unknown blank)');}).join('')+'</div><div class="field"><label for="evidenceExcerpt">Source excerpt containing the recorded values</label><textarea id="evidenceExcerpt" maxlength="2000" required></textarea></div><button class="btn btn-line" type="submit">Record reviewed evidence</button></form></details>'+productForm()+inboxForm()+'<div id="prospectResults" aria-live="polite"></div>';
+    el('inboxCheck').onclick=checkInbox;
+    el('inboxList').onclick=listInbox;
+    el('inboxPreview').onclick=previewInbox;
+    el('inboxImport').onclick=importInbox;
+    el('inboxMessage').onchange=function(){inboxSelection=null;el('inboxExcerpt').textContent='';el('inboxReviewed').checked=false;};
     el('briefAge').value = '90';
     el('prospectImportForm').onsubmit=importLeads;
     el('prospectExport').onclick=exportReview;
@@ -32,7 +37,8 @@
   function path(action,id) { return '/api/admin/tenants/'+(id||tenant.id)+'/'+action; }
   function load() {
     var ticket = ++generation, synthetic = el('prospectMode').value === 'synthetic';
-    ready = false; snapshot=null; error('');
+    ready = false; snapshot=null; inboxSelection=null; error('');
+    el('inboxMessage').innerHTML='';el('inboxExcerpt').textContent='';el('inboxReviewed').checked=false;
     el('prospectResults').textContent = 'Loading current evidence…';
     return RP.api(path('shortlist'), {synthetic:synthetic}).then(function(j){
       if(ticket !== generation) return;
@@ -48,6 +54,8 @@
       el('briefExcerpt').value = b ? b.source.excerpt : '';
       el('evidenceLead').innerHTML = j.leads.filter(function(l){return synthetic === l.email.toLowerCase().endsWith('.invalid');}).map(function(l){return '<option value="'+esc(l.id)+'">'+esc(l.company || l.email)+'</option>';}).join('');
       el('productLead').innerHTML=el('evidenceLead').innerHTML;
+      el('inboxLead').innerHTML=el('evidenceLead').innerHTML;
+      el('inboxLead').onchange=function(){inboxSelection=null;el('inboxMessage').innerHTML='';el('inboxExcerpt').textContent='';el('inboxReviewed').checked=false;};
       el('prospectResults').innerHTML = j.results.length ? j.results.map(function(r){
         return '<details><summary>'+esc(r.company)+' · '+esc(r.state)+'</summary><p>'+esc(r.nextAction)+'</p><p>'+esc(r.reasons.join(', '))+'</p>'+r.fields.map(function(f){
           return '<p><strong>'+esc(f.field)+': '+esc(f.state)+'</strong> '+esc(f.values.join(', '))+'</p>'+f.evidence.map(function(e){return '<blockquote>'+esc(e.excerpt)+'<br><small>'+esc(e.reference)+' · '+esc(e.observedAt)+'</small></blockquote>';}).join('');
@@ -92,6 +100,43 @@
     var data={purpose:'Internal operator review only; not a marketing contact list',tenant_id:tenant.id,brief_version:version,assessed_at:snapshot.assessedAt,rules_version:snapshot.rulesVersion,synthetic:snapshot.synthetic,contactAllowed:false,results:snapshot.results};
     var url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'})),a=document.createElement('a');
     a.href=url;a.download='ripepiper-internal-review.json';a.click();URL.revokeObjectURL(url);
+  }
+  var inboxSelection=null,inboxBusy=false;
+  function inboxForm(){return '<details><summary>Read selected inbox messages</summary><p>Read-only Google connection for this client. Select a business contact, preview a recent incoming message, then confirm its use for human review. Importing holds follow-ups; it does not reply or qualify the lead.</p><button id="inboxCheck" class="btn btn-line" type="button">Check inbox and calendar connection</button><div class="field"><label for="inboxLead">Existing business contact</label><select id="inboxLead"></select></div><button id="inboxList" class="btn btn-line" type="button">Find recent messages for this contact</button><div class="field"><label for="inboxMessage">Incoming message (last 30 days, up to 10)</label><select id="inboxMessage"></select></div><button id="inboxPreview" class="btn btn-line" type="button">Preview selected message</button><pre id="inboxExcerpt" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre><label class="consent"><input type="checkbox" id="inboxReviewed"><span>I reviewed this excerpt and its permitted use for this client.</span></label><button id="inboxImport" class="btn btn-line" type="button">Import for human review</button><p id="inboxStatus" role="status"></p></details>';}
+  function inboxRequest(body,onResult){
+    if(!ready||inboxBusy){el('inboxStatus').textContent='Load this client and wait for the current request.';return;}
+    var ticket=generation,id=tenant.id;inboxBusy=true;el('inboxStatus').textContent='Checking…';
+    RP.api(path('connection',id),body).then(function(j){
+      if(ticket!==generation)return;
+      if(j.state==='not_connected'){el('inboxStatus').textContent='No active tenant connection. A dedicated mailbox/calendar and read-only Google consent are required.';return;}
+      onResult(j);
+    }).catch(function(e){if(ticket===generation)el('inboxStatus').textContent=e.message;}).finally(function(){inboxBusy=false;});
+  }
+  function checkInbox(){inboxRequest({operation:'check'},function(j){el('inboxStatus').textContent=j.state==='identity_verified'?'Account identity verified for '+j.mailbox+' and calendar '+j.calendarId+'. Message access is checked on preview; sending is disabled.':'Connection is not verified.';});}
+  function listInbox(){
+    inboxSelection=null;el('inboxExcerpt').textContent='';el('inboxReviewed').checked=false;el('inboxMessage').innerHTML='';
+    var lead=el('inboxLead').value;
+    inboxRequest({operation:'list',lead_id:lead},function(j){
+      if(lead!==el('inboxLead').value)return;
+      el('inboxMessage').innerHTML=j.messages.items.map(function(m){return '<option value="'+esc(m.id)+'">'+esc(m.subject)+' · '+esc(m.observedAt)+'</option>';}).join('');
+      el('inboxStatus').textContent=j.messages.items.length+' matching incoming messages. '+(j.messages.moreAvailable?'More exist; this view is limited to 10. ':'')+(j.messages.excluded?'Some messages were excluded because their identity or date did not match.':'');
+    });
+  }
+  function previewInbox(){
+    inboxSelection=null;el('inboxExcerpt').textContent='';el('inboxReviewed').checked=false;
+    var lead=el('inboxLead').value,message=el('inboxMessage').value;
+    inboxRequest({operation:'preview',lead_id:lead,message_id:message},function(j){
+      if(lead!==el('inboxLead').value||message!==el('inboxMessage').value)return;
+      inboxSelection={lead:lead,id:message,digest:j.message.digest};el('inboxExcerpt').textContent=j.message.excerpt;
+      el('inboxStatus').textContent=j.message.truncated?'Showing a limited excerpt. Review it in the mailbox if more context is needed.':'Review the source. Sender matching does not authenticate the sender or establish buying intent.';
+    });
+  }
+  function importInbox(){
+    var s=inboxSelection;
+    if(!s||s.lead!==el('inboxLead').value||s.id!==el('inboxMessage').value||!el('inboxReviewed').checked){el('inboxStatus').textContent='Preview this message and confirm its permitted use first.';return;}
+    inboxRequest({operation:'import',lead_id:s.lead,message_id:s.id,digest:s.digest,reviewed:true},function(){
+      var id=tenant.id;inboxSelection=null;load().then(function(){if(tenant.id===id)el('inboxStatus').textContent='Recorded for human review. Follow-ups are held; no reply was sent.';});
+    });
   }
   function select(id,label,values) {return '<div class="field"><label for="'+id+'">'+label+'</label><select id="'+id+'">'+values.map(function(v){return '<option value="'+v+'">'+v.replaceAll('_',' ')+'</option>';}).join('')+'</select></div>';}
   function productForm(){return '<details><summary>Product history and outcomes</summary><p class="hint">Staff-reviewed records on existing contacts. Recording a reply holds follow-ups across products. Opt-out records apply suppression. These forms do not send, publish or book.</p><form id="productForm" class="stack">'+select('productChoice','Product',['revive','signal','response','events'])+select('productKind','Record type',['evidence','outcome'])+'<div class="field"><label for="productLead">Existing lead</label><select id="productLead"></select></div>'+input('productReference','Unique source or message reference')+input('productRights','Permitted-use reference')+input('productObserved','Observed at (UTC)','datetime-local')+'<div class="field"><label for="productExcerpt">Reviewed source excerpt</label><textarea id="productExcerpt" maxlength="2000" required></textarea></div><div id="productFields" class="form-grid"></div><button class="btn btn-line" type="submit">Record reviewed event</button></form></details>';}

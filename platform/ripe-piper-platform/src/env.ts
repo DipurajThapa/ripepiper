@@ -14,6 +14,8 @@ export interface Env {
   MAIL_FROM: string;                  // e.g. "Ripe Piper <hello@ripepiper.com>"
   ADMIN_ALERT_EMAIL: string;
 
+  GOOGLE_TENANT_CONNECTIONS?: string; // server-secret JSON; explicit read-only pilot bindings, never exposed to browser
+
   // AI
   ANTHROPIC_API_KEY: string;
   AI_MODEL: string;                   // e.g. "claude-sonnet-5-5"

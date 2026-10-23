@@ -11,6 +11,7 @@ let tables: Record<string, Row[]>;
 let sentEmails: { to: string; raw: string }[];
 let calendarEvents: Row[];
 let rpcCalls: string[];
+let rpcBodies: any[];
 const uuid = () => crypto.randomUUID();
 
 function matches(row: Row, query: URLSearchParams): boolean {
@@ -49,7 +50,7 @@ function defaults(table: string, row: Row): Row {
 async function fakeSupabase(url: URL, init: RequestInit): Promise<Response> {
   if (url.pathname === "/auth/v1/user") return Response.json(init.headers && (init.headers as Record<string,string>).Authorization === "Bearer client-token"
     ? { id: "client-1", email: "client@example.invalid" } : { id: "admin-1", email: "admin@ripepiper.com" });
-  if (url.pathname.startsWith("/rest/v1/rpc/")) { rpcCalls.push(url.pathname); return Response.json(true); }
+  if (url.pathname.startsWith("/rest/v1/rpc/")) { rpcCalls.push(url.pathname); rpcBodies.push(JSON.parse(String(init.body))); return Response.json(true); }
   const table = url.pathname.replace("/rest/v1/", "");
   tables[table] ??= [];
   const t = tables[table], q = url.searchParams, method = init.method ?? "GET";
@@ -122,7 +123,7 @@ async function sign(secret: string, payload: string) {
 }
 
 beforeEach(() => {
-  tables = {}; sentEmails = []; calendarEvents = []; rpcCalls = [];
+  tables = {}; sentEmails = []; calendarEvents = []; rpcCalls = []; rpcBodies = []; delete env.GOOGLE_TENANT_CONNECTIONS;
   vi.stubGlobal("fetch", fakeFetch);
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-11-02T04:00:00Z"));   // Monday 08:00 GST
@@ -506,4 +507,51 @@ it('does not repair a booking whose attendee changes during the provider read',a
   return fakeFetch(input,init);
  });
  expect((await call('POST','/api/admin/meetings/'+id+'/reconcile',{}, {Authorization:'Bearer test-admin'})).status).toBe(409);expect(m.meet_url).toBeNull();expect(sentEmails).toHaveLength(0);
+});
+
+describe('tenant read-only inbox integration',()=>{
+ const tenant='11111111-1111-4111-8111-111111111111',lead='22222222-2222-4222-8222-222222222222';
+ const root='/api/admin/tenants/'+tenant+'/connection',staff={Authorization:'Bearer test-admin'};
+ const binding=()=>({id:'33333333-3333-4333-8333-333333333333',tenantId:tenant,mailbox:'staff@example.invalid',calendarId:'calendar@example.invalid',purposeReference:'approved-selected-threads',enabled:true,expiresAt:'2026-12-01T00:00:00Z',clientId:'tenant-client',clientSecret:'tenant-secret',refreshToken:'tenant-refresh'});
+ const message=()=>({id:'message1',threadId:'thread1',internalDate:String(Date.now()-1000),sizeEstimate:100,labelIds:['INBOX'],payload:{mimeType:'text/plain',headers:[{name:'From',value:'contact@business.example'},{name:'To',value:'staff@example.invalid'},{name:'Subject',value:'Business question'}],body:{data:btoa('Could we discuss the service?')}}});
+ function setup(hook?:(url:URL)=>void){
+  tables.tenants=[{id:tenant,status:'active'}];tables.leads=[{id:lead,tenant_id:tenant,email:'contact@business.example'}];env.GOOGLE_TENANT_CONNECTIONS=JSON.stringify([binding()]);
+  const calls:URL[]=[];
+  vi.stubGlobal('fetch',async(input:RequestInfo|URL,init:RequestInit={})=>{
+   const url=new URL(String(input));calls.push(url);hook?.(url);
+   if(url.pathname.endsWith('/users/me/profile'))return Response.json({emailAddress:'staff@example.invalid'});
+   if(url.pathname.includes('/calendarList/'))return Response.json({id:'calendar@example.invalid',accessRole:'reader'});
+   if(url.pathname.endsWith('/users/me/messages'))return Response.json({messages:[{id:'message1'}]});
+   if(url.pathname.endsWith('/messages/message1'))return Response.json(message());
+   return fakeFetch(input,init);
+  });return calls;
+ }
+ it('requires staff and an explicit active binding, without falling back to founder credentials',async()=>{
+  const calls=setup();expect((await call('POST',root,{operation:'check'})).status).toBe(401);expect((await call('POST',root,{operation:'check'},{Authorization:'Bearer client-token'})).status).toBe(403);
+  delete env.GOOGLE_TENANT_CONNECTIONS;
+  expect(await (await call('POST',root,{operation:'check'},staff)).json()).toMatchObject({state:'not_connected',canRead:false,canSend:false});
+  expect(calls.some(u=>u.host.endsWith('googleapis.com'))).toBe(false);
+ });
+ it('checks identity, lists metadata, previews and imports a reviewed source into the existing response RPC',async()=>{
+  setup();expect(await (await call('POST',root,{operation:'check'},staff)).json()).toMatchObject({state:'identity_verified',canSend:false});
+  const listed:any=await (await call('POST',root,{operation:'list',lead_id:lead},staff)).json();expect(listed.messages.items[0].id).toBe('message1');expect(listed.messages.items[0]).not.toHaveProperty('excerpt');
+  const preview:any=await (await call('POST',root,{operation:'preview',lead_id:lead,message_id:'message1'},staff)).json();expect(preview.message.excerpt).toContain('Could we discuss');expect(rpcCalls).toHaveLength(0);
+  const payload={operation:'import',lead_id:lead,message_id:'message1',reviewed:true,digest:preview.message.digest};
+  expect((await call('POST',root,{...payload,digest:'changed'},staff)).status).toBe(409);expect(rpcCalls).toHaveLength(0);
+  const imported=await call('POST',root,payload,staff);expect(imported.status).toBe(201);expect(await imported.json()).toMatchObject({delivery:'not_sent',reviewState:'human'});
+  expect(rpcBodies[0]).toMatchObject({p_tenant:tenant,p_lead:lead,p_actor:'admin-1',p_synthetic:false,p_rights:'approved-selected-threads',p_reference:'gmail:33333333-3333-4333-8333-333333333333:message1',p_context:{product:'response',kind:'reply',disposition:'human',need:'',authority:'',timing:''}});
+  expect(JSON.stringify(rpcBodies)).not.toContain('tenant-secret');expect(sentEmails).toHaveLength(0);expect(calendarEvents).toHaveLength(0);
+ });
+ it('does not read another tenant contact or a synthetic contact from the mailbox',async()=>{
+  const calls=setup();tables.leads[0].tenant_id='44444444-4444-4444-8444-444444444444';expect((await call('POST',root,{operation:'list',lead_id:lead},staff)).status).toBe(404);
+  tables.leads[0].tenant_id=tenant;tables.leads[0].email='fixture@example.invalid';expect((await call('POST',root,{operation:'list',lead_id:lead},staff)).status).toBe(400);expect(calls.some(u=>u.pathname.endsWith('/messages'))).toBe(false);
+ });
+ it.each(['paused','revoked'])('discards a provider result when connection becomes %s',async mode=>{
+  setup(url=>{if(url.searchParams.get('format')==='full'){if(mode==='paused')tables.tenants[0].status='paused';else env.GOOGLE_TENANT_CONNECTIONS=JSON.stringify([{...binding(),enabled:false}]);}});
+  const response=await call('POST',root,{operation:'preview',lead_id:lead,message_id:'message1'},staff);expect(response.status).toBe(409);expect(JSON.stringify(await response.json())).not.toContain('Could we discuss');expect(rpcCalls).toHaveLength(0);
+ });
+ it('blocks a refresh token connected to the wrong mailbox before reading any messages',async()=>{
+  setup();env.GOOGLE_TENANT_CONNECTIONS=JSON.stringify([{...binding(),mailbox:'other@example.invalid'}]);
+  const response=await call('POST',root,{operation:'list',lead_id:lead},staff);expect(response.status).toBe(409);expect(rpcCalls).toHaveLength(0);
+ });
 });

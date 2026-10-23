@@ -192,3 +192,76 @@ export async function meetTranscript(env: Env, meetCode: string): Promise<{ stat
   } while (pageToken);
   return { status: "ready", text: lines.join("\n"), participants };
 }
+
+// ------------------------------------------------------------------ Tenant read-only inbox pilot
+export async function googleMailbox(env: Env): Promise<string> {
+  const profile=await g<any>(env,'https://gmail.googleapis.com/gmail/v1/users/me/profile');
+  if(typeof profile?.emailAddress!=='string'||!profile.emailAddress.includes('@'))throw new GoogleError(0,'Invalid mailbox identity');
+  return profile.emailAddress;
+}
+export async function googleCalendarIdentity(env: Env) {
+  const calendar=await g<any>(env,`https://www.googleapis.com/calendar/v3/users/me/calendarList/${encodeURIComponent(env.GOOGLE_CALENDAR_ID)}`);
+  if(typeof calendar?.id!=='string'||!['reader','writer','owner'].includes(calendar.accessRole)||calendar.deleted)throw new GoogleError(0,'Calendar read access unavailable');
+  return {id:calendar.id as string,role:calendar.accessRole as string};
+}
+function singleAddress(value: string):string|null {
+  const address=value.trim().match(/^(?:[^<>@]*<([^<>]+)>|([^<>\s]+))$/);
+  const result=address?.[1]??address?.[2];
+  return result&&/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(result)?result.toLowerCase():null;
+}
+function inboundMetadata(message:any,id:string,sender:string,mailbox:string) {
+  const headers=message?.payload?.headers;
+  if(!Array.isArray(headers)||message.id!==id||!/^[a-zA-Z0-9_-]{1,128}$/.test(message.threadId??'')||
+    !Array.isArray(message.labelIds)||message.labelIds.some((l:string)=>['SENT','DRAFT','SPAM','TRASH'].includes(l)))throw new GoogleError(0,'Unsupported incoming message');
+  const header=(name:string)=>headers.filter((h:any)=>typeof h.name==='string'&&h.name.toLowerCase()===name).map((h:any)=>h.value);
+  const from=header('from'),to=header('to'),subject=header('subject');
+  const date=Number(message.internalDate);
+  if(from.length!==1||to.length!==1||typeof from[0]!=='string'||typeof to[0]!=='string'||singleAddress(from[0])!==sender.toLowerCase()||singleAddress(to[0])!==mailbox.toLowerCase()||
+    !Number.isFinite(date)||date>Date.now()||date<Date.now()-30*86400000)throw new GoogleError(0,'Message identity or date mismatch');
+  return {id,threadId:message.threadId as string,subject:typeof subject[0]==='string'?subject[0].slice(0,300):'(no subject)',observedAt:new Date(date).toISOString()};
+}
+export async function listInboundMessages(env:Env,sender:string,mailbox:string) {
+  const q=`from:(${sender}) to:(${mailbox}) newer_than:30d -in:sent -in:drafts -in:spam -in:trash`;
+  const result=await g<any>(env,`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10&q=${encodeURIComponent(q)}`);
+  if(!result||typeof result!=='object'||Array.isArray(result)||(result.messages!==undefined&&!Array.isArray(result.messages)))throw new GoogleError(0,'Invalid message list');
+  if((result?.messages?.length??0)>10)throw new GoogleError(0,'Message list exceeds limit');
+  const messages=[];let excluded=0;
+  for(const item of result?.messages??[]){
+    if(!/^[a-zA-Z0-9_-]{1,128}$/.test(item.id??''))throw new GoogleError(0,'Invalid message identifier');
+    const message=await g<any>(env,`https://gmail.googleapis.com/gmail/v1/users/me/messages/${item.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject`);
+    try{messages.push(inboundMetadata(message,item.id,sender,mailbox));}catch{excluded++;}
+  }
+  return {items:messages,moreAvailable:!!result?.nextPageToken,excluded};
+}
+export async function readInboundMessage(env:Env,id:string,sender:string,mailbox:string){
+  if(!/^[a-zA-Z0-9_-]{1,128}$/.test(id))throw new GoogleError(0,'Invalid message identifier');
+  // Verify envelope metadata before fetching any body, then recheck the full response.
+  const envelope=await g<any>(env,`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject`);
+  inboundMetadata(envelope,id,sender,mailbox);
+  if(!Number.isFinite(envelope.sizeEstimate)||envelope.sizeEstimate>256000)throw new GoogleError(0,'Message exceeds review limit');
+  const message=await g<any>(env,`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`);
+  const meta=inboundMetadata(message,id,sender,mailbox);
+  if(!Number.isFinite(message.sizeEstimate)||message.sizeEstimate>256000)throw new GoogleError(0,'Message exceeds review limit');
+  const texts:string[]=[];let parts=0;
+  function visit(part:any,depth:number){
+    if(++parts>30||depth>5)throw new GoogleError(0,'Message structure exceeds review limit');
+    if(part?.mimeType==='message/rfc822')return; // Do not ingest forwarded attachments.
+    if(part?.filename||part?.body?.attachmentId)return;
+    if(part?.mimeType==='text/plain'&&typeof part.body?.data==='string'){
+      if(part.body.data.length>350000)throw new GoogleError(0,'Message body exceeds review limit');
+      let bytes:Uint8Array;
+      try{bytes=Uint8Array.from(atob(part.body.data.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));}
+      catch{throw new GoogleError(0,'Invalid message encoding');}
+      texts.push(new TextDecoder('utf-8',{fatal:true,ignoreBOM:false}).decode(bytes));
+    }
+    if(part?.parts!==undefined&&!Array.isArray(part.parts))throw new GoogleError(0,'Invalid message structure');
+    for(const child of part?.parts??[])visit(child,depth+1);
+  }
+  visit(message.payload,0);
+  const body=texts.join('\n').trim();
+  if(!body)throw new GoogleError(0,'Plain-text review unavailable; use reviewed manual evidence');
+  const text=`Subject: ${meta.subject}\n${body}`;
+  const excerpt=text.slice(0,2000),truncated=text.length>2000;
+  const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify({...meta,excerpt,truncated}))))).map(b=>b.toString(16).padStart(2,'0')).join('');
+  return {...meta,excerpt,truncated,digest};
+}
