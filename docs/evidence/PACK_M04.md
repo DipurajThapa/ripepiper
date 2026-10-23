@@ -205,3 +205,5 @@ Implemented on existing product_context JSON and record_product_event RPC; no ne
 Verification: 183 backend tests, 30 UI/safety tests and typecheck pass locally. Added scoped/legacy grouping and validation tests, API rejection cases, existing PGlite RPC persistence and replay round trip, and UI payload tests. PGlite timestamps are serialized as JSON to model the existing PostgREST wire format. Rendered browser script exercises both new forms; final CI status is recorded on the PR.
 
 Remaining: operator ownership and reviewed resolution, live OAuth pilot, reliable outbound acknowledgement, public Events lifecycle, labelled prospect-quality evaluation, isolated live backend/Auth validation and release evidence. Calendar inventory still does not expose the requested organization test calendar. No provider communication, production database change or paid call occurred.
+
+Step 1n review correction: empty Response/Events groups have no attribution label; only populated legacy outcome history is labelled unattributed. Regression added; 184 backend tests pass.

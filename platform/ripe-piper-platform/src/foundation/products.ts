@@ -91,7 +91,7 @@ export function reviewProducts(observations:Observation[],now:number,suppressed:
    if(product!=='response' && replies.length) {state='reply_hold';nextAction='A reply or enquiry exists. Review the conversation before any further prospecting.';question=null;}
    if(stopped) {state='suppressed';nextAction='No marketing follow-up. Route any service request to staff.';question=null;dueAt=null;}
    return {product,reference:key || null,state,nextAction,question,missing,dueAt,overdue:dueAt!==null && Date.parse(dueAt)<now,
-     contactAllowed:false,bookingAvailable:false,outcomeScope:(product==='response'||product==='events') && !key?'unattributed':'product_reference',history:history.map(o=>({id:o.id,reference:o.external_ref,observedAt:o.observed_at,excerpt:o.assessment_excerpt,context:o.product_context,briefVersion:o.brief_version ?? null})),
+     contactAllowed:false,bookingAvailable:false,outcomeScope:(product==='response'||product==='events') && !key?(history.some(o=>o.product_context?.kind==='outcome')?'unattributed':null):'product_reference',history:history.map(o=>({id:o.id,reference:o.external_ref,observedAt:o.observed_at,excerpt:o.assessment_excerpt,context:o.product_context,briefVersion:o.brief_version ?? null})),
      outcomes:history.filter(o=>o.product_context?.kind==='outcome').map(o=>({at:o.observed_at,...o.product_context as Extract<ProductContext,{kind:'outcome'}>}))};
  });
 }

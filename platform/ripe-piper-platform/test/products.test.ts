@@ -75,3 +75,7 @@ it('attributes outcomes to their own thread or event and retains legacy unattrib
  }
  expect(productError({product:'revive',kind:'outcome',outcome:'won',reason:'Verified',threadRef:'foreign'},at,now,true)).not.toBeNull();
 });
+
+it('does not label empty Response or Events groups as historical outcomes',()=>{
+ for(const product of ['response','events']) expect(review([],product)).toMatchObject({outcomeScope:null,outcomes:[],state:'needs_evidence'});
+});
