@@ -34,7 +34,7 @@ export function evaluate(g, l) {
     if(id==="operational-release" && entry.owner_authorized!==true) blockers.push("Explicit owner authorization missing");
     const accepted=entry.status==="verified" && blockers.length===0;
     if(entry.status==="verified" && !accepted) blockers.push("Verified status rejected by fail-closed gate");
-    const value={id,owner:s.owner,reported:entry.status,accepted,blockers};
+    const value={id,owner:s.owner,reported:entry.status,accepted,blockers,nextAction: accepted ? "Maintain evidence and monitor regressions" : blockers.includes("Dependencies not verified") ? "PM: progress independent prerequisites and assign offline work" : "PM: obtain missing verification evidence and independent QA review"};
     out.set(id,value);return value;
   }
   for(const s of g.stages) visit(s.id);
