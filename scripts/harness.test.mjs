@@ -25,3 +25,9 @@ test("release is blocked without explicit owner decision even if evidence exists
  const r=evaluate(graph,l);assert.equal(r.find(x=>x.id==="operational-release").accepted,false);
  assert.match(r.find(x=>x.id==="operational-release").blockers.join(";"),/owner authorization/i);
 });
+
+test("each pending stage exposes an actionable PM next step",()=>{
+ const results=evaluate(graph,ledger);
+ assert.ok(results.every(x=>x.accepted || x.nextAction.startsWith("PM:")));
+ assert.ok(results.some(x=>x.nextAction.includes("independent prerequisites")));
+});
