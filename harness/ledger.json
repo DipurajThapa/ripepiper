@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "project": "Ripe Piper",
+  "pm_owner": "PM agent",
+  "updated_at": "2026-10-23",
+  "stages": {
+    "baseline": {
+      "status": "not_started",
+      "owner": "pm",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "isolated-db": {
+      "status": "not_started",
+      "owner": "development",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "migration-rehearsal": {
+      "status": "not_started",
+      "owner": "development",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "migration-qa": {
+      "status": "not_started",
+      "owner": "qa",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "worker-routing": {
+      "status": "not_started",
+      "owner": "development",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "worker-qa": {
+      "status": "not_started",
+      "owner": "qa",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "tenant-sandbox": {
+      "status": "not_started",
+      "owner": "development",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "revive-sandbox": {
+      "status": "not_started",
+      "owner": "development",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "revive-qa": {
+      "status": "not_started",
+      "owner": "qa",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    },
+    "operational-release": {
+      "status": "not_started",
+      "owner": "cto",
+      "pm_reviewed": false,
+      "qa_reviewed": false,
+      "evidence": {},
+      "blocker": "Evidence and dependency gates not yet met"
+    }
+  }
+}
