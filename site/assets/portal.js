@@ -223,11 +223,14 @@
   RP.auth(function (user) {
     RP.tabs();
     if (RP.demo) { demoData(); fillMonths(); renderAll(); return; }
-    RP.sb.from("memberships").select("role, tenants(*)").eq("user_id", user.id).then(function (r) {
+    RP.api("/api/portal/accept-invites").then(function () {
+      return RP.sb.from("memberships").select("role, tenants(*)").eq("user_id", user.id);
+    }).then(function (r) {
+      if (r.error) throw r.error;
       var rows = r.data || [];
       if (!rows.length) {
         $("tenantName").textContent = "Your account is not linked to a company yet";
-        $("freshness").textContent = "Ask us to send an invitation to " + user.email + ". Then sign in again.";
+        $("freshness").textContent = "Ask us to invite " + user.email + ", then refresh this page.";
         document.querySelectorAll("[data-panel]").forEach(function (p) { p.hidden = true; });
         return;
       }
@@ -237,6 +240,10 @@
         $("tenantSelect").innerHTML = state.tenants.map(function (t) { return '<option value="' + t.id + '">' + RP.esc(t.name) + "</option>"; }).join("");
       }
       pick(state.tenants[0].id);
+    }).catch(function () {
+      $("tenantName").textContent = "We could not check your account";
+      $("freshness").textContent = "Please refresh this page, or contact Ripe Piper if the issue continues.";
+      document.querySelectorAll("[data-panel]").forEach(function (p) { p.hidden = true; });
     });
   });
 })();

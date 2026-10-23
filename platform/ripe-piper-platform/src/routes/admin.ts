@@ -1,6 +1,6 @@
 import type { Env } from "../env";
 import { Db } from "../lib/db";
-import { meetTranscript, sendEmail } from "../lib/google";
+import { meetTranscript, sendEmail, reconcileMeetEvent } from "../lib/google";
 import { analyseMeeting, minutesMarkdown, draftPreProposal, priceBlock, type MeetingAnalysis } from "../lib/ai";
 import { quoteTotal, money } from "../lib/pricing";
 import { emails } from "../lib/email";
@@ -92,12 +92,42 @@ export async function inviteUser(req: Request, env: Env, tenantId: string) {
   const b = await readJson(req);
   const email = cleanEmail(b.email);
   if (!email) return bad("Please enter a valid email address.");
-  const role = b.role === "viewer" ? "viewer" : "owner";
-  await new Db(env).upsert("invites", { tenant_id: tenantId, email, role }, "tenant_id,email");
+  if (b.role !== "viewer" && b.role !== "owner") return bad("Choose an owner or viewer role.");
+  const role = b.role;
+  const db = new Db(env);
+  const tenant = await db.one<{ status: string }>("tenants", `id=eq.${tenantId}&select=status`);
+  if (!tenant) return bad("Client not found.", 404);
+  if (!['onboarding', 'active'].includes(tenant.status)) return bad("This client is paused or inactive.", 409);
+  const previous = await db.one<{ accepted_at: string | null }>("invites", `tenant_id=eq.${tenantId}&email=eq.${encodeURIComponent(email)}&select=accepted_at`);
+  if (previous?.accepted_at) return bad("This invitation was already accepted. Review the member's role separately.", 409);
+  await db.upsert("invites", { tenant_id: tenantId, email, role }, "tenant_id,email");
   return json({ ok: true });
 }
 
 export async function runAdsSync(req: Request, env: Env) {
   await requireUser(req, env, true);
   return json({ ok: true, result: await syncAds(env, 7) });
+}
+
+/** Repair the existing public-consultation link using a provider read, without another invitation. */
+export async function reconcileBooking(req: Request, env: Env, id: string) {
+  const user = await requireUser(req, env, true);
+  const db = new Db(env);
+  const m = await db.one<any>("meetings", `id=eq.${id}&tenant_id=is.null&status=eq.booked&select=*`);
+  if (!m || !m.google_event_id) return bad("No reconcilable consultation reservation was found.", 404);
+  let ev;
+  try {
+    ev = await reconcileMeetEvent(env, { id: m.id, start: m.start_at, end: m.end_at, email: m.attendee_email,
+      name: m.attendee_name ?? "", summary: "", description: "" }, m.google_event_id);
+  } catch {
+    return bad("Calendar confirmation is still unavailable or does not match. The reservation remains held; check the configured calendar before changing it.", 409);
+  }
+  const changed = await db.update("meetings", `id=eq.${id}&tenant_id=is.null&status=eq.booked&google_event_id=eq.${encodeURIComponent(m.google_event_id)}&start_at=eq.${encodeURIComponent(m.start_at)}&end_at=eq.${encodeURIComponent(m.end_at)}&attendee_email=eq.${encodeURIComponent(m.attendee_email)}&lead_id=${m.lead_id ? "eq." + encodeURIComponent(m.lead_id) : "is.null"}`, {
+    meet_url: ev.meetUrl, meet_code: ev.meetCode,
+  });
+  if (!changed.length) return bad("The reservation changed. Reload before continuing.", 409);
+  await db.insert("activity_log", { actor: user.id, kind: "note", visible_to_client: false,
+    message: `Calendar event verified for consultation ${m.id}; reservation updated without sending an invitation.` });
+  if (m.lead_id) await db.update("leads", `id=eq.${m.lead_id}&tenant_id=is.null&status=eq.qualified`, { status: "meeting_booked" });
+  return json({ ok: true, meeting_id: m.id, meet_url: ev.meetUrl, delivery: "not_sent" });
 }

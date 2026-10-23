@@ -126,9 +126,9 @@
     var pkg = (location.hash || "").replace("#", "");
     var sel = document.getElementById("fPkg");
     if (sel && ["revive", "signal", "response", "events"].indexOf(pkg) !== -1) sel.value = pkg;
-    var err = document.getElementById("fErr"), res = document.getElementById("fResult"), leadId = null;
+    var err = document.getElementById("fErr"), res = document.getElementById("fResult"), leadId = null, bookingToken = null;
     var MSG_WORK = "Please use your work email address, so we can review your company before the call. You can also message us on WhatsApp.";
-    var msgNotFit = function (name) { return "Thank you, " + firstName(name) + ". For deals below AED 10,000 (₹2.5 lakh), our service usually costs more than it returns. We have emailed you our calculator and a guide on reactivating old leads, so you can decide when the timing is right."; };
+    var msgNotFit = function (name) { return "Thank you, " + firstName(name) + ". For deals below AED 10,000 (₹2.5 lakh), our service usually costs more than it returns. You can review the calculator and our guide on reactivating old leads before deciding when the timing is right."; };
     book.addEventListener("submit", function (e) {
       e.preventDefault();
       var name = val("fName"), email = val("fEmail").toLowerCase(), site = val("fSite");
@@ -143,6 +143,8 @@
         post("/api/lead", { name: name, email: email, website: site, package: document.getElementById("fPkg").value, country: country, deal_band: deal, consent: true })
           .then(function (j) {
             leadId = j.lead_id;
+            bookingToken = j.booking_token || null;
+            if (j.route === "already_booked") return show(okBox("event_available", "A consultation request already exists for this address. Please email hello@ripepiper.com if you need to change it."));
             if (j.route === "work_email") return show(okBox("alternate_email", MSG_WORK));
             if (j.route === "not_fit") return show(okBox("lightbulb", msgNotFit(name)));
             show(liveSlots(j.slots || []));
@@ -164,9 +166,9 @@
       var add = function (html) { var d = document.createElement("div"); d.innerHTML = html; res.appendChild(d.firstChild); };
       if (LIVE) {
         res.querySelectorAll(".slot").forEach(function (s) { s.disabled = true; });
-        post("/api/book", { lead_id: leadId, start: b.getAttribute("data-start") })
+        post("/api/book", { lead_id: leadId, booking_token: bookingToken, start: b.getAttribute("data-start") })
           .then(function (j) { add(okBox("event_available", "<strong>Your call is booked for " + j.label + ".</strong> We have sent a calendar invitation with the Google Meet link to your email. You will receive reminders 24 hours and 1 hour before the call.")); })
-          .catch(function (x) { res.querySelectorAll(".slot").forEach(function (s) { s.disabled = false; }); b.setAttribute("aria-pressed", "false"); add(okBox("schedule", x.message)); });
+          .catch(function (x) { if (!/complete the form again/i.test(x.message)) res.querySelectorAll(".slot").forEach(function (s) { s.disabled = false; }); b.setAttribute("aria-pressed", "false"); add(okBox("schedule", x.message)); });
         return;
       }
       add(okBox("schedule", "This is a preview only. No booking has been created. Please use the deployed website."));

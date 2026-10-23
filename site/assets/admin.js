@@ -55,12 +55,15 @@
   /* ---------------------------------------------------------- meetings */
   function renderMeetings() {
     $("meetingsTable").innerHTML = RP.table([{ label: "When", render: function (m) { return RP.dateTime(m.start_at); } }, { label: "With", render: function (m) { return RP.esc(m.attendee_name || m.attendee_email); } },
-      { label: "Status", render: function (m) { return RP.badge(m.status); } }, { label: "Notes", render: function (m) { return m.notes ? "Ready" : "–"; } }], data.meetings, { clickable: true, empty: "No meetings booked yet." });
+      { label: "Status", render: function (m) { return RP.badge(m.status === "booked" && !m.meet_url ? "Calendar review required" : m.status); } }, { label: "Notes", render: function (m) { return m.notes ? "Ready" : "–"; } }], data.meetings, { clickable: true, empty: "No meetings booked yet." });
   }
   function list(xs) { return xs && xs.length ? "<ul>" + xs.map(function (x) { return "<li>" + RP.esc(x) + "</li>"; }).join("") + "</ul>" : '<p class="muted">Not discussed.</p>'; }
   function meetingDetail(m) {
     cur.meeting = m;
     var n = m.notes, q = m.requirements, h = '<h3>' + RP.esc(m.attendee_name || m.attendee_email) + "</h3><p class=\"muted\">" + RP.dateTime(m.start_at) + " · " + RP.badge(m.status) + (m.meet_url ? ' · <a href="' + RP.esc(m.meet_url) + '" rel="noopener">Meet link</a>' : "") + "</p>";
+    if (m.status === "booked") {
+      h += (m.meet_url ? '' : '<p>The time remains reserved. Check Google Calendar confirmation before changing this booking.</p>') + '<button class="btn btn-line" type="button" id="reconcileBooking">Check calendar confirmation</button><p id="calendarReview" role="status"></p>';
+    }
     if (n) {
       h += '<div class="prose"><h3>Summary</h3><p>' + RP.esc(n.summary) + "</p><h3>Pains</h3>" + list(n.pains) + "<h3>Goals</h3>" + list(n.goals) +
         "<p><strong>Budget:</strong> " + RP.esc(n.budget) + "<br><strong>Timeline:</strong> " + RP.esc(n.timeline) + "</p><h3>Decision makers</h3>" + list(n.decision_makers) + "<h3>Objections</h3>" + list(n.objections) +
@@ -79,6 +82,16 @@
         '<button class="btn btn-line" type="button" id="useT">Create notes from this text</button><p class="err" id="tErr"></p><div id="tOk" hidden></div>';
     }
     $("meetingDetail").innerHTML = h;
+    var reconcile = $("reconcileBooking");
+    if (reconcile) reconcile.addEventListener("click", function () {
+      var meetingId = m.id, result = $("calendarReview");
+      if (RP.demo || !RP.sb) { result.textContent = "Calendar reconciliation requires the connected admin site."; return; }
+      reconcile.disabled = true;
+      RP.api("/api/admin/meetings/" + meetingId + "/reconcile", {})
+        .then(function () { return fetchAll(); })
+        .then(function () { renderMeetings(); if (cur.meeting && cur.meeting.id === meetingId) meetingDetail(data.meetings.find(function (x) { return x.id === meetingId; }) || m); })
+        .catch(function (e) { result.textContent = e.message; reconcile.disabled = false; });
+    });
     if (q) { $("dPlan").value = q.recommended_plan; $("dPkg").value = q.recommended_package; }
   }
   function processMeeting(transcript) {
@@ -126,14 +139,18 @@
   /* ---------------------------------------------------------- clients */
   function renderTenants() {
     $("tenantsTable").innerHTML = RP.table([{ key: "name", label: "Client" }, { key: "currency", label: "Currency" }, { label: "Plan", render: function (t) { return RP.esc(t.plan + ", " + t.package); } },
-      { label: "Status", render: function (t) { return RP.badge(t.status); } }], data.tenants, { clickable: true, empty: "Client accounts are created automatically when an advance is paid." });
+      { label: "Status", render: function (t) { return RP.badge(t.status); } }], data.tenants, { clickable: true, empty: "No client accounts yet. Prepare one after a consultation." });
   }
   function tenantDetail(t) {
     cur.tenant = t;
+    window.dispatchEvent(new CustomEvent("rp:tenant-selected", { detail: { id: t.id, name: t.name } }));
     var today = new Date(), monday = new Date(today.getTime() - ((today.getUTCDay() + 6) % 7) * 864e5).toISOString().slice(0, 10);
     $("tenantDetail").innerHTML = "<h3>" + RP.esc(t.name) + "</h3>" +
+      (t.status === "paused" || t.status === "ended" ? '<p class="hint">This client is ' + RP.esc(t.status) + '. Campaign execution and connected ad reporting are stopped.</p>' :
+      '<form class="stack" data-form="pause"><span class="kicker">Emergency stop</span><div class="field"><label for="pauseReason">Reason for pausing</label><input id="pauseReason" type="text" minlength="8" maxlength="500" required></div><button class="btn btn-line" type="submit">Pause client execution</button><div data-ok hidden></div><p class="err" data-err></p></form>') +
+      (t.status === "paused" || t.status === "ended" ? '' :
       '<form class="stack" data-form="invite"><span class="kicker">Invite a person to the dashboard</span><div class="form-grid"><div class="field"><label for="iEmail">Email (company email or Gmail)</label><input id="iEmail" type="email"></div>' +
-      '<div class="field"><label for="iRole">Role</label><select id="iRole"><option value="owner">Owner: can update deals and accept quotations</option><option value="viewer">Viewer: read only</option></select></div></div><button class="btn btn-dark" type="submit">Send invitation</button><div data-ok hidden></div><p class="err" data-err></p></form>' +
+      '<div class="field"><label for="iRole">Role</label><select id="iRole"><option value="owner">Owner: can update deals and accept quotations</option><option value="viewer">Viewer: read only</option></select></div></div><button class="btn btn-dark" type="submit">Save invitation</button><div data-ok hidden></div><p class="err" data-err></p></form>') +
       '<form class="stack" data-form="weekly"><span class="kicker">Weekly outreach results</span><div class="form-grid">' +
       [["wWeek", "Week starting (Monday)", "date", monday], ["wSent", "Emails sent", "number", ""], ["wDel", "Delivered", "number", ""], ["wRep", "Replies", "number", ""], ["wPos", "Interested replies", "number", ""], ["wBook", "Meetings booked", "number", ""], ["wHeld", "Meetings held", "number", ""], ["wIcp", "Ideal customer match (%)", "number", ""]]
         .map(function (f) { return '<div class="field"><label for="' + f[0] + '">' + f[1] + '</label><input id="' + f[0] + '" type="' + f[2] + '" value="' + f[3] + '" min="0"></div>'; }).join("") +
@@ -141,8 +158,8 @@
       '<form class="stack" data-form="fee"><span class="kicker">Record a fee</span><div class="form-grid"><div class="field"><label for="fMonth">Month</label><input id="fMonth" type="month" value="' + today.toISOString().slice(0, 7) + '"></div>' +
       '<div class="field"><label for="fType">Type</label><select id="fType"><option value="retainer">Monthly fee</option><option value="setup">Setup</option><option value="performance">Performance fee</option><option value="quote">Customisation</option></select></div>' +
       '<div class="field"><label for="fAmt">Amount (' + t.currency + ')</label><input id="fAmt" type="number" min="0"></div><div class="field"><label for="fNote">What it covers</label><input id="fNote" type="text"></div></div><button class="btn btn-line" type="submit">Save fee</button><div data-ok hidden></div><p class="err" data-err></p></form>' +
-      '<form class="stack" data-form="ads"><span class="kicker">Connect an ad account (read-only reporting)</span><div class="form-grid"><div class="field"><label for="aPlat">Platform</label><select id="aPlat"><option value="google_ads">Google Ads (customer ID)</option><option value="meta">Meta (ad account ID)</option><option value="linkedin">LinkedIn (ad account ID)</option></select></div>' +
-      '<div class="field"><label for="aRef">Account ID</label><input id="aRef" type="text"></div></div><p class="hint">The client must first give our business account read access to this ad account.</p><button class="btn btn-line" type="submit">Connect</button><div data-ok hidden></div><p class="err" data-err></p></form>' +
+      (t.status === "active" ? '<form class="stack" data-form="ads"><span class="kicker">Connect an ad account (read-only reporting)</span><div class="form-grid"><div class="field"><label for="aPlat">Platform</label><select id="aPlat"><option value="google_ads">Google Ads (customer ID)</option><option value="meta">Meta (ad account ID)</option><option value="linkedin">LinkedIn (ad account ID)</option></select></div>' +
+      '<div class="field"><label for="aRef">Account ID</label><input id="aRef" type="text"></div></div><p class="hint">The client must first give our business account read access to this ad account.</p><button class="btn btn-line" type="submit">Connect</button><div data-ok hidden></div><p class="err" data-err></p></form>' : '') +
       '<form class="stack" data-form="note"><span class="kicker">Add an update to the client\'s activity timeline</span><div class="field"><label for="nKind">Type</label><select id="nKind"><option value="note">Note</option><option value="change">Change we made</option><option value="milestone">Milestone</option><option value="alert">Alert</option></select></div>' +
       '<div class="field"><label for="nMsg">Message (what changed, why, and what happens next)</label><textarea id="nMsg"></textarea></div><button class="btn btn-line" type="submit">Publish update</button><div data-ok hidden></div><p class="err" data-err></p></form>';
   }
@@ -150,12 +167,14 @@
     var t = cur.tenant, kind = form.dataset.form, ok = form.querySelector("[data-ok]"), err = form.querySelector("[data-err]"), v = function (id) { return $(id).value; };
     err.textContent = "";
     var p;
+    if (kind === "pause") p = RP.api("/api/admin/tenants/" + t.id + "/pause", { reason: v("pauseReason") });
     if (kind === "invite") p = RP.demo ? Promise.resolve() : RP.api("/api/admin/tenants/" + t.id + "/invite", { email: v("iEmail"), role: v("iRole") });
     if (kind === "weekly") p = save("outreach_weekly", "upsert", { tenant_id: t.id, week_start: v("wWeek"), sent: +v("wSent") || 0, delivered: +v("wDel") || 0, replies: +v("wRep") || 0, positive_replies: +v("wPos") || 0, meetings_booked: +v("wBook") || 0, meetings_held: +v("wHeld") || 0, icp_match_pct: v("wIcp") === "" ? null : +v("wIcp") }, { onConflict: "tenant_id,week_start" });
     if (kind === "fee") p = save("fees", "insert", { tenant_id: t.id, month: v("fMonth") + "-01", type: v("fType"), amount: +v("fAmt"), currency: t.currency, note: v("fNote") });
     if (kind === "ads") p = save("ad_accounts", "insert", { tenant_id: t.id, platform: v("aPlat"), account_ref: v("aRef").replace(/[^0-9a-zA-Z_-]/g, "") });
     if (kind === "note") p = save("activity_log", "insert", { tenant_id: t.id, actor: "Ripe Piper", kind: v("nKind"), message: v("nMsg"), visible_to_client: true });
-    p.then(function () { done(ok, "Saved."); }).catch(function (e) { err.textContent = e.message; });
+    p.then(function () { if (kind === "pause") { t.status = "paused"; renderTenants(); tenantDetail(t); } else done(ok, "Saved."); })
+      .catch(function (e) { err.textContent = e.message; });
   }
 
   /* ---------------------------------------------------------- blog CMS */
@@ -196,6 +215,15 @@
 
   /* ---------------------------------------------------------- wiring */
   function wire() {
+    $("tenantForm").addEventListener("submit", function (e) {
+      e.preventDefault(); $("tenantErr").textContent = ""; $("tenantOk").hidden = true;
+      var body = { name: $("tName").value.trim(), slug: $("tSlug").value.trim().toLowerCase(), country: $("tCountry").value,
+        currency: $("tCurrency").value, package: $("tPkg").value };
+      if (!body.name || !/^[a-z0-9-]{2,60}$/.test(body.slug)) { $("tenantErr").textContent = "Enter a client name and a valid lowercase slug."; return; }
+      RP.api("/api/admin/tenants", body).then(function () { return fetchAll(); }).then(function () {
+        renderTenants(); done($("tenantOk"), "Account prepared in onboarding. No campaign is active.");
+      }).catch(function (error) { $("tenantErr").textContent = error.message; });
+    });
     $("leadFilter").addEventListener("change", renderLeads);
     RP.onRowClick($("meetingsTable"), function () { return data.meetings; }, meetingDetail);
     RP.onRowClick($("proposalsTable"), function () { return data.proposals; }, proposalDetail);

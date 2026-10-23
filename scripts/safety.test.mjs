@@ -27,6 +27,31 @@ for (const [form, fields, err, ok] of [
   });
 }
 
+test('live consultation UI forwards its one-use capability from lead response to booking API', async () => {
+  const token='12345678-1234-4234-8234-123456789abc';
+  const requests=[];
+  const slot={getAttribute:()=> '2026-11-02T06:00:00Z',setAttribute(){},disabled:false};
+  const result={hidden:true,innerHTML:'',scrollIntoView(){},querySelectorAll:()=>[slot],querySelector:()=>null,appendChild(){},addEventListener(_event,fn){this.click=fn}};
+  const fields={
+    fName:{value:'Synthetic User'},fEmail:{value:'synthetic@example.invalid'},fSite:{value:'example.invalid'},
+    fDeal:{value:'2'},fCountry:{value:'India'},fPkg:{value:'revive'},fConsent:{checked:true},
+    fErr:{textContent:''},fResult:result,bookForm:{addEventListener(_event,fn){this.submit=fn}},
+  };
+  const win={RP_CONFIG:{live:true,turnstileSiteKey:'test-key'},turnstile:{render(_node,opts){this.callback=opts.callback;return 1},execute(){this.callback('synthetic-token')},remove(){}}};
+  const context={window:win,document:{body:{appendChild(){}},createElement:()=>({style:{},remove(){},firstChild:{}}),querySelector:()=>null,querySelectorAll:()=>[],getElementById:id=>fields[id]||null},
+    location:{hostname:'ripepiper.com',pathname:'/book.html',search:'',hash:'',protocol:'https:'},URLSearchParams,
+    sessionStorage:{getItem:()=>null,setItem:()=>{}},setTimeout,clearTimeout,
+    fetch:async (_url,init)=>{const b=JSON.parse(init.body);requests.push(b);return {ok:true,json:async()=>requests.length===1?{ok:true,lead_id:'lead-1',booking_token:token,route:'calendar',slots:[{start:'2026-11-02T06:00:00Z',label:'Mon 2 Nov, 10:00 GST'}]}:{ok:true,label:'Mon 2 Nov, 10:00 GST'}};}};
+  vm.runInNewContext(await readFile(new URL('site/assets/site.js',root),'utf8'),context);
+  fields.bookForm.submit({preventDefault(){}});
+  await new Promise(r=>setImmediate(r));
+  result.click({target:{closest:()=>slot}});
+  await new Promise(r=>setImmediate(r));
+  assert.equal(requests.length,2,JSON.stringify({error:fields.fErr.textContent,result:result.innerHTML,token:requests[0]?.booking_token}));
+  assert.equal(requests[1].lead_id,'lead-1');
+  assert.equal(requests[1].booking_token,token);
+});
+
 test('preview copies preserve source and reject writes/API access', async () => {
   const temp=await mkdtemp(resolve(tmpdir(),'ripepiper-preview-'));
   let server;

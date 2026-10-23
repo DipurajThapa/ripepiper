@@ -2,6 +2,8 @@
 
 Use Node 24 and the committed lockfile. The production baseline is main at d6c1091360eacae7a001e5aa191c850a4df42ff6, Cloudflare deployment 3e9cac07-7187-45fb-ad04-eee282a3c055. Do not move it without explicit owner approval. The M01 branch starts at existing PR #2 head 684e29a9a4730b6eb330cd2cc68b2a878c41f865.
 
+Historical M01 baseline above was superseded by the owner's approved PR #3 merge. Current production `main` is `7230e5f6e51d7903999991da8ab91984f983a3d5`; Pages deployment is `d27fbc61-dac3-4383-a636-416b491b56a3`. New feature branches start there or from a verified nonproduction integration candidate. The previous PR #2/#3 branches have been merged and removed remotely. Subsequent main merges/deployments still require an explicit scoped owner approval.
+
 ## Local setup and checks
 
 ```sh
@@ -26,7 +28,7 @@ No .env or .dev.vars files are supplied. Do not add production secrets to develo
 
 - Create `feature/<milestone>-<purpose>` from the current verified integration candidate. Never commit directly to main, overwrite PR #2, force push or delete a baseline.
 - Local pre-push rejects main and baseline refs. It is defense in depth, not a replacement for GitHub protection; local config must be set on each checkout.
-- Required GitHub main protection: PR, one approval, stale approval dismissal, current `verify` from GitHub Actions, up-to-date branch, resolved conversations, admin enforcement, no force push/deletion. Active ruleset 25620118 was read back through the GitHub API: all these requirements are enforced, with no bypass actors and current_user_can_bypass=never. A sole owner cannot approve their own PR; use an independent reviewer for release rather than disabling protection.
+- Required GitHub main protection: PR, current `verify` from GitHub Actions, up-to-date branch, resolved conversations, no force push/deletion. Active ruleset 25620118 was read back through the GitHub API. The required reviewer count was set to zero under the owner's explicit approval during PR #3 consolidation; prior M01 evidence describing one required approval is historical. No review approval should be invented.
 - CI runs on PR changes, main pushes and manual dispatch (open a draft PR for feature verification). Dependency audit retries transient registry failures at most three times and fails closed if unavailable. CI runs verification only, without deployment credentials or deployment steps. Passing checks do not authorize release or communications.
 - Cloudflare currently builds all non-main branches as public static previews. Keep site config blank/live=false and synthetic content only. The generated hardened preview is a separate CI build/local output; the existing Pages build uses `site`, not `.preview`. Do not confuse these environments or claim the Pages preview has the hardened CSP.
 - Do not put private operational records into this public GitHub repository.
