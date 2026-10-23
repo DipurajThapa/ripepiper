@@ -27,7 +27,7 @@ async function as(user: string, sql: string) {
 beforeAll(async () => {
   db = new PGlite({ extensions: { btree_gist } });
   await db.exec(STUB);
-  for (const f of ["0001_core.sql", "0002_security_and_views.sql", "20261022082304_tenant_identity_foundation.sql", "20261022083018_consultation_booking_capability.sql", "20261022083835_lead_provenance_and_rights.sql", "20261022084845_campaign_execution_core.sql", "20261022090405_verified_invite_acceptance.sql", "20261022090907_tenant_pause_control.sql", "20261023011051_business_brief_versions.sql", "20261023013112_product_review_workflows.sql"]) {
+  for (const f of ["0001_core.sql", "0002_security_and_views.sql", "20261022082304_tenant_identity_foundation.sql", "20261022083018_consultation_booking_capability.sql", "20261022083835_lead_provenance_and_rights.sql", "20261022084845_campaign_execution_core.sql", "20261022090405_verified_invite_acceptance.sql", "20261022090907_tenant_pause_control.sql", "20261023011051_business_brief_versions.sql", "20261023013112_product_review_workflows.sql", "20261023015506_campaign_message_versions.sql"]) {
     await db.exec(readFileSync(new URL(`../supabase/migrations/${f}`, import.meta.url), "utf8"));
   }
   T1 = (await db.query<any>(`insert into tenants (name, slug, country, currency, created_at) values ('Gulf Interiors','gulf-interiors','AE','AED', now() - interval '40 days') returning id`)).rows[0].id;
@@ -119,6 +119,7 @@ describe("tenant execution pause", () => {
     const tenant = (await db.query<any>(`insert into tenants (name,slug,country,currency,status) values ('Pause fixture','pause-fixture','AE','AED','active') returning id`)).rows[0].id;
     const lead = (await db.query<any>(`insert into leads (tenant_id,source,email) values ($1,'import','paused@example.invalid') returning id`, [tenant])).rows[0].id;
     const campaign = (await db.query<any>(`insert into campaigns (tenant_id,capability,operator_id,purpose,channel,market,timezone,status,client_authority_ref,owner_authority_ref,cts_profile_ref,expires_at,max_actions) values ($1,'revive',$2,'appointment','email','AE','Asia/Dubai','approved','fixture-client','fixture-owner','fixture-cts','2026-11-04',3) returning id`, [tenant, ADMIN])).rows[0].id;
+    await db.query(`insert into campaign_assets(tenant_id,campaign_id,version,steps,created_by,approved_by) select tenant_id,id,1,'[{"subject":"Fixture","body":"Synthetic message","offsetHours":0,"evidenceReference":"fixture"}]'::jsonb,$2,$2 from campaigns where id=$1`, [campaign,ADMIN]);
     await db.query(`insert into outbound_actions (tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at,state) values ($1,$2,$3,'pause-queued',1,1,'2026-11-02','queued'),($1,$2,$3,'pause-claimed',1,1,'2026-11-02','claimed')`, [tenant,campaign,lead]);
     await db.query(`insert into ad_accounts (tenant_id,platform,account_ref) values ($1,'google_ads','pause-fixture-id')`, [tenant]);
     await expect(as(ADMIN, `select public.pause_tenant_execution('${tenant}','Staff pause review')`)).rejects.toThrow();
@@ -244,6 +245,7 @@ describe("durable synthetic action gate", () => {
     const source = (await db.query<any>(`insert into lead_observations (tenant_id,lead_id,source,external_ref,observed_at,original_purpose,synthetic) values ($1,$2,'controlled fixture','fixture-1','2026-10-22T10:00:00Z','appointment',true) returning id`, [RIPE, lead])).rows[0].id;
     await db.query(`insert into contact_rights (tenant_id,lead_id,source_id,purpose,channel,market,decision,reviewer_id,notice_reference) values ($1,$2,$3,'appointment','email','AE','permitted',$4,'synthetic-notice')`, [RIPE, lead, source, ADMIN]);
     const campaign = (await db.query<any>(`insert into campaigns (tenant_id,capability,operator_id,purpose,channel,market,timezone,status,client_authority_ref,owner_authority_ref,cts_profile_ref,expires_at,max_actions) values ($1,'revive',$2,'appointment','email','AE','Asia/Dubai','approved','synthetic-client','synthetic-owner','synthetic-cts','2026-11-04T00:00:00Z',1) returning id`, [RIPE, ADMIN])).rows[0].id;
+    await db.query(`insert into campaign_assets(tenant_id,campaign_id,version,steps,created_by,approved_by) select tenant_id,id,1,'[{"subject":"Fixture","body":"Synthetic message","offsetHours":0,"evidenceReference":"fixture"}]'::jsonb,$2,$2 from campaigns where id=$1`, [campaign,ADMIN]);
     const action = (await db.query<any>(`insert into outbound_actions (tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at) values ($1,$2,$3,'fixture-action-1',1,1,'2026-11-02T04:00:00Z') returning id`, [RIPE, campaign, lead])).rows[0].id;
     const claim = async (id: string, at = '2026-11-02T04:00:00Z') => {
       await db.exec('set role service_role');
@@ -272,6 +274,7 @@ describe("durable synthetic action gate", () => {
     await expect(db.query(`insert into outbound_actions (tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at) values ($1,$2,$3,'fixture-action-1',1,1,'2026-11-02T04:00:00Z')`, [RIPE, campaign, lead])).rejects.toThrow();
     expect(await as(U3, `select id from outbound_actions where tenant_id='${RIPE}'`)).toEqual([]);
     const another = (await db.query<any>(`insert into campaigns (tenant_id,capability,operator_id,purpose,channel,market,timezone,status,client_authority_ref,owner_authority_ref,cts_profile_ref,expires_at,max_actions) values ($1,'events',$2,'appointment','email','AE','Asia/Dubai','approved','synthetic-client','synthetic-owner','synthetic-cts','2026-11-04T00:00:00Z',3) returning id`, [RIPE, ADMIN])).rows[0].id;
+    await db.query(`insert into campaign_assets(tenant_id,campaign_id,version,steps,created_by,approved_by) select tenant_id,id,1,'[{"subject":"Fixture","body":"Synthetic message","offsetHours":0,"evidenceReference":"fixture"}]'::jsonb,$2,$2 from campaigns where id=$1`, [another,ADMIN]);
     const queue = async (key: string, version = 1) => (await db.query<any>(`insert into outbound_actions (tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at) values ($1,$2,$3,$4,$5,1,'2026-11-02T04:00:00Z') returning id`, [RIPE, another, lead, key, version])).rows[0].id;
     const tested = await queue('fixture-test-sink');
     expect(await claim(tested)).toBe(true);
@@ -361,6 +364,7 @@ describe('shared product persistence, import and cross-product stops',()=>{
  it('atomically cancels queued follow-ups on reply; opt-out propagates suppression and is idempotent',async()=>{
   const lead=(await db.query<any>(`insert into leads(tenant_id,source,email) values($1,'import','stop-products@example.invalid') returning id`,[T1])).rows[0].id;
   const campaign=(await db.query<any>(`insert into campaigns(tenant_id,capability,operator_id,purpose,channel,market,timezone) values($1,'revive',$2,'revive','email','AE','UTC') returning id`,[T1,ADMIN])).rows[0].id;
+    await db.query(`insert into campaign_assets(tenant_id,campaign_id,version,steps,created_by,approved_by) select tenant_id,id,1,'[{"subject":"Fixture","body":"Synthetic message","offsetHours":0,"evidenceReference":"fixture"}]'::jsonb,$2,$2 from campaigns where id=$1`, [campaign,ADMIN]);
   await db.query(`insert into outbound_actions(tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at) values($1,$2,$3,'product-stop-1',1,1,now())`,[T1,campaign,lead]);
   await db.exec('set role service_role');
   try {
@@ -382,6 +386,7 @@ it('a new campaign action cannot bypass a recorded reply even with otherwise val
  const source=(await db.query<any>(`insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,synthetic) values($1,$2,'fixture','held-source',now(),'revive',true) returning id`,[T1,lead])).rows[0].id;
  await db.query(`insert into contact_rights(tenant_id,lead_id,source_id,purpose,channel,market,decision,reviewer_id,notice_reference) values($1,$2,$3,'revive','email','AE','permitted',$4,'fixture-notice')`,[T1,lead,source,ADMIN]);
  const campaign=(await db.query<any>(`insert into campaigns(tenant_id,capability,operator_id,purpose,channel,market,timezone,status,client_authority_ref,owner_authority_ref,cts_profile_ref,expires_at,max_actions) values($1,'revive',$2,'revive','email','AE','UTC','approved','fixture','fixture','fixture','2030-01-01T00:00:00Z',2) returning id`,[T1,ADMIN])).rows[0].id;
+    await db.query(`insert into campaign_assets(tenant_id,campaign_id,version,steps,created_by,approved_by) select tenant_id,id,1,'[{"subject":"Fixture","body":"Synthetic message","offsetHours":0,"evidenceReference":"fixture"}]'::jsonb,$2,$2 from campaigns where id=$1`, [campaign,ADMIN]);
  const action=(await db.query<any>(`insert into outbound_actions(tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at) values($1,$2,$3,'held-action-1',1,1,'2026-10-22T00:00:00Z') returning id`,[T1,campaign,lead])).rows[0].id;
  await db.exec('set role service_role');
  try{
@@ -391,4 +396,48 @@ it('a new campaign action cannot bypass a recorded reply even with otherwise val
   expect((await db.query<any>(`select claim_synthetic_action($1,'2026-10-22T12:00:00Z') allowed`,[second])).rows[0].allowed).toBe(false);
   expect((await db.query<any>(`select state from outbound_actions where id=$1`,[second])).rows[0].state).toBe('blocked');
  }finally{await db.exec('reset role');}
+});
+
+describe('versioned campaign to synthetic sequence',()=>{
+ it('binds approval to content, queues once with caps, enforces step order and invalidates after edits',async()=>{
+  const t=(await db.query<any>(`insert into tenants(name,slug,country,currency,status) values('Campaign fixture','campaign-fixture','AE','AED','active') returning id`)).rows[0].id;
+  const l=(await db.query<any>(`insert into leads(tenant_id,source,email) values($1,'import','campaign@example.invalid') returning id`,[t])).rows[0].id;
+  const campaign=crypto.randomUUID(),start=new Date(Date.now()+60000).toISOString();
+  const plan={product:'revive',purpose:'reactivation',market:'AE',timezone:'UTC',steps:[{offsetHours:0,subject:'Fixture subject',body:'Is this still a priority?',evidenceReference:'fixture:source'},{offsetHours:24,subject:'Fixture follow-up',body:'Should we close the loop?',evidenceReference:'fixture:source'}]};
+  await db.query(`insert into business_briefs(tenant_id,version,body,created_by) values($1,1,jsonb_build_object('maxAgeDays',90,'source',jsonb_build_object('observedAt',now())),$2)`,[t,ADMIN]);
+  const source=(await db.query<any>(`insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,synthetic) values($1,$2,'fixture','campaign-source',now(),'reactivation',true) returning id`,[t,l])).rows[0].id;
+  await db.query(`insert into contact_rights(tenant_id,lead_id,source_id,purpose,channel,market,decision,reviewer_id,notice_reference) values($1,$2,$3,'reactivation','email','AE','permitted',$4,'fixture-notice')`,[t,l,source,ADMIN]);
+  const call=async(op:string,version:number,body:any)=>(await db.query<any>(`select manage_campaign_plan($1,$2,$3,$4,$5,$6) result`,[t,campaign,ADMIN,op,version,JSON.stringify(body)])).rows[0].result;
+  await expect(as(U1,`select manage_campaign_plan('${t}','${campaign}','${U1}','save',0,'{}')`)).rejects.toThrow();
+  await db.exec('set role service_role');
+  try{
+   expect(await call('save',0,plan)).toMatchObject({version:1,status:'draft'});
+   expect(await call('save',0,plan)).toMatchObject({version:1,status:'draft'});
+   await expect(call('queue',1,{leadId:l,startAt:start})).rejects.toThrow('Approved');
+   const authority={clientAuthority:'fixture-client',ownerAuthority:'fixture-owner',ctsProfile:'fixture-cts',expiresAt:new Date(Date.now()+7*86400000).toISOString(),maxActions:2};
+   await expect(call('approve',1,{...authority,ctsProfile:''})).rejects.toThrow('authority');
+   expect(await call('approve',1,authority)).toMatchObject({status:'approved'});
+   await expect(call('approve',1,{...authority,maxActions:1})).rejects.toThrow('approval scope');
+   const queued=await call('queue',1,{leadId:l,startAt:start});expect(queued.actionIds).toHaveLength(2);
+   expect((await call('queue',1,{leadId:l,startAt:start})).actionIds).toEqual(queued.actionIds);
+   await expect(call('queue',1,{leadId:l,startAt:new Date(Date.now()+120000).toISOString()})).rejects.toThrow('schedule');
+   const later=new Date(Date.parse(start)+86400001).toISOString();
+   expect((await db.query<any>(`select synthetic_action_allowed($1,$2) allowed`,[queued.actionIds[1],later])).rows[0].allowed).toBe(false);
+   expect((await db.query<any>(`select claim_synthetic_action($1,$2) claimed`,[queued.actionIds[0],start])).rows[0].claimed).toBe(true);
+   expect((await db.query<any>(`select complete_synthetic_action($1,$2) tested`,[queued.actionIds[0],start])).rows[0].tested).toBe(true);
+   expect((await db.query<any>(`select synthetic_action_allowed($1,$2) allowed`,[queued.actionIds[1],later])).rows[0].allowed).toBe(true);
+   await expect(db.query(`update campaign_assets set steps='[]' where campaign_id=$1`,[campaign])).rejects.toThrow();
+   const changed={...plan,steps:[{...plan.steps[0],body:'Updated reviewed question'}]};
+   expect(await call('save',1,changed)).toMatchObject({version:2,status:'draft'});
+   expect((await db.query<any>(`select state from outbound_actions where id=$1`,[queued.actionIds[1]])).rows[0].state).toBe('cancelled');
+   await expect(call('approve',1,authority)).rejects.toThrow('changed');
+   await call('approve',2,authority);
+   await expect(call('queue',2,{leadId:l,startAt:start})).rejects.toThrow('restart');
+   await db.query(`insert into business_briefs(tenant_id,version,body,created_by) values($1,2,'{}',$2)`,[t,ADMIN]);
+   await expect(call('approve',2,authority)).rejects.toThrow('authority');
+   await call('pause',2,{});
+   expect((await db.query<any>(`select status from campaigns where id=$1`,[campaign])).rows[0].status).toBe('paused');
+  }finally{await db.exec('reset role');}
+  expect(await as(U2,`select * from campaign_assets where tenant_id='${t}'`)).toHaveLength(0);
+ });
 });

@@ -432,3 +432,16 @@ it('unexpected database failures cannot expose source payloads in request logs',
   expect(log).toHaveBeenCalledWith('request_failed',expect.objectContaining({status:500}));
  }finally{log.mockRestore();}
 });
+
+it('campaign HTTP operations require staff, a loaded version and an enabled synthetic sink',async()=>{
+ const tenant='11111111-1111-4111-8111-111111111111',campaign='22222222-2222-4222-8222-222222222222',path=`/api/admin/tenants/${tenant}/campaigns`;
+ tables.tenants=[{id:tenant}];
+ expect((await call('POST',path,{operation:'list'})).status).toBe(401);
+ expect((await call('POST',path,{operation:'list'},{Authorization:'Bearer client-token'})).status).toBe(403);
+ const headers={Authorization:'Bearer test-admin'};
+ expect((await call('POST',path,{operation:'save',campaign_id:campaign,version:0,body:{steps:[]}},headers)).status).toBe(400);
+ expect((await call('POST',path,{operation:'queue',campaign_id:campaign,version:1,body:{}},headers)).status).toBe(403);
+ expect((await call('POST',path,{operation:'list'},headers)).status).toBe(200);
+ expect((await call('POST',path,{operation:'save',campaign_id:campaign,version:0,body:{product:'revive',purpose:'reactivation',market:'AE',timezone:'UTC',steps:[{offsetHours:0,subject:'Fixture',body:'Is this a priority?',evidenceReference:'fixture-1'}]}},headers)).status).toBe(200);
+ expect(rpcCalls.filter(p=>p.endsWith('/manage_campaign_plan'))).toHaveLength(1);expect(sentEmails).toHaveLength(0);
+});

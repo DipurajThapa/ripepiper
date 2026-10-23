@@ -12,8 +12,11 @@ import { testAction } from "./foundation/actions";
 import { acceptInvites } from "./foundation/invites";
 import { saveBrief, addProspectEvidence, prospectShortlist, recordProductEvent, importReviewLeads } from "./foundation/prospecting-routes";
 
+import { campaignPlans } from "./foundation/campaigns";
+
 type Handler = (req: Request, env: Env, ctx: ExecutionContext, p: string[]) => Promise<Response>;
 const routes: [string, RegExp, Handler][] = [
+  ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/campaigns$/, (r,e,_c,p)=>campaignPlans(r,e,p[0])],
   ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/brief$/, (r,e,_c,p)=>saveBrief(r,e,p[0])],
   ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/prospect-evidence$/, (r,e,_c,p)=>addProspectEvidence(r,e,p[0])],
   ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/prospect-import$/, (r,e,_c,p)=>importReviewLeads(r,e,p[0])],
