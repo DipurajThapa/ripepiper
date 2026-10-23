@@ -24,6 +24,11 @@ try {
    window.fixtureCalls.push({path,body});
    if(path.endsWith('/revive-review'))return body.operation==='preview'?{assessment:{eligible:true,fitState:'candidate',historyState:'dormant_review',reasons:[],expiresAt:'2026-11-01T00:00:00Z'},snapshot:'a'.repeat(32),version:0}:{review:{state:'accepted',version:1}};
    if(path.endsWith('/revive-run'))return {enrolled:1,tested:0,blocked:0,review:0,limited:false,delivery:'not_sent'};
+   if(path.endsWith('/revive-report')){
+    const bucket=()=>({contacts:{enrolled:1,queued:0,replyHeld:1,requiresReview:0,testAcknowledged:1,providerAcknowledged:0},actions:{unverifiedReceipt:0},outcomes:{qualified_conversation:1,meeting_held:0,opportunity:0,won:0,lost:0},conflictingOutcomeContacts:0});
+    const modes={synthetic:bucket(),business:bucket()};modes.business.contacts.testAcknowledged=0;
+    return {report:{generatedAt:'2026-10-23T12:00:00Z',totals:modes,campaigns:window.fixtureCampaigns.map(c=>({id:c.id,modes})),unattributed:{synthetic:{records:1},business:{records:0}},unverifiedLinkedRecords:0,abComparison:{available:false,reason:'No recorded variant assignment.'},notes:['Live outcome collection is not connected.']}};
+   }
    if(path.endsWith('/events')&&path.includes('/admin/')){
     if(body.operation==='list')return {campaigns:[window.fixtureEvent],registrations:[],registrationEnabled:true};
     window.fixtureEvent={...window.fixtureEvent,event_settings:body.settings,event_version:body.expected_version+1};return {id:body.campaign_id,version:body.expected_version+1};
@@ -40,7 +45,8 @@ try {
     return {ok:true,delivery:'not_sent'};
    }
    if(path.endsWith('/campaigns')){
-    if(body.operation==='list')return {campaigns:window.fixtureCampaigns,assets:window.fixtureAssets,actions:[]};
+    if(body.operation==='list')return {campaigns:window.fixtureCampaigns,assets:window.fixtureAssets,actions:[],draftLeads:[{id:'lead-fixture',email:'fixture@example.invalid',company:'Synthetic company'}],draftSources:[{id:'source-fixture',lead_id:'lead-fixture',external_ref:'reviewed-need-source'}]};
+    if(body.operation==='draft')return {proposal:{steps:[{offsetHours:0,subject:'A question about follow-up',body:'Reviewed cohort offer. Choose a time: '+body.body.bookingUrl+'\nReply stop to opt out.',evidenceReference:'brief:v1;source:fixture'}],draftContext:{leadId:body.body.leadId,sourceId:body.body.sourceId,briefVersion:1,reviewVersion:1,businessName:'Ripe Piper',snapshot:'a'.repeat(32),expiresAt:'2026-10-24T00:00:00Z'},basis:{briefVersion:1,briefReference:'interview:fixture',sourceReference:'reviewed-need-source',sourceExcerpt:'<script>untrusted source text</script>'},strategy:'One cohort need and one next step.',bookingVerification:'supplied_reviewed_url_only'}};
     if(body.operation==='save'){
      window.fixtureCampaigns=[{id:body.campaign_id,capability:body.body.product,purpose:body.body.purpose,market:body.body.market,timezone:body.body.timezone,asset_version:1,status:'draft'}];
      window.fixtureAssets=[{campaign_id:body.campaign_id,version:1,steps:body.body.steps}];
@@ -51,6 +57,7 @@ try {
    return {ok:true,results:[{row:1,state:'created'}]};
   }};
  });
+ await page.addScriptTag({content:await readFile(new URL('site/assets/contact-import.js',root),'utf8')});
  await page.addScriptTag({content:await readFile(new URL('site/assets/prospecting-admin.js',root),'utf8')});
  await page.addScriptTag({content:await readFile(new URL('site/assets/campaigns-admin.js',root),'utf8')});
  await page.addScriptTag({content:await readFile(new URL('site/assets/events-admin.js',root),'utf8')});
@@ -95,8 +102,18 @@ try {
  assert.equal(reviewCall.body.thread_ref,'fixture-thread');assert.equal(reviewCall.body.expected_version,0);assert.equal(reviewCall.body.inbound_snapshot,'11111111-1111-4111-8111-111111111111');assert.match(reviewCall.body.request_id,/^[0-9a-f-]{36}$/);
  await page.getByText('Import permitted contacts',{exact:true}).click();
  await page.fill('#prospectImportRows','fixture@example.invalid\tFixture\tsource-import\tfixture-only\t2026-10-22');
- await page.getByRole('button',{name:'Validate and import',exact:true}).click();
+ const beforeImport=await page.evaluate(()=>window.fixtureCalls.filter(c=>c.path.endsWith('/prospect-import')).length);
+ await page.getByRole('button',{name:'Preview and validate',exact:true}).click();
+ assert.equal(await page.evaluate(()=>window.fixtureCalls.filter(c=>c.path.endsWith('/prospect-import')).length),beforeImport);
+ await page.getByRole('button',{name:'Import reviewed rows',exact:true}).click();
  await page.waitForFunction(()=>document.getElementById('prospectImportReport').textContent.includes('created'));
+ const afterPaste=await page.evaluate(()=>window.fixtureCalls.filter(c=>c.path.endsWith('/prospect-import')).length);
+ await page.setInputFiles('#prospectImportFile',{name:'reviewed-contacts.csv',mimeType:'text/csv',buffer:Buffer.from('\ufeffemail,company,reference,rights_reference,observed_at\r\nfixture@example.invalid,"Trade, ""Company""",source-csv,fixture-only,2026-10-22\r\n')});
+ await page.waitForFunction(()=>document.getElementById('prospectImportReport').textContent.includes('1 rows previewed'));
+ assert.equal(await page.locator('#prospectImportFormat').inputValue(),'csv');
+ assert.equal(await page.locator('#prospectImportHeader').isChecked(),true);
+ assert.match(await page.locator('#prospectImportPreviewRows').textContent(),/Trade, "Company"/);
+ assert.equal(await page.evaluate(()=>window.fixtureCalls.filter(c=>c.path.endsWith('/prospect-import')).length),afterPaste);
  const contexts=await page.evaluate(()=>window.fixtureCalls.filter(c=>c.path.endsWith('/product-event')).map(c=>c.body.context));
  assert.equal(contexts.length,4);assert.equal(contexts[2].authority,'');assert.equal(contexts[3].attendance,'unknown');
  for(const product of ['response','events']){
@@ -117,10 +134,26 @@ try {
  const attributed=await page.evaluate(()=>window.fixtureCalls.find(c=>c.body?.context?.product==='revive'&&c.body.context.kind==='outcome'));
  assert.equal(attributed.body.context.actionId,'22222222-2222-4222-8222-222222222222');assert.equal(attributed.body.synthetic,true);
 
+ await page.getByText('Prepare an evidence-based Revive draft',{exact:true}).click();
+ await page.selectOption('#draftLead','lead-fixture');await page.selectOption('#draftSource','source-fixture');
+ await page.fill('#draftSender','Fixture owner');await page.fill('#draftBooking','https://calendar.google.com/calendar/appointments/schedules/fixture');await page.fill('#draftBookingReference','Reviewed fixture URL');await page.check('#draftBookingReviewed');
+ const savesBefore=await page.evaluate(()=>window.fixtureCalls.filter(c=>c.body?.operation==='save'&&c.path.endsWith('/campaigns')).length);
+ await page.getByRole('button',{name:'Replace message form with reviewed proposal',exact:true}).click();
+ await page.waitForFunction(()=>document.getElementById('draftStatus').textContent.includes('Proposal only'));
+ assert.equal(await page.evaluate(()=>window.fixtureCalls.filter(c=>c.body?.operation==='save'&&c.path.endsWith('/campaigns')).length),savesBefore);
+ assert.match(await page.locator('#draftBasis').textContent(),/<script>untrusted source text/);
+ assert.equal(await page.locator('#draftBasis script').count(),0);
+ assert.match(await page.locator('#messageBody0').inputValue(),/https:\/\/calendar.google.com/);
  await page.fill('#campaignPurpose','Fixture reactivation');await page.fill('#campaignMarket','AE');
- await page.fill('#messageSubject0','Fixture subject');await page.fill('#messageBody0','Is this still a priority?');await page.fill('#messageEvidence0','fixture-evidence');
+ await page.fill('#messageBody0',(await page.locator('#messageBody0').inputValue())+'\nOperator reviewed edit.');
  await page.getByRole('button',{name:'Save draft version',exact:true}).click();
  await page.waitForFunction(()=>document.getElementById('campaignState').textContent.includes('Version 1'));
+ const savedDraft=await page.evaluate(()=>window.fixtureCalls.find(c=>c.path.endsWith('/campaigns')&&c.body.operation==='save'));
+ assert.equal(savedDraft.body.body.draftContext.reviewVersion,1);assert.match(savedDraft.body.body.steps[0].body,/Operator reviewed edit/);
+ await page.getByText('Revive outcomes and execution report',{exact:true}).click();
+ await page.getByRole('button',{name:'Refresh Revive report',exact:true}).click();
+ await page.waitForFunction(()=>document.getElementById('reviveReportStatus').textContent.includes('Selected Revive campaign'));
+ assert.match(await page.locator('#reviveReportText').textContent(),/Synthetic evidence/);assert.match(await page.locator('#reviveReportText').textContent(),/recipient delivery unverified/);assert.match(await page.locator('#reviveReportText').textContent(),/A\/B comparison unavailable/);
  await page.getByText('Record approval and limits',{exact:true}).click();
  await page.fill('#campaignClientAuthority','fixture-client');await page.fill('#campaignOwnerAuthority','fixture-owner');await page.fill('#campaignCTS','fixture-cts');await page.fill('#campaignCap','3');await page.fill('#campaignExpiry','2026-11-01T12:00');
  await page.fill('#messageBody0','Unsaved changed message');

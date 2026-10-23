@@ -63,6 +63,47 @@ beforeAll(async()=>{
 });
 afterAll(async()=>{await db.close();});
 
+async function reviewedDraftFixture(){
+ const f=await fixture();await accept(f);
+ const context=await rpc('revive_review_context',[f.tenant,f.lead,actor]);
+ const source=context.observations.find((o:any)=>o.external_ref==='fit');
+ const draftResponse=await worker.fetch(new Request(`https://worker.invalid/api/admin/tenants/${f.tenant}/campaigns`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer fixture-staff'},body:JSON.stringify({operation:'draft',body:{leadId:f.lead,sourceId:source.id,messageCount:1,senderName:'Fixture owner'}})}),env,{} as ExecutionContext);
+ expect(draftResponse.status).toBe(200);const {proposal}=await draftResponse.json() as any;
+ return {...f,context,campaign:crypto.randomUUID(),body:{product:'revive',purpose:'reactivation',market:'AE',timezone:'UTC',steps:proposal.steps,draftContext:proposal.draftContext}};
+}
+it('saves cited proposals through the existing campaign transaction and audits exact provenance once on replay',async()=>{
+ const f=await reviewedDraftFixture();
+ const savedResponse=await worker.fetch(new Request(`https://worker.invalid/api/admin/tenants/${f.tenant}/campaigns`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer fixture-staff'},body:JSON.stringify({operation:'save',campaign_id:f.campaign,version:0,body:f.body})}),env,{} as ExecutionContext);
+ expect(savedResponse.status).toBe(200);const {ok,delivery,...saved}=await savedResponse.json() as any;
+ expect(ok).toBe(true);expect(delivery).toBe('not_sent');
+ expect(saved).toMatchObject({id:f.campaign,status:'draft',version:1});
+ expect(await rpc('save_reviewed_revive_draft',[f.tenant,f.campaign,actor,0,f.body])).toEqual(saved);
+ expect((await q('select steps,brief_version,approved_by from campaign_assets where campaign_id=$1',[f.campaign]))[0]).toEqual({steps:f.body.steps,brief_version:1,approved_by:null});
+ const logs=await q("select message from activity_log where tenant_id=$1 and message::jsonb->>'kind'='revive_draft_saved'",[f.tenant]);
+ expect(logs).toHaveLength(1);expect(JSON.parse(logs[0].message).provenance).toEqual(f.body.draftContext);
+ expect(await q('select id from outbound_actions where campaign_id=$1',[f.campaign])).toHaveLength(0);
+});
+it.each(['brief','review','source','business','expiry','foreign'])('rejects changed draft %s at the database save boundary without creating a campaign',async(change)=>{
+ const f=await reviewedDraftFixture();
+ if(change==='brief')await rpc('save_business_brief',[f.tenant,1,{...f.brief,offer:'New reviewed offer'},actor]);
+ if(change==='review')await rpc('review_revive_candidate',[f.tenant,f.lead,actor,1,f.context.snapshot,1,'accepted','Same facts reviewed again',new Date(Date.now()+86400000).toISOString()]);
+ if(change==='source')await q("update lead_observations set rights_reference='Revised source rights' where tenant_id=$1 and external_ref='fit'",[f.tenant]);
+ if(change==='business')await q("update tenants set name='Renamed business' where id=$1",[f.tenant]);
+ if(change==='expiry')f.body.draftContext.expiresAt=new Date(Date.now()-1000).toISOString();
+ if(change==='foreign')f.body.draftContext.sourceId=crypto.randomUUID();
+ await expect(rpc('save_reviewed_revive_draft',[f.tenant,f.campaign,actor,0,f.body])).rejects.toThrow();
+ expect(await q('select id from campaigns where id=$1',[f.campaign])).toHaveLength(0);
+});
+it('draft save denies anonymous/authenticated execution and nonstaff service actors',async()=>{
+ const f=await reviewedDraftFixture();
+ for(const role of ['anon','authenticated']){
+  await db.exec('set role '+role);
+  try{await expect(q('select save_reviewed_revive_draft($1,$2,$3,0,$4)',[f.tenant,f.campaign,actor,f.body])).rejects.toThrow(/permission/);}
+  finally{await db.exec('reset role');}
+ }
+ await expect(rpc('save_reviewed_revive_draft',[f.tenant,f.campaign,crypto.randomUUID(),0,f.body])).rejects.toThrow(/Staff/);
+});
+
 it('composes actual Worker review, PostgreSQL CAS, campaign enrolment and fenced sink completion',async()=>{
  const f=await fixture(),campaign=await plan(f);
  await expect(queue(f,campaign)).rejects.toThrow(/Revive cohort/);

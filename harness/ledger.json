@@ -94,14 +94,18 @@
       "evidence": {
         "bounded_local_and_hosted_qa": "docs/evidence/QA_REVIVE_2026-10-23.md",
         "selected_hosted_rollback_packet": "qa/staging-revive-rollback-acceptance.sql",
-        "published_candidate_sha": "574c2461495099f2ae666f1502c389472b7c43a2",
-        "published_tree_sha": "5f2f7cd4e9164bb9ebb4f14779bcb62dd0fb8c08",
-        "published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39991745199"
+        "historical_published_candidate_sha": "574c2461495099f2ae666f1502c389472b7c43a2",
+        "historical_published_tree_sha": "5f2f7cd4e9164bb9ebb4f14779bcb62dd0fb8c08",
+        "historical_published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39991745199",
+        "current_continuation_qa": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md",
+        "current_draft_staging_manifest": "docs/evidence/REVIVE_DRAFT_STAGING_2026-10-23.json",
+        "current_draft_rollback_packet": "qa/staging-revive-draft-rollback-acceptance.sql"
       },
       "blocker": "Bounded local synthetic and selected staging SQL preparation accepted only. tenant-sandbox/Worker runtime dependencies remain unaccepted; actual application Auth/PostgREST, deployed isolated routing, provider/inbox/calendar and operational outcome proof remain missing. No live product acceptance.",
-      "qa_run_ref": "docs/evidence/QA_REVIVE_2026-10-23.md",
-      "qa_source_sha": "464904674ace1b8d326c97636b0150c40f0fced8",
-      "partial_acceptance_scope": "PM reviewed independent local526-backend/42-file and84-Node checks, selected hosted22-migration Revive SQL packet and zero20-table fixture readback, plus published CI separately at574c246/tree5f2f7cd. pm_reviewed/qa_reviewed remain false for the full operational stage, not for the bounded receipt. No main merge, Worker deployment, real Auth/provider/calendar, backup restoration or independent-connection contention proof."
+      "qa_run_ref": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md",
+      "historical_qa_source_sha": "464904674ace1b8d326c97636b0150c40f0fced8",
+      "current_candidate_scope": "b4bd458 baseline plus frozen intake/draft/report/acknowledgement working increment in the current QA report; final published source/CI pending",
+      "partial_acceptance_scope": "PM reviewed independent 686 backend/49 files,121 Node and TypeScript checks, selected hosted23-migration draft rollback packet and14 empty fixture tables. The earlier526/42,84Node/22-migration receipt and574c246/tree5f2f7cd CI are historical evidence. pm_reviewed/qa_reviewed remain false for the full operational stage, not for these bounded receipts. No main merge, Worker deployment, real Auth/provider/calendar, backup restoration or independent-connection contention proof."
     },
     "revive-qa": {
       "status": "in_progress",
@@ -111,12 +115,16 @@
       "evidence": {
         "bounded_independent_test_run": "docs/evidence/QA_REVIVE_2026-10-23.md",
         "selected_hosted_rollback_packet": "qa/staging-revive-rollback-acceptance.sql",
-        "published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39991745199"
+        "historical_published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39991745199",
+        "current_continuation_qa": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md",
+        "current_draft_staging_manifest": "docs/evidence/REVIVE_DRAFT_STAGING_2026-10-23.json",
+        "current_draft_rollback_packet": "qa/staging-revive-draft-rollback-acceptance.sql"
       },
-      "blocker": "Independent local/selected hosted preparation checks passed; full revive-sandbox operational dependency is not accepted. Actual isolated Worker/Auth/PostgREST, provider and tenant meeting flow, backup restoration and independent-connection races remain outside this receipt. Final handoff also needs the new QA packet/tests and current source CI.",
-      "qa_run_ref": "docs/evidence/QA_REVIVE_2026-10-23.md",
-      "qa_source_sha": "464904674ace1b8d326c97636b0150c40f0fced8",
-      "partial_acceptance_scope": "Bounded independent source preparation and selected real PostgreSQL role/CAS/cohort/fence/replay/attribution checks only. Q-RV001 real-mode activation loader regression is closed locally; no operational release or higher-conversion claim."
+      "blocker": "Independent686-backend/49-file and121-Node preparation plus selected23-migration hosted SQL checks passed; full revive-sandbox operational dependency is not accepted. Actual Worker/Auth/PostgREST, provider/tenant meeting flow, backup restoration and independent-connection races remain outside the receipt. Final published source/CI for this continuation remains pending.",
+      "qa_run_ref": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md",
+      "historical_qa_source_sha": "464904674ace1b8d326c97636b0150c40f0fced8",
+      "current_candidate_scope": "b4bd458 baseline plus frozen working increment described by current QA; final source/CI receipt separate",
+      "partial_acceptance_scope": "Bounded independent intake/parser/identity/acknowledgement/UI/draft/report checks plus selected PostgreSQL atomic draft save/replay/stale provenance/no-auto-approval/ACL and prior workflow checks only. Q-RI001/Q-RI002 closed independently; Q-RV001 remains historically closed. No operational release or higher-conversion claim."
     },
     "operational-release": {
       "status": "not_started",

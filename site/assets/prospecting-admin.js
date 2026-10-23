@@ -11,7 +11,7 @@
     ready = false; version = 0; snapshot = null;
     panel.innerHTML = '<h3>Business brief and prospect review: '+esc(tenant.name)+'</h3><p class="hint">Review sourced facts before recording them. Qualification dimensions are shown separately. Buying readiness and contact rights need their own evidence. This review does not send messages.</p>'+
       '<label for="prospectMode">Evidence set</label><select id="prospectMode"><option value="synthetic">Synthetic test contacts</option><option value="business">Existing business contacts</option></select><button class="btn btn-line" type="button" id="prospectRefresh">Refresh review</button><p id="prospectError" class="err" role="alert"></p><p id="briefVersion" role="status">Loading brief…</p>'+
-      '<details><summary>Import permitted contacts</summary><form id="prospectImportForm" class="stack"><label for="prospectImportRows">Paste up to 50 spreadsheet rows, without a header: email, company, source reference, permitted-use reference, observed date (YYYY-MM-DD). Separate columns with tabs.</label><textarea id="prospectImportRows" rows="6" required></textarea><button class="btn btn-line" type="submit">Validate and import</button><p id="prospectImportReport" role="status"></p></form></details><button id="prospectExport" class="btn btn-line" type="button">Download internal review</button><p id="productMetrics" role="status"></p><details><summary>Business brief</summary><form id="briefForm" class="stack"><div class="field"><label for="briefOffer">Offer and problem solved</label><textarea id="briefOffer" maxlength="500" required></textarea></div><div class="form-grid">'+
+      importForm()+'<button id="prospectExport" class="btn btn-line" type="button">Download internal review</button><p id="productMetrics" role="status"></p><details><summary>Business brief</summary><form id="briefForm" class="stack"><div class="field"><label for="briefOffer">Offer and problem solved</label><textarea id="briefOffer" maxlength="500" required></textarea></div><div class="form-grid">'+
       fields.map(function(f,i){return input('brief_'+f,labels[i]+' (comma-separated)');}).join('')+ ['industry','market','role','need'].map(function(f){return input('alias_'+f,f+' aliases: target = alias; target = alias');}).join('')+input('briefAge','Evidence validity in days','number')+input('briefReference','Brief source reference')+input('briefObserved','Source date','date')+'</div><div class="field"><label for="briefExcerpt">Supporting source excerpt or interview note</label><textarea id="briefExcerpt" maxlength="2000" required></textarea></div><button class="btn btn-dark" type="submit">Save reviewed brief version</button></form></details>'+
       '<details><summary>Add reviewed prospect evidence</summary><form id="evidenceForm" class="stack"><div class="field"><label for="evidenceLead">Existing lead</label><select id="evidenceLead"></select></div><div class="form-grid">'+input('evidenceSource','Source type, e.g. client interview')+input('evidenceReference','Unique dated source reference')+input('evidenceRights','Permitted-use reference')+input('evidenceObserved','Observation date','date')+
       ['industry','market','role','need'].map(function(f){return input('evidence_'+f,f.charAt(0).toUpperCase()+f.slice(1)+' (leave unknown blank)');}).join('')+'</div><div class="field"><label for="evidenceExcerpt">Source excerpt containing the recorded values</label><textarea id="evidenceExcerpt" maxlength="2000" required></textarea></div><button class="btn btn-line" type="submit">Record reviewed evidence</button></form></details>'+conversationForm()+productForm()+inboxForm()+reviveReviewForm()+'<div id="prospectResults" aria-live="polite"></div>';
@@ -22,6 +22,13 @@
     el('inboxMessage').onchange=function(){inboxSelection=null;el('inboxExcerpt').textContent='';el('inboxReviewed').checked=false;};
     el('briefAge').value = '90';
     el('prospectImportForm').onsubmit=importLeads;
+    el('prospectImportPreview').onclick=previewImport;
+    el('prospectImportFile').onchange=readImportFile;
+    el('prospectImportRows').oninput=invalidateImport;
+    el('prospectImportFormat').onchange=invalidateImport;
+    el('prospectImportHeader').onchange=invalidateImport;
+    el('prospectImportTemplate').onclick=downloadImportTemplate;
+    el('prospectImportFormat').value='tsv';el('prospectImportHeader').checked=false;
     el('prospectExport').onclick=exportReview;
     el('conversationOwners').onclick=loadConversationOwners;
     el('conversationChoice').onchange=showConversation;
@@ -45,6 +52,7 @@
   function load() {
     var ticket = ++generation, synthetic = el('prospectMode').value === 'synthetic';
     ready = false; snapshot=null; inboxSelection=null; error('');
+    invalidateImport();
     el('inboxMessage').innerHTML='';el('inboxExcerpt').textContent='';el('inboxReviewed').checked=false;
     el('prospectResults').textContent = 'Loading current evidence…';
     return RP.api(path('shortlist'), {synthetic:synthetic}).then(function(j){
@@ -118,13 +126,50 @@
   }
 
 
+  var importSelection=null,importBusy=false,importReadVersion=0;
+  function importForm(){return '<details><summary>Import permitted contacts</summary><form id="prospectImportForm" class="stack"><p class="hint">Upload UTF-8 CSV/TSV or paste spreadsheet rows. Limit: 50 contacts, 64 KiB. Columns: email, company, reference, rights_reference, observed_at (YYYY-MM-DD). With a header, use those exact names in any order. Quoted commas, tabs and company line breaks are supported. Export XLSX/CRM files to these five columns; extra columns are rejected. The observed date describes this source, not the last contact. Review last_contact_at, previous_interest and stalled_reason separately in Product history; this import does not create Revive history.</p><div class="field"><label for="prospectImportFile">Contact file (.csv, .tsv or .txt)</label><input id="prospectImportFile" type="file" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain"></div><div class="form-grid"><div class="field"><label for="prospectImportFormat">Column separator</label><select id="prospectImportFormat"><option value="tsv">Tabs (spreadsheet paste / TSV)</option><option value="csv">Commas (CSV)</option></select></div><label class="consent"><input id="prospectImportHeader" type="checkbox"><span>First row contains the five named headers</span></label></div><label for="prospectImportRows">File contents or pasted rows; no header needed for spreadsheet paste</label><textarea id="prospectImportRows" rows="6" required></textarea><div><button class="btn btn-line" type="button" id="prospectImportPreview">Preview and validate</button> <button class="btn btn-line" type="button" id="prospectImportTemplate">Download synthetic CSV template</button></div><div id="prospectImportPreviewRows" aria-live="polite" style="overflow-x:auto"></div><p class="hint">Review every row before importing. Existing contacts are linked without overwriting their company data. Each row is saved separately; a failed request may have saved some rows. Retry the unchanged source references to reconcile safely. Importing grants no channel rights, cohort approval or sending authority.</p><button class="btn btn-dark" type="submit" id="prospectImportConfirm" disabled>Import reviewed rows</button><p id="prospectImportReport" role="status"></p></form></details>';}
+  function importFingerprint(){return JSON.stringify([tenant.id,el('prospectMode').value,el('prospectImportFormat').value,!!el('prospectImportHeader').checked,el('prospectImportRows').value]);}
+  function invalidateImport(){importSelection=null;importReadVersion++;el('prospectImportConfirm').disabled=true;el('prospectImportPreviewRows').textContent='';el('prospectImportReport').textContent='Preview the current contents before importing.';}
+  function previewImport(){
+    if(!ready||importBusy){error('Load this client account and wait for the current import.');return;}
+    invalidateImport();error('');
+    try{
+      if(!RP.contactImport)throw Error('The contact parser could not be loaded. Reload this page before importing.');
+      var prepared=RP.contactImport.parse(el('prospectImportRows').value,{format:el('prospectImportFormat').value,header:!!el('prospectImportHeader').checked,synthetic:el('prospectMode').value==='synthetic',existing:snapshot?snapshot.leads:[]});
+      el('prospectImportPreviewRows').innerHTML='<table><thead><tr><th>Row / line</th><th>Email / company</th><th>Source / permitted use</th><th>Observed</th><th>Validation</th></tr></thead><tbody>'+prepared.reports.map(function(r){var c=r.contact;return '<tr><td>'+r.row+' / '+r.line+'</td><td>'+esc(c.email)+'<br>'+esc(c.company)+'</td><td>'+esc(c.reference)+'<br>'+esc(c.rights_reference)+'</td><td>'+esc(c.observed_at)+'</td><td>'+esc(r.errors.length?r.errors.join(' '):'Valid')+(r.warnings.length?'<br>'+esc(r.warnings.join(' ')):'')+'</td></tr>';}).join('')+'</tbody></table>';
+      el('prospectImportReport').textContent=prepared.rows.length+' rows previewed; '+prepared.errorCount+' errors; '+prepared.warningCount+' identity notices.'+(prepared.blankRows?' '+prepared.blankRows+' blank lines ignored.':'')+(prepared.valid?' No data has been saved. Review, then import.':' No rows will be submitted until every error is corrected.');
+      if(prepared.valid){importSelection={fingerprint:importFingerprint(),body:{synthetic:el('prospectMode').value==='synthetic',rows:prepared.rows}};el('prospectImportConfirm').disabled=false;}
+    }catch(e){el('prospectImportReport').textContent=e.message;}
+  }
+  function readImportFile(){
+    if(importBusy){error('Wait for the current import before replacing its source file.');return;}
+    invalidateImport();var file=el('prospectImportFile').files&&el('prospectImportFile').files[0];if(!file)return;
+    el('prospectImportRows').value='';
+    var ticket=generation,readTicket=importReadVersion;
+    if(!/\.(csv|tsv|txt)$/i.test(file.name)||file.size>65536){el('prospectImportReport').textContent='Choose a UTF-8 .csv, .tsv or .txt file no larger than 64 KiB.';return;}
+    el('prospectImportReport').textContent='Reading and validating the local file…';
+    Promise.resolve().then(function(){return file.arrayBuffer();}).then(function(buffer){
+      if(ticket!==generation||readTicket!==importReadVersion)return;
+      var text=new TextDecoder('utf-8',{fatal:true}).decode(buffer);
+      el('prospectImportRows').value=text;el('prospectImportHeader').checked=true;
+      if(/\.csv$/i.test(file.name))el('prospectImportFormat').value='csv';else if(/\.tsv$/i.test(file.name))el('prospectImportFormat').value='tsv';
+      previewImport();
+    }).catch(function(){if(ticket===generation&&readTicket===importReadVersion)el('prospectImportReport').textContent='This file could not be read as UTF-8. Export it again as UTF-8 CSV or TSV.';});
+  }
+  function downloadImportTemplate(){
+    var text='email,company,reference,rights_reference,observed_at\r\nfixture@revive-fixture.invalid,"Synthetic company, test only",synthetic-source-001,synthetic-permitted-use-001,'+new Date().toISOString().slice(0,10)+'\r\n';
+    var url=URL.createObjectURL(new Blob([text],{type:'text/csv;charset=utf-8'})),a=document.createElement('a');a.href=url;a.download='ripepiper-synthetic-contact-template.csv';a.click();URL.revokeObjectURL(url);
+  }
   function importLeads(event){
-    event.preventDefault();if(!ready){error('Load this client account before importing.');return;}
-    var rows=el('prospectImportRows').value.trim().split(/\r?\n/), id=tenant.id,ticket=generation;
-    if(rows.length>50){error('Import at most 50 rows at a time.');return;}
-    var body={synthetic:el('prospectMode').value==='synthetic',rows:rows.map(function(line){var cells=line.split('\t').map(function(v){return v.trim();});return cells.length===5?{email:cells[0],company:cells[1],reference:cells[2],rights_reference:cells[3],observed_at:cells[4]+'T00:00:00Z'}:{};})};
-    ready=false;
-    RP.api(path('prospect-import',id),body).then(function(j){if(ticket!==generation)return;var report=j.results.map(function(r){return 'Row '+r.row+': '+r.state+(r.reason?' ('+r.reason+')':'');}).join('; ');return load().then(function(){if(id===tenant.id)el('prospectImportReport').textContent=report;});}).catch(function(e){if(ticket===generation){ready=true;error(e.message+' Retry with the same source references; do not create new references for an uncertain import.');}});
+    event.preventDefault();if(!ready||importBusy){error('Load this client account and wait for the current import.');return;}
+    if(!importSelection||importSelection.fingerprint!==importFingerprint()){invalidateImport();error('Preview and review the current rows before importing.');return;}
+    var id=tenant.id,ticket=generation,body=importSelection.body;importBusy=true;el('prospectImportConfirm').disabled=true;
+    RP.api(path('prospect-import',id),body).then(function(j){
+      if(ticket!==generation)return;
+      if(!j||!Array.isArray(j.results)||j.results.length!==body.rows.length)throw Error('The row receipt is incomplete.');
+      var report=j.results.map(function(r,i){if(!r||r.row!==i+1||['created','linked','duplicate','rejected','review'].indexOf(r.state)===-1)throw Error('The row receipt is invalid.');return 'Row '+r.row+': '+r.state+(r.reason?' ('+r.reason+')':'');}).join('; ');
+      return load().then(function(){if(id===tenant.id)el('prospectImportReport').textContent=report+'. Source import only; no outreach was sent.';});
+    }).catch(function(e){if(ticket===generation){error(e.message);el('prospectImportReport').textContent='Import result uncertain: some rows may have been saved. Retry these unchanged rows and source references; do not create new references.';el('prospectImportConfirm').disabled=false;}}).finally(function(){importBusy=false;});
   }
   function exportReview(){
     if(!ready || !snapshot){error('Refresh this account before downloading.');return;}

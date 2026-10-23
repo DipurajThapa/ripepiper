@@ -1,0 +1,55 @@
+{
+  "date_utc": "2026-10-23",
+  "environment": "isolated staging only",
+  "project_id": "wgomywhuzyboxlckopca",
+  "production_project_excluded": "jtoafjjszqqrtwerxspw",
+  "baseline_hosted_migrations": 22,
+  "current_hosted_migrations": 23,
+  "prior_manifest": "docs/evidence/REVIVE_STAGING_MIGRATIONS_2026-10-23.json",
+  "source_base_commit": "b4bd458e0f6cbd80c80af3c3499c1309ee1088e7",
+  "source_identity_note": "The appended SQL file is bound by its exact hashes below. The final source/CI receipt is recorded separately; this base commit is not the new implementation commit.",
+  "appended_migrations": [
+    {
+      "source_path": "platform/ripe-piper-platform/supabase/migrations/20261023172149_revive_draft_provenance.sql",
+      "source_sha256": "c4eced874cdb28f77671ca58a420239e6029a8b3268b4aeaec64cbfbd011a319",
+      "source_bytes": 3665,
+      "source_md5": "4aa224fb5d92c6f415d0c5b5f6f7a556",
+      "hosted_version": "20261023172607",
+      "hosted_name": "ripepiper_20261023172149_revive_draft_provenance",
+      "stored_statement_count": 1,
+      "stored_statement_md5": "4aa224fb5d92c6f415d0c5b5f6f7a556",
+      "source_md5_matches_stored_statement": true,
+      "pm_independent_readback": true
+    }
+  ],
+  "function_metadata": {
+    "name": "public.save_reviewed_revive_draft",
+    "security_invoker": true,
+    "fixed_empty_search_path": true,
+    "anon_execute": false,
+    "authenticated_execute": false,
+    "service_role_execute": true,
+    "pm_independent_readback": true
+  },
+  "independent_qa": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md",
+  "rollback_packet": "qa/staging-revive-draft-rollback-acceptance.sql",
+  "rollback_packet_sha256": "4554115f0075cbcb7ce303a3ece63370a5245fd1f0723a280def15445d297756",
+  "rollback_packet_scope": "Selected actual PostgreSQL draft save/replay, no automatic approval/rights/actions, stale review/source/business-name/expiry and ACL checks plus the existing Revive workflow; BEGIN/ROLLBACK fixtures only.",
+  "independent_hosted_rollback_result": "PASS",
+  "independent_post_rollback_fixture_tables_checked": 14,
+  "independent_post_rollback_fixture_rows": 0,
+  "independent_local_regression": {
+    "backend_tests": 686,
+    "backend_files": 49,
+    "node_checks": 121,
+    "typecheck": "PASS",
+    "source_scope": "b4bd458 baseline plus the frozen working increment described in the QA report; final published commit/tree and CI receipt remain separate"
+  },
+  "limits": [
+    "No new table, campaign engine, approval authority or sending permission is introduced.",
+    "The service-only wrapper relies on the trusted Worker qualification/content review; SQL checks do not execute the TypeScript assessment.",
+    "Selected transaction rollback is not backup restoration or independent-connection contention proof.",
+    "No application Auth/PostgREST/Worker operation, real provider delivery, tenant booking or commercial outcome is certified.",
+    "Production schema, configuration, deployment and communications were not changed."
+  ]
+}

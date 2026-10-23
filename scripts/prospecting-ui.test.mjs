@@ -3,13 +3,15 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
 const source=await readFile(new URL('../site/assets/prospecting-admin.js',import.meta.url),'utf8');
+const importSource=await readFile(new URL('../site/assets/contact-import.js',import.meta.url),'utf8');
 const tick=()=>new Promise(r=>setImmediate(r));
 function mount(api) {
   const nodes={},listeners={};
   function node(id){return nodes[id] ||= {value:'',textContent:'',_html:'',set innerHTML(v){this._html=v; for(const m of v.matchAll(/id="([^"]+)"/g))node(m[1]);},get innerHTML(){return this._html;}};}
   node('prospectingPanel');
   const RP={esc:s=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'),api};
-  vm.runInNewContext(source,{window:{RP,addEventListener:(name,fn)=>listeners[name]=fn},document:{getElementById:node}});
+  const context={window:{RP,addEventListener:(name,fn)=>listeners[name]=fn},document:{getElementById:node},TextDecoder};
+  vm.runInNewContext(importSource,context);vm.runInNewContext(source,context);
   return {nodes,select:(id)=>{listeners['rp:tenant-selected']({detail:{id,name:'Fixture '+id}});nodes.prospectMode.value='synthetic';}};
 }
 test('Revive cohort decision uses a current server snapshot and loaded review version',async()=>{
@@ -71,12 +73,39 @@ test('product form preserves tenant, mode, thread and explicit missing answers',
  n.productForm.onsubmit({preventDefault(){}});await tick();
  const saved=calls.find(c=>c.path.endsWith('/product-event'));assert.equal(saved.path,'/api/admin/tenants/tenant-a/product-event');assert.equal(saved.body.synthetic,true);assert.equal(saved.body.context.authority,'');assert.equal(saved.body.context.threadRef,'thread-1');
 });
-test('import sends distinct rows with stable source references and shows row errors',async()=>{
+test('import previews locally, blocks invalid batches, then sends reviewed rows and displays every server result',async()=>{
  const calls=[];const ui=mount(async(path,body)=>{calls.push({path,body});return path.endsWith('/shortlist')?response():{ok:true,results:[{row:1,state:'created'},{row:2,state:'rejected',reason:'invalid_identity'}]};});
  ui.select('tenant-a');await tick();
  ui.nodes.prospectImportRows.value='fixture@example.invalid\tFixture\tsource-1\tpurpose-1\t2026-10-22\nbad';
+ ui.nodes.prospectImportPreview.onclick();assert.equal(ui.nodes.prospectImportConfirm.disabled,true);assert.match(ui.nodes.prospectImportReport.textContent,/No rows will be submitted/);
+ ui.nodes.prospectImportForm.onsubmit({preventDefault(){}});assert.equal(calls.some(c=>c.path.endsWith('/prospect-import')),false);
+ ui.nodes.prospectImportRows.value='fixture@example.invalid\tFixture\tsource-1\tpurpose-1\t2026-10-22\nsecond@example.invalid\tSecond\tsource-2\tpurpose-1\t2026-10-22';
+ ui.nodes.prospectImportPreview.onclick();assert.equal(ui.nodes.prospectImportConfirm.disabled,false);assert.equal(calls.some(c=>c.path.endsWith('/prospect-import')),false);
  ui.nodes.prospectImportForm.onsubmit({preventDefault(){}});await tick();await tick();
  const saved=calls.find(c=>c.path.endsWith('/prospect-import'));assert.equal(saved.body.rows[0].reference,'source-1');assert.equal(saved.body.rows.length,2);assert.match(ui.nodes.prospectImportReport.textContent,/Row 2: rejected/);
+});
+
+test('edited contents and changed mode or tenant invalidate an import preview',async()=>{
+ const calls=[];const ui=mount(async(path,body)=>{calls.push({path,body});return response();});ui.select('tenant-a');await tick();const n=ui.nodes;
+ n.prospectImportRows.value='fixture@example.invalid\tFixture\tsource-1\tpurpose-1\t2026-10-22';n.prospectImportPreview.onclick();
+ n.prospectImportRows.value+='edited';n.prospectImportForm.onsubmit({preventDefault(){}});assert.equal(calls.some(c=>c.path.endsWith('/prospect-import')),false);
+ n.prospectImportRows.value='fixture@example.invalid\tFixture\tsource-1\tpurpose-1\t2026-10-22';n.prospectImportPreview.onclick();n.prospectMode.value='business';n.prospectImportForm.onsubmit({preventDefault(){}});assert.equal(calls.some(c=>c.path.endsWith('/prospect-import')),false);
+ ui.select('tenant-b');await tick();assert.equal(n.prospectImportConfirm.disabled,true);
+});
+test('uncertain import retains the exact preview references and prevents duplicate in-flight requests',async()=>{
+ let rejectImport;const calls=[];const ui=mount((path,body)=>{calls.push({path,body});return path.endsWith('/shortlist')?Promise.resolve(response()):new Promise((_resolve,reject)=>{rejectImport=reject;});});
+ ui.select('tenant-a');await tick();const n=ui.nodes;n.prospectImportRows.value='fixture@example.invalid\tFixture\tsource-1\tpurpose-1\t2026-10-22';n.prospectImportPreview.onclick();
+ n.prospectImportForm.onsubmit({preventDefault(){}});n.prospectImportForm.onsubmit({preventDefault(){}});assert.equal(calls.filter(c=>c.path.endsWith('/prospect-import')).length,1);
+ rejectImport(Error('Lost response'));await tick();assert.match(n.prospectImportReport.textContent,/some rows may have been saved/);
+ n.prospectImportForm.onsubmit({preventDefault(){}});const saved=calls.filter(c=>c.path.endsWith('/prospect-import'));assert.equal(saved.length,2);assert.equal(JSON.stringify(saved[0].body),JSON.stringify(saved[1].body));rejectImport(Error('Still unavailable'));await tick();
+});
+test('UTF-8 CSV upload previews rows, rejects invalid encoding and never leaks a late file into another tenant',async()=>{
+ const ui=mount(async()=>response());ui.select('tenant-a');await tick();const n=ui.nodes;
+ const text='email,company,reference,rights_reference,observed_at\r\nfixture@example.invalid,"Trade, Company",source-1,rights,2026-10-22';
+ n.prospectImportFile.files=[{name:'contacts.csv',size:text.length,arrayBuffer:async()=>new TextEncoder().encode(text).buffer}];n.prospectImportFile.onchange();await tick();await tick();
+ assert.equal(n.prospectImportFormat.value,'csv');assert.equal(n.prospectImportHeader.checked,true);assert.equal(n.prospectImportConfirm.disabled,false);assert.match(n.prospectImportPreviewRows.innerHTML,/Trade, Company/);
+ n.prospectImportFile.files=[{name:'broken.csv',size:2,arrayBuffer:async()=>new Uint8Array([0xc3,0x28]).buffer}];n.prospectImportFile.onchange();await tick();await tick();assert.match(n.prospectImportReport.textContent,/could not be read as UTF-8/);assert.equal(n.prospectImportConfirm.disabled,true);
+ let finish;n.prospectImportFile.files=[{name:'late.csv',size:text.length,arrayBuffer:()=>new Promise(r=>{finish=r;})}];n.prospectImportFile.onchange();await tick();ui.select('tenant-b');await tick();finish(new TextEncoder().encode(text.replace('Trade, Company','PRIVATE old tenant')).buffer);await tick();await tick();assert.doesNotMatch(n.prospectImportRows.value,/PRIVATE/);assert.doesNotMatch(n.prospectImportPreviewRows.innerHTML,/PRIVATE/);
 });
 
 test('inbox import requires a current preview and explicit review, passes digest and reloads existing history',async()=>{
