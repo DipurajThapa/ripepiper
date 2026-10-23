@@ -35,3 +35,19 @@ test('source excerpts and company names render as text, not active markup',async
   const ui=mount(async()=>r);ui.select('tenant-a');await tick();
   const html=ui.nodes.prospectResults.innerHTML;assert.doesNotMatch(html,/<script>|<img /);assert.match(html,/&lt;script&gt;/);
 });
+test('product form preserves tenant, mode, thread and explicit missing answers',async()=>{
+ const calls=[];const ui=mount(async(path,body)=>{calls.push({path,body});return path.endsWith('/shortlist')?response():{ok:true};});
+ ui.select('tenant-a');await tick();
+ const n=ui.nodes;n.productChoice.value='response';n.productChoice.onchange();
+ n.productKind.value='evidence';n.productLead.value='lead-a';n.productReference.value='source-1';n.productRights.value='purpose-1';n.productExcerpt.value='Reviewed reply';n.productObserved.value='2026-10-22T12:00';
+ n.responseKind.value='reply';n.threadRef.value='thread-1';n.disposition.value='interested';n.answerNeed.value='Faster enquiry follow-up';
+ n.productForm.onsubmit({preventDefault(){}});await tick();
+ const saved=calls.find(c=>c.path.endsWith('/product-event'));assert.equal(saved.path,'/api/admin/tenants/tenant-a/product-event');assert.equal(saved.body.synthetic,true);assert.equal(saved.body.context.authority,'');assert.equal(saved.body.context.threadRef,'thread-1');
+});
+test('import sends distinct rows with stable source references and shows row errors',async()=>{
+ const calls=[];const ui=mount(async(path,body)=>{calls.push({path,body});return path.endsWith('/shortlist')?response():{ok:true,results:[{row:1,state:'created'},{row:2,state:'rejected',reason:'invalid_identity'}]};});
+ ui.select('tenant-a');await tick();
+ ui.nodes.prospectImportRows.value='fixture@example.invalid\tFixture\tsource-1\tpurpose-1\t2026-10-22\nbad';
+ ui.nodes.prospectImportForm.onsubmit({preventDefault(){}});await tick();await tick();
+ const saved=calls.find(c=>c.path.endsWith('/prospect-import'));assert.equal(saved.body.rows[0].reference,'source-1');assert.equal(saved.body.rows.length,2);assert.match(ui.nodes.prospectImportReport.textContent,/Row 2: rejected/);
+});

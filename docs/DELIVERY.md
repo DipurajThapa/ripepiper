@@ -10,7 +10,7 @@ Allowed: read-only audit; local synthetic development and tests; feature branche
 
 ## Current product instructions — owner clarification, 2026-10-23
 
-This section refines the uploaded pack in place. It is the current direction for implementation, with the existing contracts, backlog and evidence files; do not create a second engine, workflow, backlog or replacement site. These additions are SPECIFIED, not implemented or proven to increase conversion.
+This section refines the uploaded pack in place. It is the current direction for implementation, with the existing contracts, backlog and evidence files; do not create a second engine, workflow, backlog or replacement site. Implementation status is recorded below and in PACK_M04 evidence. Requirements without passing evidence remain SPECIFIED; no conversion uplift has been demonstrated.
 
 ### Business outcome and scope
 
@@ -28,7 +28,7 @@ Reuse one flow across Revive, Signal, Response and Events: ingest permitted evid
 
 ### Validation and next executable slice
 
-Extend existing RP-011/013/020/030 work; do not create four independent pipelines. Next slice: one versioned Ripe Piper brief plus a ranked, cited prospect shortlist through the existing foundation, initially using synthetic or explicitly permitted public/source fixtures and no sends. Foundation checks needed for this slice must pass; unrelated billing or publishing work stays in the backlog and is not a prerequisite for an offline shortlist. Full M04 and operational release acceptance remain open.
+Extend existing RP-011/013/020/030 work; do not create four independent pipelines. The versioned brief and cited shortlist slice is implemented. The next shared review slice fixes evidence assessment and adds staff import, separate four-product histories, reply stops and outcomes using synthetic fixtures and no sends. Full product automation and live end-to-end acceptance remain separate milestones. Foundation checks needed for this slice must pass; unrelated billing or publishing work stays in the backlog and is not a prerequisite for an offline shortlist. Full M04 and operational release acceptance remain open.
 
 Use a frozen set containing suitable, unsuitable, ambiguous, stale and injected-source examples across two tenants. Check every emitted factual claim for source support, every hard exclusion for enforcement, and every tenant boundary for isolation. Missing evidence must yield unknown/review. Measure precision among the top 20 results (accepted suitable prospects / 20, or the actual reviewed count if fewer), coverage, operator correction rate, runtime and cost per accepted prospect. Compare the model-assisted variant with the same deterministic baseline and label set; retain it only for measured improvement in quality or reviewer effort without safety regression. Real conversion evidence requires a later authorized pilot; fixture results are not conversion results. Version the dataset, brief, rules and model configuration with the evidence.
 
@@ -73,11 +73,11 @@ Each milestone needs implementation, relevant passing acceptance checks, linked 
 | RP-016 | P1 | FUN-03 job reliability | Failed send not marked delivered; overlapping workers cannot duplicate; missing Calendar state fails closed | M02 |
 | RP-017 | P1 | SEC-08 data safety | Sheets input cannot execute formulas; logs redact sensitive payloads; headers/rate/retention tests | M02 |
 | RP-018 | P0 before paid use | Shared total-build budget control | Reconciled usage; atomic worst-case reservation and settlement; concurrent/retry tests; US$18 stop and US$20 absolute cap; unknown price fails closed | M02 |
-| RP-019 | P1 | Versioned business brief and evidence relationships | Initial staff-entry slice implemented: append-only brief, existing observation facts, bounded cited shortlist; DB/API/UI fixtures verified. Automatic extraction and measured ranking improvement remain open. See PACK_M04 step 1h. | M02 |
-| RP-020 | P1 | Revive vertical slice | Defined in M03; synthetic Ripe Piper dataset, errors and audit trail | M03 |
-| RP-030 | P1 | Signal vertical slice | Cited ranked shortlist tied to RP-019; disqualifiers, stale/ambiguous source handling, top-20 precision and baseline comparison; no conversion probability claims | M04 |
-| RP-040 | P1 | Response vertical slice | Defined in M05; retry, SLA and escalation tests | M05 |
-| RP-050 | P1 | Events vertical slice | Defined in M06; mixed-tenant imports and deadline/attribution tests | M06 |
+| RP-019 | P1 | Versioned business brief and evidence relationships | Brief, reviewed aliases, conservative evidence screening and separate qualification dimensions implemented; no headline probability score. See PACK_M04 steps 1h–1i. Semantic extraction, correction resolution and measured quality improvement remain open. | M02 |
+| RP-020 | P1 | Revive vertical slice | Shared import/dormant-history review implemented in step 1i. Sequence/asset approval, standalone reactivation outcomes and delivery-failure recovery remain open. | M03 |
+| RP-030 | P1 | Signal vertical slice | Cited fit review and expiring trigger records implemented. Automated discovery, acquisition/capture, top-20 labelled comparison remain open. | M04 |
+| RP-040 | P1 | Response vertical slice | Manual enquiry/reply triage, per-thread missing questions and cross-product hold implemented. Inbox adapter, configured MQL/SQL, owner routing and client-calendar booking remain open. | M05 |
+| RP-050 | P1 | Events vertical slice | Staff registration/attendance records, per-event history and no-show guard implemented. Public registration, campaign reminders, cancellation/rescheduling and provider reconciliation remain open. | M06 |
 | RP-060 | P0 before release | Deployment/integration proof | Confirm API Worker, domains, environment routing, costs, backups and restoration in isolated environment | M07 |
 
 ## Decisions and unresolved evidence
@@ -127,3 +127,5 @@ Each milestone needs implementation, relevant passing acceptance checks, linked 
 - 2026-10-23 Owner direction reconciled in place: managed prospecting outcome, one shared evidence and execution flow, relational graph scope, measurable ranking/feedback acceptance and US$20 total build cap. New connection authority recorded; no connection, spend, deployment or prospect communication executed by this specification update. Next: business-brief/shortlist slice using the existing foundation; operational release gaps remain open.
 
 - 2026-10-23 Pack M04 step 1h / RP-019: implemented versioned staff-reviewed brief, evidence intake on existing leads and bounded deterministic shortlist in the existing Clients panel. Foundation offline slice proceeds without billing integration; no external sends or paid model calls. See evidence/PACK_M04.md for exact verification and gaps.
+
+- 2026-10-23 Pack M04 step 1i / RP-019/020/030/040/050 shared review increment: audited pack M05 through M09 one file at a time. Reproduced negation and alias defects, removed misleading headline score, added reviewed aliases, bounded staff import, persistent product histories and outcomes, per-thread questions, per-event attendance review, atomic reply stops and opt-out propagation. Uses existing leads/observations/briefs/actions and Clients panel. Browser execution is blocked by unavailable Chromium and invalid download; all four full operational product milestones remain open. See evidence/PACK_M04.md.

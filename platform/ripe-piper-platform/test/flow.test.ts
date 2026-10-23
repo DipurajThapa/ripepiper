@@ -3,6 +3,7 @@
 // -> tenant + owner invite + fee + activity log -> idempotent replay.
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import worker from "../src/index";
+import { syncSheet } from "../src/lib/sheets";
 import { syncAds } from "../src/jobs";
 
 type Row = Record<string, any>;
@@ -376,4 +377,43 @@ describe('staff business brief and cited shortlist',()=>{
     expect(stopped.results[0].state).toBe('excluded');
     expect(sentEmails).toHaveLength(0);expect(calendarEvents).toHaveLength(0);
   });
+});
+
+describe('managed product API boundaries',()=>{
+ const tenant='11111111-1111-4111-8111-111111111111',lead='22222222-2222-4222-8222-222222222222';
+ const root=`/api/admin/tenants/${tenant}`,headers={Authorization:'Bearer test-admin'};
+ const payload={lead_id:lead,reference:'fixture-message',rights_reference:'fixture-purpose',excerpt:'Reviewed reply',observed_at:'2026-10-22T00:00:00Z',synthetic:true,
+ context:{product:'response',kind:'reply',threadRef:'fixture-thread',disposition:'interested',need:'',authority:'',timing:''}};
+ it('requires staff, correct tenant identity and evidence mode before recording a product event',async()=>{
+  tables.leads=[{id:lead,tenant_id:tenant,email:'fixture@example.invalid',status:'new'}];
+  expect((await call('POST',root+'/product-event',payload)).status).toBe(401);
+  expect((await call('POST',root+'/product-event',payload,{Authorization:'Bearer client-token'})).status).toBe(403);
+  expect((await call('POST',root+'/product-event',{...payload,lead_id:tenant},headers)).status).toBe(404);
+  expect((await call('POST',root+'/product-event',{...payload,synthetic:false},headers)).status).toBe(400);
+  expect((await call('POST',root+'/product-event',{...payload,context:{...payload.context,product:'revive'}},headers)).status).toBe(400);
+  expect((await call('POST',root+'/product-event',payload,headers)).status).toBe(201);
+  expect(rpcCalls.filter(p=>p.endsWith('/record_product_event'))).toHaveLength(1);
+  expect(sentEmails).toHaveLength(0);expect(calendarEvents).toHaveLength(0);
+ });
+ it('shows standalone product review without requiring a business brief or another product',async()=>{
+  tables.tenants=[{id:tenant}];tables.leads=[{id:lead,tenant_id:tenant,email:'fixture@example.invalid',status:'new'}];
+  tables.lead_observations=[{id:'fixture',tenant_id:tenant,lead_id:lead,synthetic:true,observed_at:payload.observed_at,assessment_reviewed_by:'admin',product_context:payload.context,assessment_facts:{}}];
+  const result:any=await (await call('POST',root+'/shortlist',{synthetic:true},headers)).json();
+  expect(result.brief).toBeNull();expect(result.results[0].state).toBe('unknown');
+  expect(result.results[0].products.find((p:any)=>p.product==='response')).toMatchObject({state:'interested',contactAllowed:false,bookingAvailable:false});
+ });
+ it('rejects bad import rows individually and makes no provider calls',async()=>{
+  tables.tenants=[{id:tenant}];
+  const r=await call('POST',root+'/prospect-import',{synthetic:true,rows:[{email:'valid@example.invalid',company:'Fixture',reference:'source-1',rights_reference:'fixture-purpose',observed_at:payload.observed_at},{email:'bad'},{}]},headers);
+  const result:any=await r.json();expect(r.status).toBe(200);expect(result.results.slice(1).every((r:any)=>r.state==='rejected')).toBe(true);
+  expect(rpcCalls.filter(p=>p.endsWith('/import_review_lead'))).toHaveLength(1);
+  expect(sentEmails).toHaveLength(0);expect(calendarEvents).toHaveLength(0);
+ });
+});
+
+it('tenant imports cannot leak into the legacy public-intake Google Sheet',async()=>{
+ tables.leads=[{id:'tenant-lead',tenant_id:'tenant-a',email:'fixture@example.invalid'}];
+ tables.sheet_outbox=[{id:1,entity:'lead',entity_id:'tenant-lead',attempts:0,synced_at:null}];
+ expect(await syncSheet(env)).toEqual({synced:1,failed:0});
+ expect(sentEmails).toHaveLength(0);
 });

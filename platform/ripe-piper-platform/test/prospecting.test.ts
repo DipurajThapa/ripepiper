@@ -1,5 +1,5 @@
 import { describe,it,expect } from 'vitest';
-import { assessProspect,validBrief,validFacts,type BusinessBrief,type Observation } from '../src/foundation/prospecting';
+import { assessProspect,validBrief,validFacts,validDate,type BusinessBrief,type Observation } from '../src/foundation/prospecting';
 const now=Date.parse('2026-10-23T12:00:00Z');
 const brief:BusinessBrief={offer:'Revive dormant inquiries',industries:['construction'],markets:['AE'],roles:['owner'],needs:['dormant leads'],excludedIndustries:['gambling'],maxAgeDays:90,
   source:{reference:'interview:fixture-brief',excerpt:'Synthetic owner confirms construction firms in AE, owner role, dormant leads.',observedAt:'2026-10-22T00:00:00Z'}};
@@ -13,7 +13,7 @@ describe('business brief and prospect baseline',()=>{
     expect(validBrief({...brief,source:{...brief.source,observedAt:'2030-01-01T00:00:00Z'}},now)).toBe(false);
   });
   it('requires reviewed cited facts and never grants permission to contact',()=>{
-    const r=assess([observation()]);expect(r.state).toBe('candidate');expect(r.score).toBeGreaterThanOrEqual(90);
+    const r=assess([observation()]);expect(r.state).toBe('candidate');expect(r.score).toBeNull();
     expect(r.fields.every(f=>f.evidence[0].reference==='interview:fixture-1')).toBe(true);expect(r.contactAllowed).toBe(false);
     expect(assess([observation({assessment_reviewed_by:null})]).state).toBe('unknown');
   });
@@ -37,7 +37,30 @@ describe('business brief and prospect baseline',()=>{
     expect(assess([observation()],{...brief,markets:['IN']}).state).toBe('excluded');
     expect(assess([observation()],{...brief,source:{...brief.source,observedAt:'2020-01-01T00:00:00Z'}}).state).toBe('review');
   });
-  it('ranks equally fitting candidates by evidence freshness',()=>{
-    expect(assess([observation()]).score).toBeGreaterThan(assess([observation({observed_at:'2026-08-01T00:00:00Z'})]).score!);
+  it('shows freshness separately without fabricating purchase readiness',()=>{
+    expect(assess([observation()]).freshnessPoints).toBeGreaterThan(assess([observation({observed_at:'2026-08-01T00:00:00Z'})]).freshnessPoints);
+    expect(assess([observation()])).toMatchObject({score:null,readiness:'unknown',engagement:'unknown'});
+  });
+  it('keeps negated, uncertain and third-party evidence visible for review',()=>{
+    for(const excerpt of ['construction / AE / not the owner / no dormant leads','construction / AE / owner might have dormant leads','construction / AE / competitor owner has dormant leads']) {
+      const r=assess([observation({assessment_excerpt:excerpt})]);
+      expect(r.state).toBe('review');expect(r.score).toBeNull();expect(r.fields[0].evidence[0].excerpt).toBe(excerpt);
+    }
+  });
+  it('does not match fragments within unrelated words',()=>{
+    expect(validFacts({role:'owner'},'homeowner')).toBe(false);
+    expect(validFacts({market:'AE'},'aerial')).toBe(false);
+  });
+  it('rejects rollover dates and timestamps with no timezone',()=>{
+    expect(validDate('2026-02-30T00:00:00Z',now)).toBe(false);
+    expect(validDate('2026-10-20T00:00:00',now)).toBe(false);
+    expect(validDate('2026-10-20T00:00:00+04:00',now)).toBe(true);
+  });
+  it('uses only reviewed aliases and prevents exclusions being aliased away',()=>{
+    const b={...brief,aliases:{industry:{construction:['construction services']}}};
+    const o=observation({assessment_facts:{...observation().assessment_facts,industry:'construction services'},assessment_excerpt:'construction services / AE / owner / dormant leads'});
+    expect(validBrief(b,now)).toBe(true);expect(assess([o],b).state).toBe('candidate');
+    expect(validBrief({...brief,aliases:{industry:{construction:['gambling']}}},now)).toBe(false);
+    expect(validBrief({...brief,aliases:{industry:{retail:['construction services']}}},now)).toBe(false);
   });
 });

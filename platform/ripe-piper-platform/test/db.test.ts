@@ -27,7 +27,7 @@ async function as(user: string, sql: string) {
 beforeAll(async () => {
   db = new PGlite({ extensions: { btree_gist } });
   await db.exec(STUB);
-  for (const f of ["0001_core.sql", "0002_security_and_views.sql", "20261022082304_tenant_identity_foundation.sql", "20261022083018_consultation_booking_capability.sql", "20261022083835_lead_provenance_and_rights.sql", "20261022084845_campaign_execution_core.sql", "20261022090405_verified_invite_acceptance.sql", "20261022090907_tenant_pause_control.sql", "20261023011051_business_brief_versions.sql"]) {
+  for (const f of ["0001_core.sql", "0002_security_and_views.sql", "20261022082304_tenant_identity_foundation.sql", "20261022083018_consultation_booking_capability.sql", "20261022083835_lead_provenance_and_rights.sql", "20261022084845_campaign_execution_core.sql", "20261022090405_verified_invite_acceptance.sql", "20261022090907_tenant_pause_control.sql", "20261023011051_business_brief_versions.sql", "20261023013112_product_review_workflows.sql"]) {
     await db.exec(readFileSync(new URL(`../supabase/migrations/${f}`, import.meta.url), "utf8"));
   }
   T1 = (await db.query<any>(`insert into tenants (name, slug, country, currency, created_at) values ('Gulf Interiors','gulf-interiors','AE','AED', now() - interval '40 days') returning id`)).rows[0].id;
@@ -313,4 +313,82 @@ describe("versioned business briefs", () => {
     expect(await as(ADMIN,`select version from business_briefs where tenant_id='${RIPE}'`)).toHaveLength(2);
     await expect(as(ADMIN,`select public.save_business_brief('${RIPE}',2,'{}','${ADMIN}')`)).rejects.toThrow();
   });
+});
+
+describe('shared product persistence, import and cross-product stops',()=>{
+ const when='2026-10-20T00:00:00Z';
+ const reply={product:'response',kind:'reply',threadRef:'fixture-thread',disposition:'interested',need:'',authority:'',timing:''};
+ async function record(lead:string,ref:string,context:any,tenant=T1,actor=ADMIN){
+  return (await db.query<any>(`select public.record_product_event($1,$2,$3,$4,'fixture-rights','Fixture reply',$5,true,$6) id`,[tenant,lead,actor,ref,when,JSON.stringify(context)])).rows[0].id;
+ }
+ it('imports case-normalised identity once, preserves existing state, and rejects source-reference reuse',async()=>{
+  await db.exec('set role service_role');
+  try {
+   const args=[T1,ADMIN,'IMPORTED@example.invalid','Fixture company','import-fixture-1','fixture-rights',when,true];
+   const sql=`select public.import_review_lead($1,$2,$3,$4,$5,$6,$7,$8) r`;
+   const first=(await db.query<any>(sql,args)).rows[0].r;
+   expect(first.state).toBe('created');
+   const again=(await db.query<any>(sql,[...args.slice(0,2),'imported@example.invalid',...args.slice(3)])).rows[0].r;
+   expect(again).toMatchObject({state:'duplicate',lead_id:first.lead_id});
+   await expect(db.query(sql,[T1,ADMIN,'different@example.invalid',...args.slice(3)])).rejects.toThrow('Source reference conflict');
+   const linked=(await db.query<any>(sql,[...args.slice(0,4),'import-fixture-2',...args.slice(5)])).rows[0].r;
+   expect(linked).toMatchObject({state:'linked',lead_id:first.lead_id});
+   const rights=await db.query(`select * from public.contact_rights where tenant_id=$1 and lead_id=$2`,[T1,first.lead_id]);
+   expect(rights.rows).toHaveLength(0);
+  }finally {await db.exec('reset role');}
+ });
+ it('stores all four product histories without duplicating identity and denies other tenant/client writes',async()=>{
+  const lead=(await db.query<any>(`insert into leads(tenant_id,source,email) values($1,'import','products@example.invalid') returning id`,[T1])).rows[0].id;
+  await expect(as(U1,`select public.record_product_event('${T1}','${lead}','${U1}','x','rights','excerpt','${when}',true,'{}')`)).rejects.toThrow();
+  await db.exec('set role service_role');
+  try {
+   await expect(record(lead,'foreign',reply,T2)).rejects.toThrow('scope');
+   await expect(record(lead,'not-staff',reply,T1,U1)).rejects.toThrow('Staff');
+   for(const context of [
+    {product:'revive',kind:'history',lastContactAt:when,previousInterest:'yes',stalledReason:'unknown'},
+    {product:'signal',kind:'trigger',relevance:'Fixture need',expiresAt:'2026-11-01T00:00:00Z'},
+    reply,
+    {product:'events',kind:'registration',eventRef:'fixture-event',endsAt:'2026-11-01T00:00:00Z',timezone:'UTC',attendance:'unknown',rosterComplete:false}
+   ]){
+    const ref='product-'+context.product,first=await record(lead,ref,context);
+    expect(await record(lead,ref,context)).toBe(first);
+   }
+   await expect(record(lead,'product-response',{...reply,disposition:'human'})).rejects.toThrow('Reference reused');
+   expect((await db.query(`select * from lead_observations where tenant_id=$1 and lead_id=$2`,[T1,lead])).rows).toHaveLength(4);
+  }finally {await db.exec('reset role');}
+  expect(await as(U2,`select * from lead_observations where lead_id='${lead}'`)).toHaveLength(0);
+ });
+ it('atomically cancels queued follow-ups on reply; opt-out propagates suppression and is idempotent',async()=>{
+  const lead=(await db.query<any>(`insert into leads(tenant_id,source,email) values($1,'import','stop-products@example.invalid') returning id`,[T1])).rows[0].id;
+  const campaign=(await db.query<any>(`insert into campaigns(tenant_id,capability,operator_id,purpose,channel,market,timezone) values($1,'revive',$2,'revive','email','AE','UTC') returning id`,[T1,ADMIN])).rows[0].id;
+  await db.query(`insert into outbound_actions(tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at) values($1,$2,$3,'product-stop-1',1,1,now())`,[T1,campaign,lead]);
+  await db.exec('set role service_role');
+  try {
+   await record(lead,'reply-stop',reply);
+   const action=(await db.query<any>(`select state,error_code from outbound_actions where lead_id=$1`,[lead])).rows[0];
+   expect(action).toEqual({state:'cancelled',error_code:'conversation_hold'});
+   const opt={...reply,disposition:'opt_out'};
+   await record(lead,'optout-stop',opt);await record(lead,'optout-stop',opt);
+   expect((await db.query(`select * from subject_requests where lead_id=$1 and kind='object'`,[lead])).rows).toHaveLength(1);
+   expect((await db.query(`select * from lead_suppression where lead_id=$1`,[lead])).rows).toHaveLength(1);
+   expect((await db.query(`select * from suppression where email='stop-products@example.invalid'`)).rows).toHaveLength(1);
+  }finally{await db.exec('reset role');}
+ });
+});
+
+it('a new campaign action cannot bypass a recorded reply even with otherwise valid authority',async()=>{
+ await db.query(`update tenants set status='active' where id=$1`,[T1]);
+ const lead=(await db.query<any>(`insert into leads(tenant_id,source,email) values($1,'import','held@example.invalid') returning id`,[T1])).rows[0].id;
+ const source=(await db.query<any>(`insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,synthetic) values($1,$2,'fixture','held-source',now(),'revive',true) returning id`,[T1,lead])).rows[0].id;
+ await db.query(`insert into contact_rights(tenant_id,lead_id,source_id,purpose,channel,market,decision,reviewer_id,notice_reference) values($1,$2,$3,'revive','email','AE','permitted',$4,'fixture-notice')`,[T1,lead,source,ADMIN]);
+ const campaign=(await db.query<any>(`insert into campaigns(tenant_id,capability,operator_id,purpose,channel,market,timezone,status,client_authority_ref,owner_authority_ref,cts_profile_ref,expires_at,max_actions) values($1,'revive',$2,'revive','email','AE','UTC','approved','fixture','fixture','fixture','2030-01-01T00:00:00Z',2) returning id`,[T1,ADMIN])).rows[0].id;
+ const action=(await db.query<any>(`insert into outbound_actions(tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at) values($1,$2,$3,'held-action-1',1,1,'2026-10-22T00:00:00Z') returning id`,[T1,campaign,lead])).rows[0].id;
+ await db.exec('set role service_role');
+ try{
+  expect((await db.query<any>(`select synthetic_action_allowed($1,'2026-10-22T12:00:00Z') allowed`,[action])).rows[0].allowed).toBe(true);
+  await db.query(`select record_product_event($1,$2,$3,'held-reply','fixture-rights','Fixture enquiry','2026-10-20T00:00:00Z',true,$4)`,[T1,lead,ADMIN,JSON.stringify({product:'response',kind:'enquiry',threadRef:'held-thread',disposition:'interested',need:'',authority:'',timing:''})]);
+  const second=(await db.query<any>(`insert into outbound_actions(tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at) values($1,$2,$3,'held-action-2',1,1,'2026-10-22T00:00:00Z') returning id`,[T1,campaign,lead])).rows[0].id;
+  expect((await db.query<any>(`select claim_synthetic_action($1,'2026-10-22T12:00:00Z') allowed`,[second])).rows[0].allowed).toBe(false);
+  expect((await db.query<any>(`select state from outbound_actions where id=$1`,[second])).rows[0].state).toBe('blocked');
+ }finally{await db.exec('reset role');}
 });

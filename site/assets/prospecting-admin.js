@@ -1,21 +1,28 @@
 /* Shared prospect review in the existing Clients panel. All persistence uses staff APIs. */
 (function () {
   "use strict";
-  var RP = window.RP, panel = document.getElementById("prospectingPanel"), tenant, generation = 0, version = 0, ready = false;
+  var RP = window.RP, panel = document.getElementById("prospectingPanel"), tenant, generation = 0, version = 0, ready = false, snapshot = null;
   var fields = ["industries", "markets", "roles", "needs", "excludedIndustries"];
   var labels = ["Target industries", "Target markets", "Buyer roles", "Needs we address", "Excluded industries"];
   var esc = RP.esc, el = function(id) { return document.getElementById(id); };
   function error(message) { el("prospectError").textContent = message; }
   function input(id,label,type) { return '<div class="field"><label for="'+id+'">'+label+'</label><input id="'+id+'" type="'+(type||'text')+'"></div>'; }
   function render() {
-    ready = false; version = 0;
-    panel.innerHTML = '<h3>Business brief and prospect review: '+esc(tenant.name)+'</h3><p class="hint">Review sourced facts before recording them. Fit scores are not conversion probabilities. This review does not send messages.</p>'+
+    ready = false; version = 0; snapshot = null;
+    panel.innerHTML = '<h3>Business brief and prospect review: '+esc(tenant.name)+'</h3><p class="hint">Review sourced facts before recording them. Qualification dimensions are shown separately. Buying readiness and contact rights need their own evidence. This review does not send messages.</p>'+
       '<label for="prospectMode">Evidence set</label><select id="prospectMode"><option value="synthetic">Synthetic test contacts</option><option value="business">Existing business contacts</option></select><button class="btn btn-line" type="button" id="prospectRefresh">Refresh review</button><p id="prospectError" class="err" role="alert"></p><p id="briefVersion" role="status">Loading brief…</p>'+
-      '<details><summary>Business brief</summary><form id="briefForm" class="stack"><div class="field"><label for="briefOffer">Offer and problem solved</label><textarea id="briefOffer" maxlength="500" required></textarea></div><div class="form-grid">'+
-      fields.map(function(f,i){return input('brief_'+f,labels[i]+' (comma-separated)');}).join('')+ input('briefAge','Evidence validity in days','number')+input('briefReference','Brief source reference')+input('briefObserved','Source date','date')+'</div><div class="field"><label for="briefExcerpt">Supporting source excerpt or interview note</label><textarea id="briefExcerpt" maxlength="2000" required></textarea></div><button class="btn btn-dark" type="submit">Save reviewed brief version</button></form></details>'+
+      '<details><summary>Import permitted contacts</summary><form id="prospectImportForm" class="stack"><label for="prospectImportRows">Paste up to 50 spreadsheet rows, without a header: email, company, source reference, permitted-use reference, observed date (YYYY-MM-DD). Separate columns with tabs.</label><textarea id="prospectImportRows" rows="6" required></textarea><button class="btn btn-line" type="submit">Validate and import</button><p id="prospectImportReport" role="status"></p></form></details><button id="prospectExport" class="btn btn-line" type="button">Download internal review</button><p id="productMetrics" role="status"></p><details><summary>Business brief</summary><form id="briefForm" class="stack"><div class="field"><label for="briefOffer">Offer and problem solved</label><textarea id="briefOffer" maxlength="500" required></textarea></div><div class="form-grid">'+
+      fields.map(function(f,i){return input('brief_'+f,labels[i]+' (comma-separated)');}).join('')+ ['industry','market','role','need'].map(function(f){return input('alias_'+f,f+' aliases: target = alias; target = alias');}).join('')+input('briefAge','Evidence validity in days','number')+input('briefReference','Brief source reference')+input('briefObserved','Source date','date')+'</div><div class="field"><label for="briefExcerpt">Supporting source excerpt or interview note</label><textarea id="briefExcerpt" maxlength="2000" required></textarea></div><button class="btn btn-dark" type="submit">Save reviewed brief version</button></form></details>'+
       '<details><summary>Add reviewed prospect evidence</summary><form id="evidenceForm" class="stack"><div class="field"><label for="evidenceLead">Existing lead</label><select id="evidenceLead"></select></div><div class="form-grid">'+input('evidenceSource','Source type, e.g. client interview')+input('evidenceReference','Unique dated source reference')+input('evidenceRights','Permitted-use reference')+input('evidenceObserved','Observation date','date')+
-      ['industry','market','role','need'].map(function(f){return input('evidence_'+f,f.charAt(0).toUpperCase()+f.slice(1)+' (leave unknown blank)');}).join('')+'</div><div class="field"><label for="evidenceExcerpt">Source excerpt containing the recorded values</label><textarea id="evidenceExcerpt" maxlength="2000" required></textarea></div><button class="btn btn-line" type="submit">Record reviewed evidence</button></form></details><div id="prospectResults" aria-live="polite"></div>';
+      ['industry','market','role','need'].map(function(f){return input('evidence_'+f,f.charAt(0).toUpperCase()+f.slice(1)+' (leave unknown blank)');}).join('')+'</div><div class="field"><label for="evidenceExcerpt">Source excerpt containing the recorded values</label><textarea id="evidenceExcerpt" maxlength="2000" required></textarea></div><button class="btn btn-line" type="submit">Record reviewed evidence</button></form></details>'+productForm()+'<div id="prospectResults" aria-live="polite"></div>';
     el('briefAge').value = '90';
+    el('prospectImportForm').onsubmit=importLeads;
+    el('prospectExport').onclick=exportReview;
+    el('productChoice').value='revive';
+    el('productChoice').onchange=renderProductFields;
+    el('productKind').onchange=renderProductFields;
+    el('productForm').onsubmit=saveProduct;
+    renderProductFields();
     el('briefForm').onsubmit = saveBrief;
     el('evidenceForm').onsubmit = saveEvidence;
     el('prospectRefresh').onclick = load;
@@ -25,7 +32,7 @@
   function path(action,id) { return '/api/admin/tenants/'+(id||tenant.id)+'/'+action; }
   function load() {
     var ticket = ++generation, synthetic = el('prospectMode').value === 'synthetic';
-    ready = false; error('');
+    ready = false; snapshot=null; error('');
     el('prospectResults').textContent = 'Loading current evidence…';
     return RP.api(path('shortlist'), {synthetic:synthetic}).then(function(j){
       if(ticket !== generation) return;
@@ -35,15 +42,20 @@
       el('briefOffer').value = b ? b.offer : '';
       fields.forEach(function(f){el('brief_'+f).value=b ? b[f].join(', ') : '';});
       el('briefAge').value = b ? b.maxAgeDays : 90;
+      ['industry','market','role','need'].forEach(function(f){var a=b && b.aliases ? b.aliases[f]||{} : {};el('alias_'+f).value=Object.keys(a).flatMap(function(k){return a[k].map(function(v){return k+' = '+v;});}).join('; ');});
       el('briefReference').value = b ? b.source.reference : '';
       el('briefObserved').value = b ? b.source.observedAt.slice(0,10) : '';
       el('briefExcerpt').value = b ? b.source.excerpt : '';
       el('evidenceLead').innerHTML = j.leads.filter(function(l){return synthetic === l.email.toLowerCase().endsWith('.invalid');}).map(function(l){return '<option value="'+esc(l.id)+'">'+esc(l.company || l.email)+'</option>';}).join('');
+      el('productLead').innerHTML=el('evidenceLead').innerHTML;
       el('prospectResults').innerHTML = j.results.length ? j.results.map(function(r){
-        return '<details><summary>'+esc(r.company)+' · '+esc(r.state)+(r.score === null ? '' : ' · fit '+r.score+'/100')+'</summary><p>'+esc(r.nextAction)+'</p><p>'+esc(r.reasons.join(', '))+'</p>'+r.fields.map(function(f){
+        return '<details><summary>'+esc(r.company)+' · '+esc(r.state)+'</summary><p>'+esc(r.nextAction)+'</p><p>'+esc(r.reasons.join(', '))+'</p>'+r.fields.map(function(f){
           return '<p><strong>'+esc(f.field)+': '+esc(f.state)+'</strong> '+esc(f.values.join(', '))+'</p>'+f.evidence.map(function(e){return '<blockquote>'+esc(e.excerpt)+'<br><small>'+esc(e.reference)+' · '+esc(e.observedAt)+'</small></blockquote>';}).join('');
-        }).join('')+'</details>';
+        }).join('')+(r.products||[]).map(function(p){return '<section><h4>Ripe '+esc(p.product)+'</h4><p>'+esc(p.state)+' · '+esc(p.nextAction)+'</p>'+(p.question?'<p>Suggested question: '+esc(p.question)+'</p>':'')+(p.dueAt?'<p>Review due: '+esc(p.dueAt)+(p.overdue?' · overdue':'')+'</p>':'')+'<p>Delivery unavailable · client booking unavailable</p>'+p.outcomes.map(function(o){return '<p>Recorded outcome: '+esc(o.outcome)+' · '+esc(o.reason)+' · '+esc(o.at)+'</p>';}).join('')+p.history.map(function(h){return '<blockquote>'+esc(h.excerpt)+'<br><small>'+esc(h.reference)+' · '+esc(h.observedAt)+'</small></blockquote>';}).join('')+'</section>';}).join('')+'</details>';
       }).join('') : '<p class="muted">No assessed prospects in this evidence set. Save a brief and attach reviewed evidence to existing client leads.</p>';
+      snapshot=j;
+      var observed=j.results.filter(function(r){return (r.products||[]).some(function(p){return p.history.length;});}).length;
+      el('productMetrics').textContent=observed+' contacts with product history / '+j.results.length+' reviewed contacts. Outcome counts describe recorded evidence, not conversion uplift.';
       ready = true;
     }).catch(function(e){if(ticket===generation){ready=false; error(e.message); el('briefVersion').textContent='Review unavailable. Nothing has been saved.';el('prospectResults').textContent='';}});
   }
@@ -52,6 +64,8 @@
     event.preventDefault(); if(!ready){error('Load the current brief before saving.');return;}
     var id=tenant.id, ticket=generation, b={offer:el('briefOffer').value.trim(),maxAgeDays:Number(el('briefAge').value),source:{reference:el('briefReference').value.trim(),excerpt:el('briefExcerpt').value.trim(),observedAt:date('briefObserved')}};
     fields.forEach(function(f){b[f]=el('brief_'+f).value.split(',').map(function(v){return v.trim();}).filter(Boolean);});
+    b.aliases={};
+    try { ['industry','market','role','need'].forEach(function(f){var groups={};el('alias_'+f).value.split(';').filter(function(v){return v.trim();}).forEach(function(pair){var parts=pair.split('=');if(parts.length!==2 || !parts[0].trim() || !parts[1].trim())throw Error('Use target = alias, separated by semicolons.');var key=parts[0].trim();if(['__proto__','constructor','prototype'].includes(key))throw Error('Invalid alias target.');(groups[key] ||= []).push(parts[1].trim());});b.aliases[f]=groups;}); } catch(e){error(e.message);return;}
     ready=false;
     RP.api(path('brief',id),{brief:b,expected_version:version}).then(function(){if(ticket===generation) return load();}).catch(function(e){if(ticket===generation){ready=true;error(e.message);}});
   }
@@ -62,6 +76,48 @@
     var b={lead_id:el('evidenceLead').value,source:el('evidenceSource').value.trim(),reference:el('evidenceReference').value.trim(),rights_reference:el('evidenceRights').value.trim(),observed_at:date('evidenceObserved'),excerpt:el('evidenceExcerpt').value.trim(),facts:facts,synthetic:el('prospectMode').value==='synthetic'};
     ready=false;
     RP.api(path('prospect-evidence',id),b).then(function(){if(ticket===generation)return load();}).catch(function(e){if(ticket===generation){ready=true;error(e.message);}});
+  }
+
+
+  function importLeads(event){
+    event.preventDefault();if(!ready){error('Load this client account before importing.');return;}
+    var rows=el('prospectImportRows').value.trim().split(/\r?\n/), id=tenant.id,ticket=generation;
+    if(rows.length>50){error('Import at most 50 rows at a time.');return;}
+    var body={synthetic:el('prospectMode').value==='synthetic',rows:rows.map(function(line){var cells=line.split('\t').map(function(v){return v.trim();});return cells.length===5?{email:cells[0],company:cells[1],reference:cells[2],rights_reference:cells[3],observed_at:cells[4]+'T00:00:00Z'}:{};})};
+    ready=false;
+    RP.api(path('prospect-import',id),body).then(function(j){if(ticket!==generation)return;var report=j.results.map(function(r){return 'Row '+r.row+': '+r.state+(r.reason?' ('+r.reason+')':'');}).join('; ');return load().then(function(){if(id===tenant.id)el('prospectImportReport').textContent=report;});}).catch(function(e){if(ticket===generation){ready=true;error(e.message+' Retry with the same source references; do not create new references for an uncertain import.');}});
+  }
+  function exportReview(){
+    if(!ready || !snapshot){error('Refresh this account before downloading.');return;}
+    var data={purpose:'Internal operator review only; not a marketing contact list',tenant_id:tenant.id,brief_version:version,assessed_at:snapshot.assessedAt,rules_version:snapshot.rulesVersion,synthetic:snapshot.synthetic,contactAllowed:false,results:snapshot.results};
+    var url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'})),a=document.createElement('a');
+    a.href=url;a.download='ripepiper-internal-review.json';a.click();URL.revokeObjectURL(url);
+  }
+  function select(id,label,values) {return '<div class="field"><label for="'+id+'">'+label+'</label><select id="'+id+'">'+values.map(function(v){return '<option value="'+v+'">'+v.replaceAll('_',' ')+'</option>';}).join('')+'</select></div>';}
+  function productForm(){return '<details><summary>Product history and outcomes</summary><p class="hint">Staff-reviewed records on existing contacts. Recording a reply holds follow-ups across products. Opt-out records apply suppression. These forms do not send, publish or book.</p><form id="productForm" class="stack">'+select('productChoice','Product',['revive','signal','response','events'])+select('productKind','Record type',['evidence','outcome'])+'<div class="field"><label for="productLead">Existing lead</label><select id="productLead"></select></div>'+input('productReference','Unique source or message reference')+input('productRights','Permitted-use reference')+input('productObserved','Observed at (UTC)','datetime-local')+'<div class="field"><label for="productExcerpt">Reviewed source excerpt</label><textarea id="productExcerpt" maxlength="2000" required></textarea></div><div id="productFields" class="form-grid"></div><button class="btn btn-line" type="submit">Record reviewed event</button></form></details>';}
+  function renderProductFields(){
+    var p=el('productChoice').value, html='';
+    if(el('productKind').value==='outcome') html=select('productOutcome','Verified outcome',['accepted','rejected','qualified_conversation','meeting_held','opportunity','won','lost'])+input('productReason','Reason supported by the source');
+    else if(p==='revive')html=input('lastContact','Last contact (UTC)','datetime-local')+select('previousInterest','Previously expressed interest',['unknown','yes','no'])+input('stalledReason','Why it stopped (enter unknown if unverified)');
+    else if(p==='signal')html=input('signalRelevance','Why this business change relates to the offer')+input('signalExpiry','Evidence expires (UTC)','datetime-local');
+    else if(p==='response')html=select('responseKind','Conversation event',['enquiry','reply'])+input('threadRef','Verified thread reference')+select('disposition','Reviewed disposition',['uncertain','interested','not_interested','later','wrong_person','opt_out','human'])+input('answerNeed','Stated need (blank if unknown)')+input('answerAuthority','Decision participants (blank if unknown)')+input('answerTiming','Stated timing (blank if unknown)')+input('nextContact','Agreed review time, required for later (UTC)','datetime-local');
+    else html=select('eventKind','Event record',['registration','attendance'])+input('eventRef','Event reference')+input('eventEnd','Event ends (UTC)','datetime-local')+input('eventTimezone','Event timezone, e.g. Asia/Dubai')+select('attendance','Attendance evidence',['unknown','attended','verified_no_show'])+select('rosterComplete','Complete authoritative attendance roster',['no','yes']);
+    el('productFields').innerHTML=html;
+  }
+  function utc(id){var v=el(id).value;return v ? new Date(v+'Z').toISOString() : '';}
+  function saveProduct(event){
+    event.preventDefault();if(!ready){error('Load this client account before saving.');return;}
+    var id=tenant.id,ticket=generation,p=el('productChoice').value,c={product:p},v=function(id){return el(id).value.trim();};
+    try {
+      if(el('productKind').value==='outcome'){c.kind='outcome';c.outcome=v('productOutcome');c.reason=v('productReason');}
+      else if(p==='revive'){c.kind='history';c.lastContactAt=utc('lastContact');c.previousInterest=v('previousInterest');c.stalledReason=v('stalledReason');}
+      else if(p==='signal'){c.kind='trigger';c.relevance=v('signalRelevance');c.expiresAt=utc('signalExpiry');}
+      else if(p==='response'){c.kind=v('responseKind');c.threadRef=v('threadRef');c.disposition=v('disposition');c.need=v('answerNeed');c.authority=v('answerAuthority');c.timing=v('answerTiming');if(v('nextContact'))c.nextContactAt=utc('nextContact');}
+      else {c.kind=v('eventKind');c.eventRef=v('eventRef');c.endsAt=utc('eventEnd');c.timezone=v('eventTimezone');c.attendance=v('attendance');c.rosterComplete=v('rosterComplete')==='yes';}
+      var body={lead_id:v('productLead'),reference:v('productReference'),rights_reference:v('productRights'),excerpt:v('productExcerpt'),observed_at:utc('productObserved'),synthetic:el('prospectMode').value==='synthetic',context:c};
+    }catch(e){error('Enter complete, valid dates.');return;}
+    ready=false;
+    RP.api(path('product-event',id),body).then(function(){if(ticket===generation)return load();}).catch(function(e){if(ticket===generation){ready=true;error(e.message);}});
   }
   window.addEventListener('rp:tenant-selected',function(event){++generation; tenant=event.detail; render();});
 })();
