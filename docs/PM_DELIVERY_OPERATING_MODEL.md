@@ -1,6 +1,6 @@
 # Project Manager — accountable delivery owner
 
-The PM is the **single accountable coordinator for delivery through completion**. CTO owns technical governance; Development owns implementation; QA independently owns test evidence. The PM is accountable for ensuring each milestone is assigned, sequenced, reviewed, reported, resolved, and formally closed. The PM cannot falsely certify engineering results or bypass human consent/release gates.
+The PM is the **single accountable coordinator for delivery through completion**. CTO owns technical governance; Development owns implementation; QA independently owns test evidence. The PM is accountable for ensuring each milestone is assigned, sequenced, reviewed, reported, resolved, and formally closed. The PM cannot falsely certify engineering results or bypass human consent/release boundaries. Use already-recorded owner authorization without repeated permission requests; escalate only actions outside that actual scope.
 
 ## Single source of truth
 - `docs/DELIVERY.md`: authoritative requirements, milestones, acceptance criteria, priority and long-term backlog.
@@ -15,18 +15,24 @@ The PM is the **single accountable coordinator for delivery through completion**
 3. Assign each current stage to Development/QA/CTO; record dependencies, blocker, owner, evidence, next action and target acceptance.
 4. Ensure QA reviews a different artifact/run from developer self-check and documents failed paths. QA must not certify its own implementation changes without independent review.
 5. Accept a stage only with evidence, QA signoff and the PM's explicit review; update `harness/ledger.json` and evaluate using `node harness/evaluate.mjs`.
-6. Escalate business approvals (new paid charges, provider consent, production DDL/deploy, prospect contact) to the owner; never substitute CTO/PM approval for owner consent.
+6. Reconcile the owner’s current scope before escalation. The 2026-10-23 instruction authorizes protected PR #6 merge and its existing static Pages publication; do not request that same approval again. Uncovered new paid charges, provider consent, production DDL, API Worker deployment/activation and real prospect/payment/message actions remain owner decisions. CTO/PM cannot extend that scope.
 7. Reopen failed or regressed stages; block downstream stages and log corrective actions until verified.
 8. Publish owner report: overall RED/AMBER/GREEN, changed since prior report, verified vs deployed vs operating, blockers, exact next step and owner decisions.
 9. Close the project only after each operational product is accepted against its written criteria, hardening/monitoring/recovery are proved, documentation and handover are complete, and owner formally accepts closure.
 
 ## Current milestones (track each until completion)
 - P0: Cloudflare routing and actual backend deployment verification.
-- P0: isolated hosted database and migration upgrade with RLS, security, rollback and cost evidence.
+- P0: isolated hosted database and 19-file migration upgrade have bounded SQL/RLS/fixture-rollback evidence; retain backup restoration, actual Auth/PostgREST and independent-connection proof as open requirements.
 - P0: Ripe Piper tenant, approved brief, human gates and full Revive synthetic and live proof.
 - P1: Signal acquisition, Response SLA and Events registration/reminders, reusing shared execution.
 - P1: reliable provider acknowledgements, uncertain-delivery recovery, scoped OAuth, cost control, security, monitoring and operational incident procedures.
 - P1: first accepted prospects, qualified meetings and attributed opportunities; compare outcomes to baseline, no unproven conversion promises.
+
+## Current integration target — 2026-10-23
+
+The owner instructed code publication, branch consolidation/issue repair and accurate documentation. Complete the current source increment through feature PR, current CI/review and the protected merge process. Existing static Pages publication from main is covered by that instruction; record its actual deployment result separately from the source merge. Do not change protection or infer approval for API/database/provider/payment/outreach activation.
+
+The authoritative tracker currently accepts 14/27 bounded preparation/offline stages; remaining operational stages and full four-product client acceptance stay open. Pre-merge checks, actual merge SHA, current CI, branch comparison and static deployment receipt are evidence requirements for truthful reporting, not new user approval gates. Failed checks are repaired within existing authority. Keep the prior dated history unchanged and append actual outcomes when verified.
 
 ## Status meanings
 - **NOT STARTED**: no accepted evidence yet.

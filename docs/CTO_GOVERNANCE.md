@@ -1,6 +1,6 @@
-# Ripe Piper — CTO oversight charter (proposed)
+# Ripe Piper — CTO oversight charter
 
-Effective when reviewed and merged. This defines independent decision-making and evidence standards, **not** a continuously running autonomous agent process. No role can override explicit owner approvals, provider permissions, production safety or the total US$20 incremental build budget.
+Applied in the supervised delivery cycle under the owner’s explicit CTO/Development/independent-QA/PM instruction on 2026-10-23. This defines role accountability and evidence standards; it does not launch continuously running background agents. No role can override owner authority, provider permissions, production protection or the total US$20 incremental build budget.
 
 ## Accountability
 **Owner:** Product strategy, business commitments, material spend and production communication/releases.
@@ -18,8 +18,14 @@ Effective when reviewed and merged. This defines independent decision-making and
 2. Development delivers isolated changes as draft PR; no direct main pushes.
 3. QA validates exact SHA independently and records failure cases and unresolved risks.
 4. PM updates the existing delivery tracker only from verified evidence.
-5. CTO checks architecture, costs, test results and operational readiness; recommend merge or rework. Human owner retains live migration, paid, production deployment, external communications and access-consent decisions.
+5. CTO checks architecture, costs, test results and operational readiness; carry an authorized merge through existing protection or return defects for repair. Use the owner’s recorded scoped authority without asking again. Uncovered production migration, API/provider activation, paid use, communications and access-consent decisions remain with the owner.
 6. Only count a product OPERATING after tenant-scoped, real provider, idempotent end-to-end proof with reviewed commercial outcomes. Distinguish SPECIFIED / IMPLEMENTED / VERIFIED / RELEASED / OPERATING.
+
+## Current owner-authorized source integration — 2026-10-23
+
+The owner has explicitly authorized pushing/fixing the completed code, consolidating branches and updating documentation. PR #6 may proceed through protected review/CI/merge and the existing automatic **static Pages** publication from main. No protection may be bypassed. This does not approve production database writes/migrations, API Worker deployment/activation, paid service use, real payment/message activation or prospect contact. Do not add another approval gate for the covered source merge; verify and report its actual outcome. Keep tested/merged/static-published and operational/client-ready distinct.
+
+Current bounded acceptance is 14/27 stages, with 438 backend/76 Node checks and rendered workflow evidence linked in `docs/DELIVERY.md`. This is not product OPERATING or client-delivery acceptance. The latest pre-merge PR/CI snapshot and any subsequent merge/deployment receipts belong in that single delivery record; do not infer completion from this charter.
 
 ## Priorities (2026-10-23)
 P0 operational integration: migration baseline-to-head rehearsal and hosted isolation, Cloudflare Pages/Worker runtime verification, Ripe Piper ordinary tenant provisioning, scoped connection health, provider acknowledgement and uncertain-send recovery, review gates, complete Revive dogfood proof. Other products reuse the same execution foundation. QA must confirm fail-closed behavior before activation.

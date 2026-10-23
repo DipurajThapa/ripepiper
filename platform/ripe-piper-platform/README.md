@@ -1,75 +1,86 @@
 # Ripe Piper platform
 
-The system behind RipePiper.com: lead capture, bookings with Google Meet, reminders, AI call notes and minutes, pre-proposals with a 10% advance, Stripe and Razorpay payments, the Google Sheet CRM, the blog CMS, and the multi-tenant client dashboard.
+This is the existing Cloudflare Worker API, Supabase schema and provider-adapter source used by the Ripe Piper managed B2B lead-generation service. The branded website, staff console and client portal live in [`../../site/`](../../site/). Preserve this architecture and its existing workflows.
 
-## 1. How it fits together
+## Current implementation and deployment status
 
-```
-Visitor ──► RipePiper.com (Cloudflare Pages: static website, /portal, /admin)
-              │  forms, booking, newsletter, opt-out
-              ▼
-        API Worker (Cloudflare Workers: /api/*, /webhooks/*, /p/*, /blog*)
-              │                       │                       │
-              ▼                       ▼                       ▼
-   Supabase Postgres + Auth     Google Workspace APIs     Stripe (AED) · Razorpay (INR)
-   (source of truth, RLS)       Calendar · Meet · Gmail   Claude API (notes, proposals)
-              │                 Sheets (CRM copy)         Google Ads · Meta · LinkedIn
-              ▼
-   Google Sheet CRM tabs: Website_Leads, Meetings, Proposals, Payments
-```
+As checked on 23 October 2026, all four products have bounded development verification. [The root README](../../README.md) summarizes product status; [DELIVERY](../../docs/DELIVERY.md) is the authoritative backlog and merge/deployment record. The last inspected production database has only its original three migrations. The isolated **ripepiper-staging** database has the reviewed **19-migration** composition; its source checksums and actual hosted append order are in the [migration manifest](../../docs/evidence/STAGING_MIGRATION_MANIFEST_2026-10-23.json).
 
-- **The database is the source of truth.** Every lead, meeting, proposal and payment is copied to the *B2B Outbound Engine* Google Sheet within five minutes. The existing `Sheet1` (outbound engine) is never changed.
-- **Tenants:** every client company is a tenant. Row-level security in Postgres makes sure a client user receives only rows of their own tenant. Ripe Piper's own pipeline (`tenant_id = NULL`) is visible to admins only.
-- **Roles:** *Admin* (Ripe Piper), *Client owner* (can update deals, accept quotations, invite viewers) and *Client viewer* (read only).
+The selected Cloudflare account's inspected runtime inventory had the existing static Pages project and no deployed API Worker. Source configuration is blank with `live:false`. Static Pages publication does not deploy this API, apply migrations, connect providers or make the four products operational. Hosted Auth/PostgREST/Worker execution, real provider/recovery evidence, separate-connection races, backup restoration and first-customer acceptance remain open. See [infrastructure readback](../../docs/evidence/INFRASTRUCTURE_READBACK_2026-10-23.md).
 
-## 2. The client journey
+## Architecture and data ownership
 
-| Step | What happens | Where |
+| Component | Responsibility | Boundary |
 |---|---|---|
-| 1. Inquiry | Form → lead saved, scored, deduplicated, founder alerted within a minute | `POST /api/lead` |
-| 2. Qualify | Personal email → ask for work email. Deals under AED 10,000 → polite "not yet". Others → free slots | same call |
-| 3. Book | Slot checked against Google Calendar and existing bookings (database blocks double booking). Calendar event with a Google Meet link, invitation and confirmation email | `POST /api/book` |
-| 4. Remind | Default off. A fenced booking claim authorizes one email attempt per reminder window; only verified Gmail acknowledgement records a reminder timestamp. Uncertainty is held for operator review without automatic resend | existing cron, every 5 min after separately authorized release |
-| 5. Notes and minutes | After the initial wait, available transcripts can produce draft notes under the paid-AI guard. Missing evidence after the waiting window remains attendance_unknown and requires staff review. Transcript text and participant counts never prove held/no-show | existing cron, or admin button |
-| 6. Pre-proposal | Admin creates the draft; AI writes the text, **code inserts the prices** from the published price list and calculates the 10% advance. Admin edits and sends | Admin → Proposals |
-| 7. Approve and pay | Client opens the secret link, approves, pays the advance (Stripe for AED, Razorpay for INR) | `/p/<token>` |
-| 8. Start | Verified webhook → proposal marked paid → client account (tenant) created → client invited as owner → fee recorded → client emailed. Webhook replays never create duplicates | `/webhooks/*` |
-| 9. Customisations | Quoted after the proposal is locked. Total calculated on the server. Client owner accepts and pays in the dashboard | Admin → Proposals; Portal → Proposals and quotes |
-| 10. Live dashboard | Leads, qualified leads, funnel, ideal-customer match, sources, ad spend by platform, fees, won revenue, return on investment, deals, activity timeline | `/portal/` |
+| Existing `site/` | Public pages, `/admin/`, `/portal/` and reviewed product UI | Only public Supabase URL/anon key; no service credentials |
+| Worker `src/` | `/api/*`, `/webhooks/*`, `/p/*`, `/blog*`, jobs and provider adapters | Server-side authorization, tenant scope, rights, approvals and receipt validation |
+| Supabase Postgres + Auth | Source records, memberships, evidence, versions, execution/payment/reminder receipts and outcomes | RLS and scoped RPCs; production migrations require separate authorization |
+| Google adapters | Calendar/Meet, mail, selected-thread reads and optional Sheets mirror | Explicit account/scope/purpose; chat-connected access is not application OAuth |
+| Stripe / Razorpay adapters | AED / INR hosted checkout and verified payment events | Exact registered target/amount/currency; uncertain checkout requires review |
+| Shared AI adapter | Draft extraction/notes/proposals under reviewed pricing and budget controls | Default off; unknown prior usage or pricing refuses paid calls |
 
-**Fixed-scope price used for the 10% advance:** Revive Sprint = sprint fee; single event = event fee; monthly engine = setup fee + 3 months (the minimum term). Change `src/lib/pricing.ts` and the website prices together if prices change.
+Every client, including Ripe Piper's lead-generation dogfood journey, uses ordinary tenant membership. Existing founder consultation/sales records can retain `tenant_id = NULL` and remain staff-only. New product workflows do not use NULL as a tenant shortcut. Client owners and viewers have distinct scoped permissions; frontend visibility does not replace RLS.
 
-## 3. Transparency built into the client dashboard
+The Google Sheet is an optional CRM mirror. Existing outbox/job code can synchronize configured records, but a five-minute operating SLA has not been verified. Supabase remains authoritative. Attribution and revenue reports reflect stored, reviewed records and the selected model; they are not proof of causal conversion improvement.
 
-Based on agency reporting research and our own rules:
+## Inquiry, consultation and payment contracts
 
-- Every number shows the change against the previous month.
-- Fees and ad spend sit next to won revenue, and return on investment uses one written formula: *(won revenue − our fees − ad spend) ÷ (our fees + ad spend)*.
-- Every fee line says what it covers, including the 10% advance and each performance fee.
-- The attribution model is named on the sources table. Lead source and click IDs (UTM, gclid, fbclid, li_fat_id) are kept from the first visit through to the deal.
-- An activity timeline records what we changed, why, and what happens next.
-- The page shows when the ad data was last updated.
-- Client owners update their own deal stages and values, so revenue is not our estimate.
+These routes describe implemented source behavior and tested fixtures, not active live services:
 
-## 4. Setup (about half a day)
+| Stage | Implemented behavior |
+|---|---|
+| Inquiry / qualification | `/api/lead` validates, deduplicates and applies the existing qualification rules; public activation requires configured runtime and abuse controls |
+| Booking | `/api/book` requires an eligible lead and expiring capability; availability fails closed, stable calendar identity supports read reconciliation, uncertain reservation is held |
+| Reminder | Default-off consultation job claims one 24h/1h attempt for the exact booking; only a strict Gmail acknowledgement records the timestamp; uncertain outcomes stay held |
+| Notes / attendance | Available evidence can support draft notes under the paid-AI guard; absent evidence stays `attendance_unknown`; held/no-show classification requires explicit staff evidence and version check |
+| Proposal | Staff review draft text; code supplies published prices and computes the advance; AI never sets prices |
+| Checkout | An explicit approval/payment POST reserves a ledger attempt and binds the provider reference; repeat requests read the recorded checkout rather than blindly creating another |
+| Settlement | Verified events settle registered exact financial bindings atomically, with monotonic paid state and replay-safe tenant/invite/fee/activity effects |
+| Onboarding / notification | Payment records a held human-review notification intent; there is no automatic payment email sender or promise that service has started |
+| Quotes / portal | Existing owner authorization, totals, acceptance and payment checks apply; the portal displays recorded outcomes |
 
-### 4.1 Supabase
-1. Create a project on the **Pro plan**. Free projects pause after 7 days without activity and have no daily backups.
-2. Run, in order: `supabase/migrations/0001_core.sql`, `0002_security_and_views.sql`, `0003_fx_rates.sql`, then `supabase/seed.sql` (adds the two launch articles).
-3. **Authentication → Providers:** turn on *Email* (magic link) and *Google*. Add `https://ripepiper.com/portal/` and `https://ripepiper.com/admin/` as redirect URLs.
-4. Sign in once at `/admin/`, then make yourself an administrator:
-   `update public.profiles set is_admin = true where email = 'you@ripepiper.com';`
-5. Put the project URL and the **anon** key in the website file `assets/config.js`. Never put the service role key in the website.
+Published pricing is defined in `src/lib/pricing.ts` and must match the site. The default advance is 10%: Revive Sprint uses the sprint fee; a single event uses its event fee; the monthly engine uses setup plus the three-month minimum. Customisation quotes are separate. Commercial refund/advance terms still need business review before client rollout.
 
-### 4.2 Google Workspace
-1. Use a Workspace edition that includes Meet transcripts (**Business Standard or higher**). In the Admin console, turn on transcription for your organisation.
-2. In Google Cloud, create a project. Enable the Calendar, Gmail, Sheets, Drive and Google Meet REST APIs. Create an OAuth client (Web).
-3. Generate a refresh token for your own account with these scopes: `calendar`, `gmail.send`, `spreadsheets`, `drive.readonly`, `meetings.space.readonly` (for example with the OAuth 2.0 Playground, using your own client ID).
-4. When you create a meeting, set Google Meet to transcribe automatically (*Video call options → Meeting records → Transcribe the meeting*), or switch transcription on at the start of each call. Transcripts start only when the host joins on the web.
+## Safe setup and verification
 
-### 4.2a Tenant read-only Google pilot (development candidate)
+Use Node 24 and the committed lockfile, with no production credentials:
 
-This separate path extends the existing Clients → Business brief and prospect review panel. It does not inherit the founder/public-booking credentials above, send email, create calendar events, scrape the inbox, or provision OAuth through the UI. Start with Ripe Piper as one ordinary tenant. Do not activate on production as part of development checks.
+```sh
+npm ci --ignore-scripts --no-audit --no-fund
+npm run typecheck
+npm test
+cd ../..
+node --test scripts/*.test.mjs
+node scripts/dependency-audit.mjs
+node scripts/preview.mjs build
+# Optional local browser prerequisite, from the platform directory:
+# npx --no-install playwright install chromium
+node scripts/product-browser-check.mjs
+node scripts/signal-browser-check.mjs
+node scripts/preview.mjs serve
+```
+
+The local preview is at http://127.0.0.1:4173, with sample data and external operations disabled. Backend suites use disposable PGlite and mocked providers. Current implementation evidence: **438 backend tests / 34 files**, **76 Node checks**, TypeScript, syntax, dependency audit and both Chromium workflow programs passed in [CI 39944568353](https://github.com/DipurajThapa/ripepiper/actions/runs/39944568353). Test counts are a dated receipt; run the suite for the current result. [Independent QA](../../docs/evidence/QA_OPERATIONAL_2026-10-23.md) records six corrected findings, four hosted rollback scripts, source identity and verification limits.
+
+## Isolated integration and release
+
+Reuse the existing Free staging project; do not create another database or upgrade a plan as a setup step. Do not seed production or run only the original three migrations for a new development environment. Use the reviewed manifest and the [hosted staging evidence](../../docs/evidence/HOSTED_STAGING_2026-10-23.md); hosted migration timestamps can differ from repository filenames.
+
+[`wrangler.staging.toml`](wrangler.staging.toml) packages this same API and an isolated copy of the existing site with no custom production routes or cron. The existing CI workflow permits deployment only through explicit `deploy_staging:true` on a non-main branch after verification. Configure only these GitHub Actions secrets through secure settings:
+
+- `RIPEPIPER_STAGING_CLOUDFLARE_API_TOKEN`
+- `RIPEPIPER_STAGING_SERVICE_ROLE_KEY`
+- `RIPEPIPER_STAGING_ANON_KEY`
+
+Follow the [exact secure setup and dispatch guide](../../docs/evidence/INFRASTRUCTURE_READBACK_2026-10-23.md#secure-worker-setup-required-from-the-owner). The runner checks actual isolated Auth/PostgREST/Worker boundaries and exact fixture cleanup; it has not yet executed against the deployed service. Frontend output receives only the isolated public URL/anon key. Founder send/calendar, payment and AI secrets are excluded from this packet.
+
+`npm run deploy` is intentionally blocked. The owner authorized the current protected PR #6 merge and existing static Pages publication; production database migrations, API Worker deployment/activation, paid calls and prospect communications remain separately scoped actions. Production `wrangler.toml` is preserved for comparison. Retain a non-main integration branch for the documented staging dispatch; all merged source can still be consolidated in main.
+
+No new paid service call was made in this development cycle. The total incremental build budget is US$20; prior AI charges remain unreconciled and paid AI stays disabled. Do not use paid setup, verification purchases or trials as a workaround.
+
+## Tenant read-only Google pilot (development candidate)
+
+This separate path extends the existing Clients → Business brief and prospect review panel. It does not inherit the founder/public-booking credentials, send email, create calendar events, scrape the inbox, or provision OAuth through the UI. Start with Ripe Piper as one ordinary tenant. Do not activate on production as part of development checks.
 
 Operator setup after mailbox selection and provider consent:
 
@@ -82,49 +93,9 @@ Operator setup after mailbox selection and provider consent:
 
 Gmail read-only access is a **restricted scope**. Confirm the exact internal/testing/production verification and security-assessment applicability for the chosen Google project/account before live server-side Gmail data use. An internal-use exception is not assumed for external clients. Do not incur verification/assessment costs beyond the existing budget; manual reviewed evidence remains usable if rollout is blocked. See Google's [scope guidance](https://developers.google.com/workspace/gmail/api/auth/scopes) and [restricted-scope verification](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification). Calendar identity check uses the documented [CalendarList get](https://developers.google.com/workspace/calendar/api/v3/reference/calendarList/get) scope. No grant, live connection or production consent has been verified by fixture tests.
 
-Needed from the owner: the Ripe Piper pilot mailbox, its Google Workspace organisation/account type, the calendar to associate, and the person responsible for reviewing inbound conversations. The owner completes Google's account consent when the secure setup is ready; passwords/tokens are not requested in chat.
+The owner has already identified the test recipient, test calendar and reviewer. Confirm those configured identities during secure setup; do not ask for them again or commit private addresses as fixtures. Google account/organisation eligibility and application OAuth consent still need verification. The owner completes consent when setup is ready; passwords/tokens are not requested in chat.
 
-### 4.3 Payments
-- **Stripe (AED):** create a UAE account, copy the secret key, and add a webhook to `https://ripepiper.com/webhooks/stripe` for `checkout.session.completed` and `checkout.session.async_payment_failed`.
-- **Razorpay (INR):** Stripe accepts new Indian businesses by invitation only, so INR payments use Razorpay. Add a webhook to `https://ripepiper.com/webhooks/razorpay` for `payment_link.paid` and `payment.failed`.
-
-### 4.4 Ad platforms (read-only reporting)
-- **Google Ads:** apply for a developer token with **Basic access** (review usually takes about five business days, or a few hours with brand verification of your Cloud project). Add client accounts under your manager (MCC) account.
-- **Meta:** create a Business app with `ads_read` and a system user token; each client grants your business access to their ad account. Expect app review and business verification.
-- **LinkedIn:** apply for the Advertising API (Development tier reads accounts your member can access). Each client gives your LinkedIn member a role on their ad account.
-- Spend is converted into the client's currency using `fx_rates`. The USD rate is fixed by the AED peg (3.6725). **Update the INR rate monthly** in the admin database.
-
-### 4.5 Deploy the API Worker
-```bash
-npm install
-npx wrangler secret put SUPABASE_URL           # repeat for every secret listed in wrangler.toml
-npx wrangler deploy
-```
-Then deploy the website folder to Cloudflare Pages on the same domain. The Worker routes (`/api/*`, `/webhooks/*`, `/p/*`, `/blog*`) take priority over the static site.
-
-### 4.6 Optional
-- **Cloudflare Turnstile** on the forms: set `TURNSTILE_SECRET` and add the widget to the forms.
-- **WhatsApp consultation reminders:** blocked pending a separate reviewed provider receipt and release scope. `WHATSAPP_ENABLED` alone cannot activate this legacy consultation path.
-
-## 5. Tests
-
-```bash
-npm test        # 49 tests
-```
-- `test/db.test.ts`: runs the real migrations on Postgres (PGlite) and proves tenant isolation, admin access, viewer vs owner rights, duplicate-lead protection, double-booking protection, the advance calculation, Sheet queueing and the ROI maths.
-- `test/flow.test.ts`: runs the Worker end to end with simulated services: inquiry → slots → booking with Meet link → second booking of the same slot refused → approval → Stripe redirect → forged webhook refused → signed webhook starts the client account → replay creates nothing new → short payment does not start work → consultation reminders remain disabled until explicit provider release. Focused consultation suites cover fenced claims, provider receipts, uncertain delivery and staff attendance review.
-- `test/logic.test.ts`: routing, scoring, pricing, slots in GST, reminder windows, webhook signatures, AI output checks, Sheet mapping, blog safety, currency conversion.
-- `test/seed.test.ts`: the launch articles load and render safely.
-
-## 6. Known limits (verified, not assumed)
-
-1. **Meet transcripts** need a supported Workspace edition and transcription switched on for the call. Without a transcript, paste your notes in Admin → Meetings and the AI creates the minutes from them.
-2. **AI output is a draft.** You review notes and every pre-proposal before it is sent. The AI never sets prices.
-3. **Ad data access needs approvals** from Google, Meta and LinkedIn, and each client must grant access to their ad account.
-4. **The newsletter** collects sign-ups with double opt-in. Sending the monthly issue needs a sending tool (for example Google Workspace for small lists, or a newsletter service as the list grows).
-5. **Policy to confirm:** the website currently says the Revive Sprint fee is refundable if fewer than two qualified meetings are booked. The new flow takes a 10% advance on the fixed-scope price. Decide how the refund applies to the advance and update the terms page before launch.
-
-### Events lifecycle rehearsal (default off)
+## Events lifecycle rehearsal (default off)
 
 The existing Clients area has an **Events registration rehearsal** card. Use an existing Events campaign with its current reviewed brief and approved message version; configure title, UTC start/end, display timezone, event-only notice reference, capacity (1–100) and registration intent. Explicit staff review is required. A material settings change invalidates current message approval, cancels queued actions and holds claimed actions; re-review the message plan before reopening registration. Identical settings retries do not create a new event version.
 
@@ -140,4 +111,4 @@ Intake remains identity-unverified and unreviewed. It is excluded from prospect 
 
 Ended consultations lacking verified attendance use `attendance_unknown`, which is neither held nor no-show and does not occupy the active-consultation booking index. Existing historical statuses are not backfilled. Notes alone do not advance a lead to meeting_held. Staff use the existing Meetings detail to classify an ended, current booking with a version check, an authoritative evidence reference and reason; no-show additionally requires explicit confirmation of a complete attendance record. Unknown remains a neutral review outcome. Booking identity changes invalidate reviewed attendance and retain prior evidence in the private activity log. Correcting held evidence retracts only its current lead-level meeting_held projection when no other reviewed held meeting supports it; later sales statuses remain intact.
 
-Automated notes-ready email alerts and the legacy WhatsApp side-send are withheld here because they lack independently reconciled receipts. Notes remain visible in Meetings. No provider operation, migration, live data change or deployment was performed while implementing this increment.
+Automated notes-ready email alerts and the legacy WhatsApp side-send are withheld here because they lack independently reconciled receipts. Notes remain visible in Meetings. The consultation migration and rollback checks were rehearsed in isolated staging. No real provider operation, production migration, customer data change or API deployment was performed for this increment.
