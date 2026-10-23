@@ -344,3 +344,36 @@ describe("reminders", () => {
     expect(sentEmails.filter(e => e.to === "sara@gulfinteriors.ae")).toHaveLength(1);
   });
 });
+
+describe('staff business brief and cited shortlist',()=>{
+  it('links stored brief and same-tenant evidence to assessment without any model or provider call',async()=>{
+    const tenant='11111111-1111-4111-8111-111111111111',lead='22222222-2222-4222-8222-222222222222';
+    const root=`/api/admin/tenants/${tenant}`;
+    const headers={Authorization:'Bearer test-admin'};
+    const brief={offer:'Synthetic revive offer',industries:['construction'],markets:['AE'],roles:['owner'],needs:['dormant leads'],excludedIndustries:[],maxAgeDays:90,
+      source:{reference:'interview:fixture-brief',excerpt:'Synthetic reviewed brief',observedAt:'2026-10-22T00:00:00Z'}};
+    tables.tenants=[{id:tenant,status:'onboarding'}];
+    tables.leads=[{id:lead,tenant_id:tenant,email:'fixture@example.invalid',company:'Synthetic customer',status:'new'}];
+    expect((await call('POST',root+'/brief',{brief,expected_version:0})).status).toBe(401);
+    expect((await call('POST',root+'/brief',{brief,expected_version:0},{Authorization:'Bearer client-token'})).status).toBe(403);
+    expect((await call('POST',root+'/brief',{brief:{...brief,markets:[]},expected_version:0},headers)).status).toBe(400);
+    expect((await call('POST',root+'/brief',{brief,expected_version:0},headers)).status).toBe(200);
+    tables.business_briefs=[{tenant_id:tenant,version:1,body:brief}];
+    const evidence={lead_id:lead,source:'client interview',reference:'interview:fixture-lead',rights_reference:'synthetic-only',observed_at:'2026-10-22T00:00:00Z',synthetic:true,
+      facts:{industry:'construction',market:'AE',role:'owner',need:'dormant leads'},excerpt:'construction / AE / owner / dormant leads'};
+    expect((await call('POST',root+'/prospect-evidence',{...evidence,lead_id:'33333333-3333-4333-8333-333333333333'},headers)).status).toBe(404);
+    expect((await call('POST',root+'/prospect-evidence',evidence,headers)).status).toBe(201);
+    expect(tables.lead_observations[0].assessment_reviewed_by).toBe('admin-1');
+    const response=await call('POST',root+'/shortlist',{synthetic:true},headers);
+    expect(response.status).toBe(200);
+    const result:any=await response.json();
+    expect(result.brief.version).toBe(1);
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]).toMatchObject({leadId:lead,state:'candidate',contactAllowed:false});
+    expect(result.results[0].fields[0].evidence[0].reference).toBe('interview:fixture-lead');
+    tables.lead_suppression=[{tenant_id:tenant,lead_id:lead}];
+    const stopped:any=await (await call('POST',root+'/shortlist',{synthetic:true},headers)).json();
+    expect(stopped.results[0].state).toBe('excluded');
+    expect(sentEmails).toHaveLength(0);expect(calendarEvents).toHaveLength(0);
+  });
+});

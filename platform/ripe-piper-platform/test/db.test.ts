@@ -27,7 +27,7 @@ async function as(user: string, sql: string) {
 beforeAll(async () => {
   db = new PGlite({ extensions: { btree_gist } });
   await db.exec(STUB);
-  for (const f of ["0001_core.sql", "0002_security_and_views.sql", "20261022082304_tenant_identity_foundation.sql", "20261022083018_consultation_booking_capability.sql", "20261022083835_lead_provenance_and_rights.sql", "20261022084845_campaign_execution_core.sql", "20261022090405_verified_invite_acceptance.sql", "20261022090907_tenant_pause_control.sql"]) {
+  for (const f of ["0001_core.sql", "0002_security_and_views.sql", "20261022082304_tenant_identity_foundation.sql", "20261022083018_consultation_booking_capability.sql", "20261022083835_lead_provenance_and_rights.sql", "20261022084845_campaign_execution_core.sql", "20261022090405_verified_invite_acceptance.sql", "20261022090907_tenant_pause_control.sql", "20261023011051_business_brief_versions.sql"]) {
     await db.exec(readFileSync(new URL(`../supabase/migrations/${f}`, import.meta.url), "utf8"));
   }
   T1 = (await db.query<any>(`insert into tenants (name, slug, country, currency, created_at) values ('Gulf Interiors','gulf-interiors','AE','AED', now() - interval '40 days') returning id`)).rows[0].id;
@@ -291,5 +291,26 @@ describe("durable synthetic action gate", () => {
     expect((await db.query<any>(`select state from outbound_actions where id=$1`, [objection])).rows[0].state).toBe('blocked');
     const foreign = (await db.query<any>(`select id from leads where email='c@y.in'`)).rows[0].id;
     await expect(db.query(`insert into outbound_actions (tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at) values ($1,$2,$3,'foreign',1,1,'2026-11-02T04:00:00Z')`, [RIPE, another, foreign])).rejects.toThrow();
+  });
+});
+
+
+describe("versioned business briefs", () => {
+  it("appends with optimistic concurrency, keeps history and denies client access", async () => {
+    await db.exec('set role service_role');
+    try {
+      const save = (expected: number, body: object, actor=ADMIN) => db.query<any>(`select public.save_business_brief($1,$2,$3,$4) as version`, [RIPE,expected,JSON.stringify(body),actor]);
+      await expect(save(0,{offer:'fixture'},U1)).rejects.toThrow();
+      expect((await save(0,{offer:'fixture'})).rows[0].version).toBe(1);
+      expect((await save(0,{offer:'fixture'})).rows[0].version).toBe(1);
+      const attempts=await Promise.allSettled([save(1,{offer:'revision-a'}),save(1,{offer:'revision-b'})]);
+      expect(attempts.filter(r=>r.status==='fulfilled')).toHaveLength(1);
+      expect(attempts.filter(r=>r.status==='rejected')).toHaveLength(1);
+      await expect(db.query(`update business_briefs set body='{}' where tenant_id=$1`,[RIPE])).rejects.toThrow();
+    } finally { await db.exec('reset role'); }
+    expect((await db.query<any>(`select version from business_briefs where tenant_id=$1 order by version`,[RIPE])).rows).toEqual([{version:1},{version:2}]);
+    expect(await as(U3,`select version from business_briefs where tenant_id='${RIPE}'`)).toEqual([]);
+    expect(await as(ADMIN,`select version from business_briefs where tenant_id='${RIPE}'`)).toHaveLength(2);
+    await expect(as(ADMIN,`select public.save_business_brief('${RIPE}',2,'{}','${ADMIN}')`)).rejects.toThrow();
   });
 });

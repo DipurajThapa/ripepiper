@@ -130,6 +130,7 @@
   }
   function tenantDetail(t) {
     cur.tenant = t;
+    window.dispatchEvent(new CustomEvent("rp:tenant-selected", { detail: { id: t.id, name: t.name } }));
     var today = new Date(), monday = new Date(today.getTime() - ((today.getUTCDay() + 6) % 7) * 864e5).toISOString().slice(0, 10);
     $("tenantDetail").innerHTML = "<h3>" + RP.esc(t.name) + "</h3>" +
       (t.status === "paused" || t.status === "ended" ? '<p class="hint">This client is ' + RP.esc(t.status) + '. Campaign execution and connected ad reporting are stopped.</p>' :
