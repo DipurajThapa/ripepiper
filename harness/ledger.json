@@ -99,13 +99,17 @@
         "historical_published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39991745199",
         "current_continuation_qa": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md",
         "current_draft_staging_manifest": "docs/evidence/REVIVE_DRAFT_STAGING_2026-10-23.json",
-        "current_draft_rollback_packet": "qa/staging-revive-draft-rollback-acceptance.sql"
+        "current_draft_rollback_packet": "qa/staging-revive-draft-rollback-acceptance.sql",
+        "current_published_candidate_sha": "0310fa62f6024248ea180bb71427a7cc90188864",
+        "current_published_tree_sha": "64451394b071d9acc48809a118a825de0cc50262",
+        "current_published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39996753214",
+        "runner_correction_qa": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md"
       },
-      "blocker": "Bounded local synthetic and selected staging SQL preparation accepted only. tenant-sandbox/Worker runtime dependencies remain unaccepted; actual application Auth/PostgREST, deployed isolated routing, provider/inbox/calendar and operational outcome proof remain missing. No live product acceptance.",
+      "blocker": "Published0310fa6 synthetic source/selected hosted SQL accepted only. Q-RI003 HTTP fixture-runner onboarding correction passed independent red-to-green/11 focused and122 Node checks; its new published CI is pending. tenant-sandbox/Worker runtime, actual Auth/PostgREST, provider/inbox/calendar and operational outcome proof remain unaccepted. No live product acceptance.",
       "qa_run_ref": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md",
       "historical_qa_source_sha": "464904674ace1b8d326c97636b0150c40f0fced8",
-      "current_candidate_scope": "b4bd458 baseline plus frozen intake/draft/report/acknowledgement working increment in the current QA report; final published source/CI pending",
-      "partial_acceptance_scope": "PM reviewed independent 686 backend/49 files,121 Node and TypeScript checks, selected hosted23-migration draft rollback packet and14 empty fixture tables. The earlier526/42,84Node/22-migration receipt and574c246/tree5f2f7cd CI are historical evidence. pm_reviewed/qa_reviewed remain false for the full operational stage, not for these bounded receipts. No main merge, Worker deployment, real Auth/provider/calendar, backup restoration or independent-connection contention proof."
+      "current_candidate_scope": "Published0310fa6/tree6445139 passed686 backend/49 files,121Node and both rendered programs in CI39996753214; subsequent narrow onboarding HTTP fixture-runner correction passed122 Node locally, with new published candidate/CI pending",
+      "partial_acceptance_scope": "PM reviewed independent686 backend/49 files and121 Node for the draft/report continuation, selected hosted23-migration rollback and14 empty fixture tables, published0310 CI, then Q-RI003 independent runner red-to-green/11 focused and full122 Node. Backend source unchanged. Earlier526/42,84Node/22-migration and574c246/tree5f2f7cd CI remain historical. Full-stage pm_reviewed/qa_reviewed stay false. No real Auth/runtime/provider/calendar, backup restoration or independent-connection proof."
     },
     "revive-qa": {
       "status": "in_progress",
@@ -118,13 +122,17 @@
         "historical_published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39991745199",
         "current_continuation_qa": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md",
         "current_draft_staging_manifest": "docs/evidence/REVIVE_DRAFT_STAGING_2026-10-23.json",
-        "current_draft_rollback_packet": "qa/staging-revive-draft-rollback-acceptance.sql"
+        "current_draft_rollback_packet": "qa/staging-revive-draft-rollback-acceptance.sql",
+        "current_published_candidate_sha": "0310fa62f6024248ea180bb71427a7cc90188864",
+        "current_published_tree_sha": "64451394b071d9acc48809a118a825de0cc50262",
+        "current_published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39996753214",
+        "runner_correction_qa": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md"
       },
-      "blocker": "Independent686-backend/49-file and121-Node preparation plus selected23-migration hosted SQL checks passed; full revive-sandbox operational dependency is not accepted. Actual Worker/Auth/PostgREST, provider/tenant meeting flow, backup restoration and independent-connection races remain outside the receipt. Final published source/CI for this continuation remains pending.",
+      "blocker": "Independent686-backend/49-file and121-Node draft/report plus selected23-migration hosted SQL and published0310 CI passed. Q-RI003 onboarding HTTP fixture-runner correction independently passed11 focused/all122 Node checks; its new published CI remains pending. Full revive-sandbox, actual Worker/Auth/PostgREST, provider/tenant meeting flow, backup restoration and independent-connection races remain outside the receipt.",
       "qa_run_ref": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md",
       "historical_qa_source_sha": "464904674ace1b8d326c97636b0150c40f0fced8",
-      "current_candidate_scope": "b4bd458 baseline plus frozen working increment described by current QA; final source/CI receipt separate",
-      "partial_acceptance_scope": "Bounded independent intake/parser/identity/acknowledgement/UI/draft/report checks plus selected PostgreSQL atomic draft save/replay/stale provenance/no-auto-approval/ACL and prior workflow checks only. Q-RI001/Q-RI002 closed independently; Q-RV001 remains historically closed. No operational release or higher-conversion claim."
+      "current_candidate_scope": "Published0310fa6/tree6445139 CI39996753214 accepted for bounded synthetic/local scope; subsequent onboarding HTTP runner correction independently verified locally with122 Node, new source/CI receipt pending",
+      "partial_acceptance_scope": "Bounded intake/parser/identity/acknowledgement/UI/draft/report plus selected PostgreSQL atomic draft save/replay/stale provenance/no-auto-approval/ACL and prior workflow checks. Q-RI001/Q-RI002 and Q-RI003 are closed independently in local scope; Q-RV001 remains historically closed. Runner scope explicitly excludes activation/outbound/provider operation. No operational release or higher-conversion claim."
     },
     "operational-release": {
       "status": "not_started",

@@ -14,7 +14,10 @@ function fixture({nonempty=false,leak=false,lostAuth=false,cleanupFail=false,out
   if(auth==='token'){const u=users.find(u=>u.email===body.email&&u.password===body.password);return reply({access_token:'session-'+u.id,user:{id:u.id}});}
   if(auth==='user'){return reply({id:init.headers.Authorization.slice('Bearer session-'.length)});}
   const table=url.pathname.replace('/rest/v1/','');if(table.startsWith('rpc/'))return reply({code:'42501'},403);
-  if(method==='POST'){const list=Array.isArray(body)?body:[body];rows[table].push(...list);if(table==='leads'){rows.sheet_outbox.push(...list.map((r,i)=>({id:i+1,entity:'lead',entity_id:r.id})));if(foreignOutbox)rows.sheet_outbox.push({id:100,entity:'meeting',entity_id:list[0].id},{id:101,entity:'lead',entity_id:randomUUID()});}return reply(body,201);}
+  if(method==='POST'){const list=Array.isArray(body)?body:[body];
+   // Model the service-role boundary, not a database-owner fixture bypass.
+   if(table==='tenants'&&list.some(row=>row.status==='active'))return reply({code:'23514',message:'Prepare onboarding before reviewed activation'},400);
+   rows[table].push(...list);if(table==='leads'){rows.sheet_outbox.push(...list.map((r,i)=>({id:i+1,entity:'lead',entity_id:r.id})));if(foreignOutbox)rows.sheet_outbox.push({id:100,entity:'meeting',entity_id:list[0].id},{id:101,entity:'lead',entity_id:randomUUID()});}return reply(body,201);}
   if(method==='PATCH')return reply([]);
   if(method==='DELETE'&&table==='sheet_outbox'){assert.equal(url.searchParams.get('entity'),'eq.lead');assert.match(url.searchParams.get('entity_id'),/^in\.\([0-9a-f,-]+\)$/);if(outboxFail)return reply({},500);const ids=url.searchParams.get('entity_id').slice(4,-1).split(',');rows[table]=rows[table].filter(r=>r.entity!=='lead'||!ids.includes(r.entity_id));return reply([]);}
   if(method==='DELETE'){assert.match(url.searchParams.get('id'),/^in\.\([0-9a-f,-]+\)$/);const ids=url.searchParams.get('id').slice(4,-1).split(',');rows[table]=rows[table].filter(r=>!ids.includes(r.id));return reply([]);}
@@ -31,6 +34,14 @@ test('dry validation is default and rejects database/Worker/key targets before n
 });
 test('nonempty staging rejects before fixture writes',async()=>{const f=fixture({nonempty:true});await assert.rejects(stagingHttpAcceptance(env,{apply:true,fetcher:f.fetcher}),e=>e.evidence?.failedPhase==='baseline'&&e.evidence.cleanup.status==='no_writes');assert(f.calls.every(c=>c.method==='GET'));});
 test('real HTTP protocol slice validates both owner RLS boundaries and Worker staff route then exact cleanup',async()=>{const f=fixture();const evidence=await stagingHttpAcceptance(env,{apply:true,fetcher:f.fetcher});assert.equal(evidence.status,'passed');assert.equal(evidence.cleanup.status,'verified');assert.equal(evidence.checks.length,4);assert.equal(f.users.length,0);assert.equal(f.rows.leads.length,0);assert.equal(f.rows.tenants.length,0);assert.equal(f.rows.sheet_outbox.length,0);assert(f.calls.every(c=>['https://wgomywhuzyboxlckopca.supabase.co',STAGING_WORKER].includes(new URL(c.url).origin)));assert(!JSON.stringify(evidence).includes('secret'));});
+test('activation-guarded HTTP acceptance uses onboarding fixtures without activating accounts or executing outreach',async()=>{
+ const f=fixture(),evidence=await stagingHttpAcceptance(env,{apply:true,fetcher:f.fetcher});
+ const inserts=f.calls.filter(c=>c.method==='POST'&&new URL(c.url).pathname==='/rest/v1/tenants');
+ assert.equal(inserts.length,1);assert.deepEqual(inserts[0].body.map(row=>row.status),['onboarding','onboarding']);
+ assert.equal(evidence.scope,'onboarding_auth_rls_and_staff_owner_lookup_only');assert.deepEqual(evidence.notTested,['tenant_activation','outbound_execution','provider_delivery']);
+ assert.equal(f.calls.some(c=>/activate_tenant_execution|\/activate$|manage_campaign_plan|claim_.*action|complete_.*action|\/revive-run$/.test(new URL(c.url).pathname)),false);
+ assert.equal(evidence.cleanup.status,'verified');assert.equal(f.rows.tenants.length,0);assert.equal(f.rows.leads.length,0);assert.equal(f.users.length,0);
+});
 test('RLS failure preserves redacted failure evidence and removes only created UUIDs',async()=>{const f=fixture({leak:true});await assert.rejects(stagingHttpAcceptance(env,{apply:true,fetcher:f.fetcher}),e=>{assert.equal(e.evidence.failedPhase,'postgrest_rls');assert.equal(e.evidence.cleanup.status,'verified');assert(!JSON.stringify(e.evidence).includes(env.RIPEPIPER_STAGING_SERVICE_ROLE_KEY));return true;});assert.equal(f.users.length,0);assert.equal(f.rows.tenants.length,0);});
 test('lost Admin create acknowledgement recovers only exact run email and cleans it',async()=>{const f=fixture({lostAuth:true});await assert.rejects(stagingHttpAcceptance(env,{apply:true,fetcher:f.fetcher}),e=>e.evidence?.failedPhase==='auth_fixtures'&&e.evidence.cleanup.status==='verified'&&e.evidence.cleanup.userIds.length===1);assert.equal(f.users.length,0);});
 test('cleanup failure fails acceptance and reports exact residual IDs without token/password',async()=>{const f=fixture({cleanupFail:true});await assert.rejects(stagingHttpAcceptance(env,{apply:true,fetcher:f.fetcher}),e=>{assert.equal(e.evidence.cleanup.status,'failed');assert.equal(e.evidence.status,'failed');assert.equal(e.evidence.cleanup.errors.length,3);assert(!JSON.stringify(e.evidence).includes('session-'));return true;});});

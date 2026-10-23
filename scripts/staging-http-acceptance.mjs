@@ -13,7 +13,7 @@ export async function stagingHttpAcceptance(env,{apply=false,workerOrigin=STAGIN
  const base=bindings.SUPABASE_URL,service=bindings.SUPABASE_SERVICE_ROLE_KEY,anon=bindings.SUPABASE_ANON_KEY;
  const run=randomUUID(),tenantIds=[randomUUID(),randomUUID()],leadIds=[randomUUID(),randomUUID(),randomUUID()];
  const emails=[0,1,2].map(i=>`http-${run}-${i}@fixture.invalid`),users=[],attemptedEmails=[];
- const evidence={run,target:workerOrigin,status:'running',checks:[],cleanup:{status:'not_started',tenantIds,leadIds,userIds:[],unresolvedEmails:[]}};
+ const evidence={run,target:workerOrigin,status:'running',scope:'onboarding_auth_rls_and_staff_owner_lookup_only',notTested:['tenant_activation','outbound_execution','provider_delivery'],checks:[],cleanup:{status:'not_started',tenantIds,leadIds,userIds:[],unresolvedEmails:[]}};
  let phase='baseline',requests=0,writes=false,failure=false,cleanupDeadline=0;const executionDeadline=clock()+180000;
  async function call(origin,path,{method='GET',key=service,token=key,body,status=[200],cleanup=false}={}){
   if(++requests>(cleanup?120:75))throw Error('Request budget exceeded');
@@ -39,7 +39,8 @@ export async function stagingHttpAcceptance(env,{apply=false,workerOrigin=STAGIN
    users.push({id:data.id,email,password});evidence.cleanup.userIds.push(data.id);onProgress({event:'auth_fixture_created',run,userId:data.id,email});
   }
   phase='database_fixtures';
-  await rest('tenants',{method:'POST',status:[201],body:tenantIds.map((id,i)=>({id,name:'HTTP acceptance synthetic '+i,slug:`http-${run}-${i}`,country:'AE',currency:'AED',status:'active'}))});
+  // Auth/RLS and owner lookup work during onboarding; no activation or execution is needed.
+  await rest('tenants',{method:'POST',status:[201],body:tenantIds.map((id,i)=>({id,name:'HTTP acceptance synthetic '+i,slug:`http-${run}-${i}`,country:'AE',currency:'AED',status:'onboarding'}))});
   await rest('profiles?id=eq.'+users[2].id,{method:'PATCH',body:{is_admin:true}});
   await rest('memberships',{method:'POST',status:[201],body:tenantIds.map((tenant_id,i)=>({tenant_id,user_id:users[i].id,role:'owner'}))});
   await rest('leads',{method:'POST',status:[201],body:leadIds.map((id,i)=>({id,tenant_id:tenantIds[i]??null,source:'import',email:`lead-${run}-${i}@fixture.invalid`}))});
