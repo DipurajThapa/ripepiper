@@ -22,6 +22,8 @@ try {
   window.fixtureEvent={id:'33333333-3333-4333-8333-333333333333',capability:'events',purpose:'Fixture event',status:'approved',event_version:1,event_settings:{title:'Fixture event',startsAt:'2026-11-01T12:00:00Z',endsAt:'2026-11-01T13:00:00Z',timezone:'UTC',capacity:3,open:true,noticeReference:'Event-only fixture notice'}};window.fixtureEventState='registered';
   window.RP={esc:s=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'),api:async(path,body)=>{
    window.fixtureCalls.push({path,body});
+   if(path.endsWith('/revive-review'))return body.operation==='preview'?{assessment:{eligible:true,fitState:'candidate',historyState:'dormant_review',reasons:[],expiresAt:'2026-11-01T00:00:00Z'},snapshot:'a'.repeat(32),version:0}:{review:{state:'accepted',version:1}};
+   if(path.endsWith('/revive-run'))return {enrolled:1,tested:0,blocked:0,review:0,limited:false,delivery:'not_sent'};
    if(path.endsWith('/events')&&path.includes('/admin/')){
     if(body.operation==='list')return {campaigns:[window.fixtureEvent],registrations:[],registrationEnabled:true};
     window.fixtureEvent={...window.fixtureEvent,event_settings:body.settings,event_version:body.expected_version+1};return {id:body.campaign_id,version:body.expected_version+1};
@@ -53,6 +55,18 @@ try {
  await page.addScriptTag({content:await readFile(new URL('site/assets/campaigns-admin.js',root),'utf8')});
  await page.addScriptTag({content:await readFile(new URL('site/assets/events-admin.js',root),'utf8')});
  await page.evaluate(()=>window.dispatchEvent(new CustomEvent('rp:tenant-selected',{detail:{id:'tenant-fixture',name:'Synthetic Ripe Piper'}})));
+ await page.getByText('Ripe Revive cohort review',{exact:true}).click();
+ await page.getByRole('button',{name:'Check current Revive eligibility',exact:true}).click();
+ await page.waitForFunction(()=>!document.getElementById('reviveAccept').disabled);
+ await page.fill('#reviveReason','Reviewed current fit and dormant relationship');
+ await page.getByRole('button',{name:'Accept reviewed contact',exact:true}).click();
+ await page.waitForFunction(()=>document.getElementById('reviveStatus').textContent.includes('Recorded accepted'));
+ const cohort=await page.evaluate(()=>window.fixtureCalls.find(c=>c.path.endsWith('/revive-review')&&c.body.operation==='accept'));
+ assert.equal(cohort.body.version,0);assert.equal(cohort.body.snapshot,'a'.repeat(32));assert.equal(cohort.body.lead_id,'lead-fixture');
+ await page.getByText('Approved Revive automation',{exact:true}).click();
+ await page.getByRole('button',{name:'Run approved Revive test cycle',exact:true}).click();
+ await page.waitForFunction(()=>document.getElementById('reviveRunStatus').textContent.includes('1 enrolled'));
+ assert.match(await page.locator('#reviveRunStatus').textContent(),/No email was sent/);
  await page.selectOption('#eventCampaign','33333333-3333-4333-8333-333333333333');await page.fill('#eventTitle','Reviewed fixture event');await page.check('#eventConfirmed');
  await page.getByRole('button',{name:'Save reviewed event settings',exact:true}).click();await page.waitForFunction(()=>document.getElementById('eventState').textContent.includes('version 2'));
  await page.getByText('Rehearse registration and cancellation',{exact:true}).click();await page.fill('#eventTestName','Fixture registrant');await page.fill('#eventTestEmail','event-fixture@example.invalid');await page.check('#eventConsent');
@@ -95,6 +109,13 @@ try {
  }
  const scoped=await page.evaluate(()=>window.fixtureCalls.filter(c=>c.body?.context?.kind==='outcome').map(c=>c.body.context));
  assert.equal(scoped[0].threadRef,'fixture-response');assert.equal(scoped[1].eventRef,'fixture-events');
+ await page.selectOption('#productChoice','revive');await page.selectOption('#productKind','outcome');
+ await page.fill('#productReference','outcome-revive');await page.fill('#productRights','fixture-only');await page.fill('#productObserved','2026-10-22T12:00');await page.fill('#productExcerpt','Synthetic reviewed outcome');await page.fill('#productReason','Rehearsal only');
+ await page.fill('#outcomeCampaign','11111111-1111-4111-8111-111111111111');await page.fill('#outcomeAction','22222222-2222-4222-8222-222222222222');
+ await page.getByRole('button',{name:'Record reviewed event',exact:true}).click();
+ await page.waitForFunction(()=>window.fixtureCalls.some(c=>c.body?.context?.product==='revive'&&c.body.context.kind==='outcome'));
+ const attributed=await page.evaluate(()=>window.fixtureCalls.find(c=>c.body?.context?.product==='revive'&&c.body.context.kind==='outcome'));
+ assert.equal(attributed.body.context.actionId,'22222222-2222-4222-8222-222222222222');assert.equal(attributed.body.synthetic,true);
 
  await page.fill('#campaignPurpose','Fixture reactivation');await page.fill('#campaignMarket','AE');
  await page.fill('#messageSubject0','Fixture subject');await page.fill('#messageBody0','Is this still a priority?');await page.fill('#messageEvidence0','fixture-evidence');
@@ -134,13 +155,15 @@ try {
   window.reconcileCalls=[];window.calendarReady=false;
   window.fixtureProposal={id:'55555555-5555-4555-8555-555555555555',status:'approved',client_email:'fixture@example.invalid',currency:'AED',fixed_amount:500,advance_pct:10,advance_amount:50,plan:'sprint',package:'revive',content_md:'Reviewed fixture proposal'};window.fixturePayment={id:'66666666-6666-4666-8666-666666666666',proposal_id:window.fixtureProposal.id,provider:'stripe',status:'paid'};
   window.fixtureMeeting={id:'11111111-1111-4111-8111-111111111111',start_at:'2026-11-01T08:00:00Z',end_at:'2026-11-01T08:15:00Z',attendee_email:'fixture@example.invalid',status:'booked',meet_url:null};
+  window.fixtureTenant={id:'77777777-7777-4777-8777-777777777777',name:'Revive activation fixture',currency:'AED',country:'AE',plan:'engine',package:'revive',status:'onboarding',execution_version:0};
   RP.demo=false;RP.auth=ready=>{document.getElementById('app').hidden=false;ready({id:'fixture',email:'staff@example.invalid'});};
   RP.sb={from:table=>{
-   const result=()=>({data:table==='profiles'?{is_admin:true}:table==='meetings'?[{...window.fixtureMeeting}]:table==='proposals'?[window.fixtureProposal]:table==='payments'?[window.fixturePayment]:[]});
+   const result=()=>({data:table==='profiles'?{is_admin:true}:table==='tenants'?[{...window.fixtureTenant}]:table==='business_briefs'?[{version:1}]:table==='meetings'?[{...window.fixtureMeeting}]:table==='proposals'?[window.fixtureProposal]:table==='payments'?[window.fixturePayment]:[]});
    const q={select:()=>q,is:()=>q,order:()=>q,limit:()=>q,eq:()=>q,single:()=>q,then:(resolve,reject)=>Promise.resolve(result()).then(resolve,reject)};return q;
   }};
   RP.api=async(path,body)=>{
    window.reconcileCalls.push({path,body});
+   if(path.endsWith('/activate')){window.fixtureTenant.status='active';window.fixtureTenant.execution_version=body.expected_version+1;return {ok:true,tenant:{id:window.fixtureTenant.id,status:'active',version:window.fixtureTenant.execution_version,briefVersion:1},delivery:'not_sent'};}
    if(path.endsWith('/attendance')){window.fixtureMeeting.status=body.classification==='unknown'?'attendance_unknown':body.classification;window.fixtureMeeting.attendance_review_version=body.expected_version+1;window.fixtureMeeting.attendance_review={state:'reviewed',classification:body.classification,evidenceReference:body.evidence_reference,actor:'fixture-staff',reviewedAt:new Date().toISOString()};return {ok:true,review:{meetingId:window.fixtureMeeting.id,version:body.expected_version+1,classification:body.classification,replayed:false},delivery:'not_sent'};}
    if(path.endsWith('/receipt'))return {payment_id:window.fixturePayment.id,proposal_id:window.fixtureProposal.id,quote_id:null,status:'paid',settled_at:'2026-10-23T12:00:00Z',checkout_phase:'bound',review_disposition:null,notification_disposition:{state:'human_review_required',key:'billing:'+window.fixturePayment.id,client_purpose:'advance_received',client_recipient_reference:'proposal:'+window.fixtureProposal.id,admin_recipient_reference:'configured_admin',automatic_delivery:false}};
    if(!window.calendarReady)throw Error('Calendar confirmation is still unavailable.');
@@ -178,6 +201,12 @@ try {
  assert.equal(await page.evaluate(()=>window.reconcileCalls.filter(c=>c.path.endsWith('/receipt')).length),1);
  assert.match(await page.locator('#propPaymentReview').textContent(),/sent no notification/);
  for(const width of [1280,390]){await page.setViewportSize({width,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2),false,`Payment review overflow at ${width}`);}
+ await page.locator('[data-tab="clients"]').click();await page.locator('#tenantsTable tr.click').click();
+ await page.waitForFunction(()=>!document.getElementById('activateAccount').disabled);
+ await page.fill('#activationReason','Reviewed managed account and current business brief');await page.getByRole('button',{name:'Activate account readiness',exact:true}).click();
+ await page.waitForFunction(()=>window.fixtureTenant.status==='active'&&!document.getElementById('activateAccount'));
+ const activation=await page.evaluate(()=>window.reconcileCalls.find(c=>c.path.endsWith('/activate')));assert.equal(activation.body.expected_status,'onboarding');assert.equal(activation.body.expected_version,0);assert.equal(activation.body.brief_version,1);
+ for(const width of [1280,390]){await page.setViewportSize({width,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2),false,`Activation overflow at ${width}`);}
  assert.deepEqual(failures,[]);
- console.log('PASS: four rendered product forms, import/report, campaign draft and dirty-approval guard, desktop/mobile overflow, inbox preview/review/import, human owner/resolution review, synthetic event configuration/registration/cancellation, meeting reconciliation/sample/error/recovery, staff attendance evidence and held reminder display, read-only held payment review, no page errors; synthetic API only.');
+ console.log('PASS: four rendered product forms, Revive cohort snapshot/decision, bounded test-cycle report, paired action outcome, real-mode account activation, import/report, campaign draft and dirty-approval guard, desktop/mobile overflow, inbox preview/review/import, human owner/resolution review, synthetic event configuration/registration/cancellation, meeting reconciliation/sample/error/recovery, staff attendance evidence and held reminder display, read-only held payment review, no page errors; synthetic API only.');
 }finally{await browser.close();}
