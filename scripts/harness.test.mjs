@@ -22,6 +22,6 @@ test("cyclic dependency rejected",()=>{
 test("release is blocked without explicit owner decision even if evidence exists",()=>{
  const l=copy(ledger);const entry=l.stages["operational-release"];
  Object.assign(entry,{status:"verified",pm_reviewed:true,qa_reviewed:true,qa_run_ref:"qa-1",evidence:Object.fromEntries(graph.stages.find(x=>x.id==="operational-release").evidence.map(k=>[k,"reviewed"]))});
- const r=evaluate(graph,l);assert.equal(r.at(-1).accepted,false);
- assert.match(r.at(-1).blockers.join(";"),/owner authorization/i);
+ const r=evaluate(graph,l);assert.equal(r.find(x=>x.id==="operational-release").accepted,false);
+ assert.match(r.find(x=>x.id==="operational-release").blockers.join(";"),/owner authorization/i);
 });
