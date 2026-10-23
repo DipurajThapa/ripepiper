@@ -1,5 +1,5 @@
 import type { Env } from "./env";
-import { Db } from "./lib/db";
+import { Db, DbError } from "./lib/db";
 import { fillShell, postPage, indexPage, type Post } from "./lib/blog";
 import { postLead, getSlots, postBook, postCalculator, postNewsletter, getNewsletterConfirm, postOptOut } from "./routes/public";
 import { viewProposal, approveProposal, stripeWebhook, razorpayWebhook, acceptQuote } from "./routes/proposals";
@@ -76,7 +76,7 @@ export default {
         try { return await h(req, env, ctx, m.slice(1)); }
         catch (e) {
           if (e instanceof HttpError) return json({ ok: false, error: e.message }, e.status);
-          console.error(url.pathname, String(e));
+          console.error("request_failed", { route: re.source, status: e instanceof DbError ? e.status : 500 });
           return json({ ok: false, error: "Something went wrong on our side. Please try again, or email hello@ripepiper.com." }, 500);
         }
       }

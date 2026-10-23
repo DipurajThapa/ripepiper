@@ -417,3 +417,18 @@ it('tenant imports cannot leak into the legacy public-intake Google Sheet',async
  expect(await syncSheet(env)).toEqual({synced:1,failed:0});
  expect(sentEmails).toHaveLength(0);
 });
+
+it('unexpected database failures cannot expose source payloads in request logs',async()=>{
+ const log=vi.spyOn(console,'error').mockImplementation(()=>{});
+ const secret='private-source-and-contact@example.invalid';
+ vi.stubGlobal('fetch',async()=>new Response(JSON.stringify({message:secret,details:secret}),{status:500}));
+ try{
+  const response=await call('POST','/api/admin/tenants/11111111-1111-4111-8111-111111111111/shortlist',{synthetic:true},{Authorization:'Bearer test-admin'});
+  // Auth failure itself is rejected without passing untrusted provider text into logs.
+  expect(response.status).toBe(401);
+  vi.stubGlobal('fetch',async(input:any,init:any)=>String(input).includes('/auth/v1/user')||String(input).includes('/profiles?') ? fakeFetch(input,init) : new Response(JSON.stringify({message:secret,details:secret}),{status:500}));
+  const failure=await call('POST','/api/admin/tenants/11111111-1111-4111-8111-111111111111/shortlist',{synthetic:true},{Authorization:'Bearer test-admin'});
+  expect(failure.status).toBe(500);expect(JSON.stringify(log.mock.calls)).not.toContain(secret);expect(await failure.text()).not.toContain(secret);
+  expect(log).toHaveBeenCalledWith('request_failed',expect.objectContaining({status:500}));
+ }finally{log.mockRestore();}
+});
