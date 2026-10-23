@@ -82,7 +82,7 @@ describe("booking slots (Gulf Standard Time)", () => {
 });
 
 describe("payment webhooks", () => {
-  const body = JSON.stringify({ type: "checkout.session.completed", data: { object: { id: "cs_1", payment_status: "paid", amount_total: 275000, currency: "aed", metadata: { proposal_id: "p1", quote_id: "" } } } });
+  const body = JSON.stringify({ type: "checkout.session.completed", data: { object: { id: "cs_1", payment_status: "paid", amount_total: 275000, currency: "aed", metadata: { proposal_id: "11111111-1111-4111-8111-111111111111", quote_id: "" } } } });
   it("accepts a correctly signed Stripe event", async () => {
     const t = 1_800_000_000;
     const sig = await hmac("whsec_test", `${t}.${body}`);
@@ -101,9 +101,9 @@ describe("payment webhooks", () => {
     expect(await verifyRazorpay(raw, "00", "rzp")).toBe(false);
   });
   it("normalises paid events", () => {
-    expect(parseStripeEvent(JSON.parse(body))).toEqual({ proposalId: "p1", quoteId: undefined, ref: "cs_1", amount: 2750, currency: "AED", status: "paid" });
-    expect(parseRazorpayEvent({ event: "payment_link.paid", payload: { payment_link: { entity: { id: "plink_1", amount_paid: 2750000, currency: "INR", notes: { proposal_id: "p2", quote_id: "q9" } } } } }))
-      .toEqual({ proposalId: "p2", quoteId: "q9", ref: "plink_1", amount: 27500, currency: "INR", status: "paid" });
+    expect(parseStripeEvent(JSON.parse(body))).toEqual({ proposalId: "11111111-1111-4111-8111-111111111111", quoteId: undefined, ref: "cs_1", amount: 2750, currency: "AED", status: "paid" });
+    expect(parseRazorpayEvent({ event: "payment_link.paid", payload: { payment_link: { entity: { id: "plink_1", status: "paid", amount_paid: 2750000, currency: "INR", notes: { proposal_id: "22222222-2222-4222-8222-222222222222", quote_id: "99999999-9999-4999-8999-999999999999" } } } } }))
+      .toEqual({ proposalId: "22222222-2222-4222-8222-222222222222", quoteId: "99999999-9999-4999-8999-999999999999", ref: "plink_1", amount: 27500, currency: "INR", status: "paid" });
     expect(parseStripeEvent({ type: "customer.created" })).toBeNull();
   });
 });

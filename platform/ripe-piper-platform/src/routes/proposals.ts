@@ -1,11 +1,10 @@
 import type { Env } from "../env";
 import { Db } from "../lib/db";
+import { validInstant } from "../foundation/prospecting";
 import { renderMarkdown, escapeHtml } from "../lib/blog";
-import { stripeCheckout, razorpayLink, verifyStripe, verifyRazorpay, parseStripeEvent, parseRazorpayEvent, type PaymentEvent } from "../lib/payments";
-import { sendEmail } from "../lib/google";
-import { emails } from "../lib/email";
+import { stripeCheckout, razorpayLink, retrieveCheckout, minorUnits, paymentId, providerReference, verifyStripe, verifyRazorpay, parseStripeEvent, parseRazorpayEvent, type PaymentEvent, type PaymentRequest, type PaymentProvider } from "../lib/payments";
 import { money } from "../lib/pricing";
-import { json, bad, html } from "./http";
+import { json, bad, html, requireUser } from "./http";
 
 const tokenOk = (t: string) => /^[0-9a-f-]{36}$/.test(t);
 
@@ -25,115 +24,85 @@ export async function viewProposal(token: string, env: Env) {
     ? `<form method="post" action="/p/${token}/approve"><p>By approving, you agree to the scope and fixed-scope price above and to pay the advance of <strong>${money(Number(p.advance_amount), p.currency)}</strong>.</p>
        <button class="btn btn-dark" type="submit">Approve and pay ${money(Number(p.advance_amount), p.currency)}</button></form>`
     : p.status === "approved" ? `<form method="post" action="/p/${token}/approve"><p class="ok">You approved this pre-proposal. Continue to payment when ready.</p><button class="btn btn-dark" type="submit">Continue to payment</button></form>`
-    : p.status === "paid" ? `<p class="ok"><span>Thank you. Your advance has been received and the work has started.</span></p>`
+    : p.status === "paid" ? `<p class="ok"><span>Thank you. Your advance has been received. Onboarding is awaiting team review.</span></p>`
     : `<p class="muted">This proposal is ${p.status}.</p>`;
   return html(page("Your pre-proposal", renderMarkdown(p.content_md) + `<div class="formbox">${action}</div>`, env.SITE_URL));
 }
 
-/** Explicit POST only: approve and open a payment checkout. */
+/** Only the existing explicit POST may reveal a provider-hosted checkout URL. */
+async function checkout(env: Env, p: PaymentRequest, actor: string|null) {
+  const db=new Db(env,15000),provider:PaymentProvider=p.currency==="AED"?"stripe":"razorpay",amount=minorUnits(p.amount);
+  const rows=await db.select<any>("payments",`proposal_id=eq.${p.proposalId}&purpose=eq.${p.quoteId?"quote":"advance"}&select=id,proposal_id,quote_id,provider,provider_ref,amount,currency,status,raw`);
+  const matches=rows.filter(row=>(row.quote_id??undefined)===p.quoteId||(p.quoteId&&row.quote_id==null));
+  if(matches.length){
+    const m=matches[0];
+    if(matches.length!==1||!paymentId(m.id)||m.proposal_id!==p.proposalId||(m.quote_id??undefined)!==p.quoteId||m.provider!==provider||m.currency!==p.currency||minorUnits(m.amount)!==amount||!["pending","failed"].includes(m.status)||m.raw?.checkout?.state!=="bound"||!providerReference(provider,m.provider_ref))throw new CheckoutReview(m.id,"existing_checkout");
+    return retrieveCheckout(env,provider,m.provider_ref,p);
+  }
+  const attempt=crypto.randomUUID();let paymentRecord:string|undefined;
+  try{
+    const reserve=await db.rpc<any>("reserve_payment_checkout",{p_proposal:p.proposalId,p_quote:p.quoteId??null,p_provider:provider,p_amount_minor:amount,p_currency:p.currency,p_actor:actor,p_attempt:attempt});
+    if(!reserve||reserve.version!==1||reserve.disposition!=="reserved"||!paymentId(reserve.paymentId)||reserve.attemptId!==attempt||reserve.provider!==provider||reserve.proposalId!==p.proposalId||reserve.quoteId!==(p.quoteId??null)||reserve.amountMinor!==amount||reserve.currency!==p.currency)throw new Error("Invalid checkout reservation");
+    paymentRecord=reserve.paymentId;
+    const pay=provider==="stripe"?await stripeCheckout(env,p):await razorpayLink(env,p);
+    const bound=await db.rpc<any>("register_payment_checkout",{p_proposal:p.proposalId,p_quote:p.quoteId??null,p_provider:provider,p_ref:pay.ref,p_amount_minor:amount,p_currency:p.currency,p_actor:actor,p_attempt:attempt});
+    if(!bound||bound.version!==1||bound.paymentId!==paymentRecord||bound.provider!==provider||bound.ref!==pay.ref||bound.proposalId!==p.proposalId||bound.quoteId!==(p.quoteId??null)||bound.amountMinor!==amount||bound.currency!==p.currency||!["pending","failed"].includes(bound.status))throw new Error("Invalid checkout binding");
+    return pay;
+  }catch{throw new CheckoutReview(paymentRecord,"checkout_creation_or_binding");}
+}
+class CheckoutReview extends Error {constructor(public paymentRecord:string|undefined,public phase:string){super("Checkout requires reconciliation");}}
+function checkoutError(error:unknown){
+  const e=error instanceof CheckoutReview?error:new CheckoutReview(undefined,"provider_retrieval");
+  return json({ok:false,error:"Payment checkout needs operator review. Contact Ripe Piper; the operator must check the existing provider checkout before any replacement is created.",phase:e.phase,...(paymentId(e.paymentRecord)?{payment_id:e.paymentRecord}:{})},503);
+}
 export async function approveProposal(token: string, env: Env) {
-  if (!tokenOk(token)) return html("Not found", 404);
-  const db = new Db(env);
-  const p = await db.one<any>("proposals", `access_token=eq.${token}&select=*`);
-  if (!p || !["sent", "approved"].includes(p.status)) return Response.redirect(`${env.SITE_URL}/p/${token}`, 303);
-  const lead = p.lead_id ? await db.one<any>("leads", `id=eq.${p.lead_id}&select=name,company`) : null;
-  const req = {
-    proposalId: p.id, amount: Number(p.advance_amount), currency: p.currency, email: p.client_email, name: lead?.name ?? p.client_email,
-    description: `Ripe Piper advance (${p.advance_pct}%): ${p.plan === "sprint" ? "Revive Sprint" : "Monthly engine"}, ${p.package}`,
-    successUrl: `${env.SITE_URL}/p/${token}`, cancelUrl: `${env.SITE_URL}/p/${token}`,
-  };
-  const pay = p.currency === "AED" ? await stripeCheckout(env, req) : await razorpayLink(env, req);
-  if (p.status === "sent") await db.update("proposals", `id=eq.${p.id}`, { status: "approved", approved_at: new Date().toISOString() });
-  await db.upsert("payments", { proposal_id: p.id, provider: p.currency === "AED" ? "stripe" : "razorpay", provider_ref: pay.ref, purpose: "advance",
-    amount: Number(p.advance_amount), currency: p.currency, status: "pending" }, "provider,provider_ref");
-  return Response.redirect(pay.url, 303);
+  if(!tokenOk(token))return html("Not found",404);
+  const db=new Db(env,15000),p=await db.one<any>("proposals",`access_token=eq.${token}&select=*`);
+  if(!p||!["sent","approved"].includes(p.status))return Response.redirect(`${env.SITE_URL}/p/${token}`,303);
+  const lead=p.lead_id?await db.one<any>("leads",`id=eq.${p.lead_id}&select=name,company`):null;
+  const request:PaymentRequest={proposalId:p.id,amount:Number(p.advance_amount),currency:p.currency,email:p.client_email,name:lead?.name??p.client_email,description:`Ripe Piper advance (${p.advance_pct}%): ${p.plan==="sprint"?"Revive Sprint":"Monthly engine"}, ${p.package}`,successUrl:`${env.SITE_URL}/p/${token}`,cancelUrl:`${env.SITE_URL}/p/${token}`};
+  try{return Response.redirect((await checkout(env,request,null)).url,303);}catch(error){return checkoutError(error);}
 }
 
-/** Shared by both webhooks: mark the payment, then start the engagement exactly once. */
-async function onPaid(env: Env, ev: PaymentEvent, provider: "stripe" | "razorpay") {
-  const db = new Db(env);
-  if (ev.quoteId) return onQuotePaid(env, ev, provider);
-  const p = await db.one<any>("proposals", `id=eq.${ev.proposalId}&select=*`);
-  if (!p) return;
-  await db.upsert("payments", { proposal_id: p.id, provider, provider_ref: ev.ref, purpose: "advance", amount: ev.amount, currency: ev.currency, status: ev.status, tenant_id: p.tenant_id }, "provider,provider_ref");
-  if (ev.status !== "paid" || p.status === "paid") return;
-  if (ev.currency !== p.currency || !["sent", "approved"].includes(p.status)) {
-    console.error("Payment currency/status mismatch", p.id);
-    return;
-  }
-  if (Math.round(ev.amount * 100) < Math.round(Number(p.advance_amount) * 100)) {
-    const a = emails.adminAlert("Payment amount mismatch", `Proposal ${p.id} expected ${p.advance_amount} ${p.currency}, received ${ev.amount} ${ev.currency}.`);
-    await sendEmail(env, env.ADMIN_ALERT_EMAIL, a.subject, a.text);
-    return;
-  }
-  const lead = p.lead_id ? await db.one<any>("leads", `id=eq.${p.lead_id}&select=*`) : null;
-  let tenantId = p.tenant_id as string | null;
-  if (!tenantId) {
-    const name = lead?.company || p.client_email.split("@")[1];
-    const slug = (name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50) || "client") + "-" + p.id.slice(0, 6);
-    const [t] = await db.insert<any>("tenants", { name, slug, country: lead?.country && ["AE", "IN", "SA", "QA"].includes(lead.country) ? lead.country : "OTHER",
-      currency: p.currency, plan: p.plan, package: p.package, status: "onboarding" });
-    tenantId = t.id;
-    await db.insert("invites", { tenant_id: tenantId, email: p.client_email.toLowerCase(), role: "owner" });
-  }
-  const now = new Date();
-  await db.update("proposals", `id=eq.${p.id}`, { status: "paid", paid_at: now.toISOString(), tenant_id: tenantId });
-  await db.update("payments", `provider=eq.${provider}&provider_ref=eq.${encodeURIComponent(ev.ref)}`, { tenant_id: tenantId });
-  await db.insert("fees", { tenant_id: tenantId, month: `${now.toISOString().slice(0, 7)}-01`, type: "setup", amount: ev.amount, currency: p.currency, note: `${p.advance_pct}% advance on the fixed-scope price` });
-  await db.insert("activity_log", { tenant_id: tenantId, actor: "Ripe Piper", kind: "milestone", message: `Advance of ${money(ev.amount, p.currency)} received. The engagement has started.` });
-  if (lead) await db.update("leads", `id=eq.${lead.id}`, { status: "won" });
-  const m = emails.advanceReceived(lead?.name ?? "there", money(ev.amount, p.currency), `${env.SITE_URL}/portal/`);
-  await sendEmail(env, p.client_email, m.subject, m.text);
-  const a = emails.adminAlert("Advance paid", `${p.client_email} paid ${money(ev.amount, p.currency)} for proposal ${p.id}. Send the full proposal next.`);
-  await sendEmail(env, env.ADMIN_ALERT_EMAIL, a.subject, a.text);
+const rejectedReasons=new Set(["unknown_target","target_binding","unregistered_reference","financial_or_target_binding","legacy_payload_requires_review","legacy_or_refunded_requires_review","target_not_open"]);
+/** Exact acknowledgement, not a truthy database body. Unknown outcomes return retryable 503. */
+function validReceipt(r:any,ev:PaymentEvent,provider:PaymentProvider){
+  if(!r||r.version!==1||!["applied","failed"].includes(r.disposition)||!paymentId(r.paymentId)||r.provider!==provider||r.ref!==ev.ref||r.proposalId!==ev.proposalId||r.quoteId!==(ev.quoteId??null)||r.amountMinor!==minorUnits(ev.amount)||r.currency!==ev.currency)return false;
+  if(r.disposition==="failed")return ev.status==="failed"&&r.status==="failed";
+  return r.status==="paid"&&paymentId(r.tenantId)&&paymentId(r.feeId)&&Number.isSafeInteger(r.activityId)&&r.activityId>0&&(r.inviteId===null||paymentId(r.inviteId))&&validInstant(r.settledAt);
 }
-
-export async function stripeWebhook(req: Request, env: Env) {
-  const raw = await req.text();
-  if (!(await verifyStripe(raw, req.headers.get("Stripe-Signature"), env.STRIPE_WEBHOOK_SECRET))) return bad("Invalid signature.", 400);
-  const ev = parseStripeEvent(JSON.parse(raw));
-  if (ev?.proposalId) await onPaid(env, ev, "stripe");
-  return json({ received: true });
+async function webhook(req:Request,env:Env,provider:PaymentProvider){
+  const raw=await req.text();if(raw.length>64000)return bad("Webhook is too large.",413);
+  const verified=provider==="stripe"?await verifyStripe(raw,req.headers.get("Stripe-Signature"),env.STRIPE_WEBHOOK_SECRET):await verifyRazorpay(raw,req.headers.get("X-Razorpay-Signature"),env.RAZORPAY_WEBHOOK_SECRET);
+  if(!verified)return bad("Invalid signature.",400);
+  let event:PaymentEvent|null;
+  try{const value=JSON.parse(raw);event=provider==="stripe"?parseStripeEvent(value):parseRazorpayEvent(value);}catch{return bad("Invalid payment event.",400);}
+  if(!event)return json({received:true,disposition:"ignored"});
+  try{
+    const receipt=await new Db(env,15000).rpc<any>("apply_payment_event",{p_proposal:event.proposalId,p_quote:event.quoteId??null,p_provider:provider,p_ref:event.ref,p_amount_minor:minorUnits(event.amount),p_currency:event.currency,p_status:event.status});
+    if(receipt?.version===1&&receipt.disposition==="rejected"&&rejectedReasons.has(receipt.reason))return json({received:false,disposition:"rejected",reason:receipt.reason},409);
+    if(!validReceipt(receipt,event,provider))throw new Error("Unverified payment acknowledgement");
+    return json({received:true,disposition:receipt.disposition,payment_id:receipt.paymentId,notification_disposition:receipt.disposition==="applied"?"human_review_required":undefined});
+  }catch{return bad("Payment acknowledgement is unverified. Provider retry is safe; operator review may be required.",503);}
 }
+export const stripeWebhook=(req:Request,env:Env)=>webhook(req,env,"stripe");
+export const razorpayWebhook=(req:Request,env:Env)=>webhook(req,env,"razorpay");
 
-export async function razorpayWebhook(req: Request, env: Env) {
-  const raw = await req.text();
-  if (!(await verifyRazorpay(raw, req.headers.get("X-Razorpay-Signature"), env.RAZORPAY_WEBHOOK_SECRET))) return bad("Invalid signature.", 400);
-  const ev = parseRazorpayEvent(JSON.parse(raw));
-  if (ev?.proposalId) await onPaid(env, ev, "razorpay");
-  return json({ received: true });
+/** Accept or resume an unpaid quotation without creating another checkout. */
+export async function acceptQuote(req:Request,env:Env,id:string){
+  const user=await requireUser(req,env);if(!paymentId(id))return bad("Quotation not found.",404);
+  const db=new Db(env,15000),q=await db.one<any>("quotes",`id=eq.${id}&select=*`);
+  if(!q||!["sent","accepted"].includes(q.status)||q.paid_at)return bad("This quotation is not open for payment.",409);
+  const owner=await db.one<any>("memberships",`tenant_id=eq.${q.tenant_id}&user_id=eq.${user.id}&role=eq.owner&select=user_id`);
+  if(!owner&&!user.is_admin)return bad("Only the account owner can accept a quotation.",403);
+  const payReq:PaymentRequest={proposalId:q.proposal_id,quoteId:q.id,amount:Number(q.total),currency:q.currency,email:user.email,name:user.email,description:"Ripe Piper customisation quotation",successUrl:`${env.SITE_URL}/portal/#quotes`,cancelUrl:`${env.SITE_URL}/portal/#quotes`};
+  try{return json({ok:true,payment_url:(await checkout(env,payReq,user.id)).url});}catch(error){return checkoutError(error);}
 }
-
-/** Payment for a customisation quotation. */
-async function onQuotePaid(env: Env, ev: PaymentEvent, provider: "stripe" | "razorpay") {
-  const db = new Db(env);
-  const q = await db.one<any>("quotes", `id=eq.${ev.quoteId}&select=*`);
-  if (!q) return;
-  await db.upsert("payments", { proposal_id: q.proposal_id, tenant_id: q.tenant_id, provider, provider_ref: ev.ref, purpose: "quote", amount: ev.amount, currency: ev.currency, status: ev.status }, "provider,provider_ref");
-  if (ev.status !== "paid" || ev.currency !== q.currency || Math.round(ev.amount * 100) < Math.round(Number(q.total) * 100)) return;
-  const now = new Date();
-  const existing = await db.one<any>("fees", `tenant_id=eq.${q.tenant_id}&type=eq.quote&note=eq.${encodeURIComponent("Quotation " + q.id)}&select=id`);
-  if (!existing) await db.insert("fees", { tenant_id: q.tenant_id, month: `${now.toISOString().slice(0, 7)}-01`, type: "quote", amount: ev.amount, currency: q.currency, note: `Quotation ${q.id}` });
-  await db.insert("activity_log", { tenant_id: q.tenant_id, actor: "Ripe Piper", kind: "milestone", message: `Payment of ${money(ev.amount, q.currency)} received for the customisation quotation.` });
-}
-
-/** Client owner accepts a quotation in the portal and is sent to payment. */
-export async function acceptQuote(req: Request, env: Env, id: string) {
-  const { requireUser } = await import("./http");
-  const user = await requireUser(req, env);
-  const db = new Db(env);
-  const q = await db.one<any>("quotes", `id=eq.${id}&status=eq.sent&select=*`);
-  if (!q) return bad("This quotation is not open for acceptance.", 404);
-  const owner = await db.one<any>("memberships", `tenant_id=eq.${q.tenant_id}&user_id=eq.${user.id}&role=eq.owner&select=user_id`);
-  if (!owner && !user.is_admin) return bad("Only the account owner can accept a quotation.", 403);
-  const payReq = { proposalId: q.proposal_id, quoteId: q.id, amount: Number(q.total), currency: q.currency, email: user.email, name: user.email,
-    description: "Ripe Piper customisation quotation", successUrl: `${env.SITE_URL}/portal/#quotes`, cancelUrl: `${env.SITE_URL}/portal/#quotes` };
-  // Never lock the quote as accepted if the payment provider fails to create a checkout link.
-  const pay = q.currency === "AED" ? await stripeCheckout(env, payReq) : await razorpayLink(env, payReq);
-  const updated = await db.update("quotes", `id=eq.${id}&status=eq.sent`, { status: "accepted" });
-  if (!updated.length) return bad("This quotation has already been accepted. Refresh and try again.", 409);
-  await db.upsert("payments", { proposal_id: q.proposal_id, tenant_id: q.tenant_id, provider: q.currency === "AED" ? "stripe" : "razorpay",
-    provider_ref: pay.ref, purpose: "quote", amount: Number(q.total), currency: q.currency, status: "pending" }, "provider,provider_ref");
-  await db.insert("activity_log", { tenant_id: q.tenant_id, actor: user.email, kind: "change", message: `Quotation accepted: ${money(Number(q.total), q.currency)}.` });
-  return json({ ok: true, payment_url: pay.url });
+/** Staff can inspect held notification references; this endpoint cannot send or requeue anything. */
+export async function inspectPayment(req:Request,env:Env,id:string){
+  await requireUser(req,env,true);if(!paymentId(id))return bad("Payment not found.",404);
+  const m=await new Db(env,15000).one<any>("payments",`id=eq.${id}&select=id,proposal_id,quote_id,provider,status,settled_at,raw`);
+  if(!m)return bad("Payment not found.",404);
+  const n=m.raw?.billing?.notifications;
+  return json({payment_id:m.id,proposal_id:m.proposal_id,quote_id:m.quote_id,status:m.status,settled_at:m.settled_at,checkout_phase:["creating","bound"].includes(m.raw?.checkout?.state)?m.raw.checkout.state:"legacy_requires_review",review_disposition:rejectedReasons.has(m.raw?.billingReview?.reason)?{state:"human_review_required",reason:m.raw.billingReview.reason}:null,notification_disposition:n?.state==="human_review_required"?{state:"human_review_required",key:`billing:${m.id}`,client_purpose:m.quote_id?"quote_paid":"advance_received",client_recipient_reference:`proposal:${m.proposal_id}`,admin_recipient_reference:"configured_admin",automatic_delivery:false}:null});
 }

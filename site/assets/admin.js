@@ -55,12 +55,12 @@
   /* ---------------------------------------------------------- meetings */
   function renderMeetings() {
     $("meetingsTable").innerHTML = RP.table([{ label: "When", render: function (m) { return RP.dateTime(m.start_at); } }, { label: "With", render: function (m) { return RP.esc(m.attendee_name || m.attendee_email); } },
-      { label: "Status", render: function (m) { return RP.badge(m.status === "booked" && !m.meet_url ? "Calendar review required" : m.status); } }, { label: "Notes", render: function (m) { return m.notes ? "Ready" : "–"; } }], data.meetings, { clickable: true, empty: "No meetings booked yet." });
+      { label: "Status", render: function (m) { return RP.badge(m.attendance_review && m.attendance_review.state === "needs_review" ? "Attendance review required" : ((!m.attendance_review && (m.status === "held" || m.status === "no_show")) ? m.status + " (unverified)" : (m.status === "booked" && !m.meet_url ? "Calendar review required" : m.status))); } }, { label: "Notes", render: function (m) { return m.notes ? "Ready" : "–"; } }], data.meetings, { clickable: true, empty: "No meetings booked yet." });
   }
   function list(xs) { return xs && xs.length ? "<ul>" + xs.map(function (x) { return "<li>" + RP.esc(x) + "</li>"; }).join("") + "</ul>" : '<p class="muted">Not discussed.</p>'; }
   function meetingDetail(m) {
     cur.meeting = m;
-    var n = m.notes, q = m.requirements, h = '<h3>' + RP.esc(m.attendee_name || m.attendee_email) + "</h3><p class=\"muted\">" + RP.dateTime(m.start_at) + " · " + RP.badge(m.status) + (m.meet_url ? ' · <a href="' + RP.esc(m.meet_url) + '" rel="noopener">Meet link</a>' : "") + "</p>";
+    var n = m.notes, q = m.requirements, h = '<h3>' + RP.esc(m.attendee_name || m.attendee_email) + "</h3><p class=\"muted\">" + RP.dateTime(m.start_at) + " · " + RP.badge(m.status === "attendance_unknown" ? "Attendance unknown" : m.status) + (m.meet_url ? ' · <a href="' + RP.esc(m.meet_url) + '" rel="noopener">Meet link</a>' : "") + "</p>";
     if (m.status === "booked") {
       h += (m.meet_url ? '' : '<p>The time remains reserved. Check Google Calendar confirmation before changing this booking.</p>') + '<button class="btn btn-line" type="button" id="reconcileBooking">Check calendar confirmation</button><p id="calendarReview" role="status"></p>';
     }
@@ -76,12 +76,14 @@
         '<label class="consent"><input type="checkbox" id="dEvent"><span>Single event only (Ripe Events)</span></label></div>' +
         '<button class="btn btn-dark" type="submit">Create pre-proposal draft</button><p class="err" id="dErr"></p><div id="dOk" hidden></div></form>';
     } else {
-      h += '<p>Notes are created automatically about 20 minutes after the call ends, if Google Meet transcription was on.</p>' +
+      h += '<p>Draft notes can be prepared after the call if transcription was on. Notes do not verify attendee identity or attendance.</p>' +
         '<button class="btn btn-dark" type="button" id="fetchTranscript">Get transcript and create notes now</button>' +
         '<div class="field"><label for="pasteT">Or paste the transcript or your own notes</label><textarea id="pasteT" class="editor"></textarea></div>' +
         '<button class="btn btn-line" type="button" id="useT">Create notes from this text</button><p class="err" id="tErr"></p><div id="tOk" hidden></div>';
     }
+    if (RP.consultationReviewMarkup) h += RP.consultationReviewMarkup(m);
     $("meetingDetail").innerHTML = h;
+    if (RP.wireConsultationReview) RP.wireConsultationReview(m, function () { return fetchAll().then(function () { renderMeetings(); if (cur.meeting && cur.meeting.id === m.id) meetingDetail(data.meetings.find(function (x) { return x.id === m.id; }) || m); }); });
     var reconcile = $("reconcileBooking");
     if (reconcile) reconcile.addEventListener("click", function () {
       var meetingId = m.id, result = $("calendarReview");
@@ -109,6 +111,7 @@
   }
   function proposalDetail(p) {
     cur.proposal = p;
+    var paymentGeneration = proposalDetail.paymentGeneration = (proposalDetail.paymentGeneration || 0) + 1;
     var editable = p.status === "draft";
     var h = "<h3>" + RP.esc(p.client_email) + "</h3><p class=\"muted\">Fixed-scope price " + RP.money(p.fixed_amount, p.currency) + " · advance " + p.advance_pct + "% = " + RP.money(p.advance_amount, p.currency) + " · " + RP.badge(p.status) + "</p>";
     if (editable) h += '<div class="field"><label for="propMd">Pre-proposal text (Markdown)</label><textarea id="propMd" class="editor">' + RP.esc(p.content_md) + '</textarea><span class="hint">Edit the wording if needed. Do not change the price table; prices come from the price list.</span></div>' +
@@ -119,8 +122,60 @@
         '<button class="btn btn-line" type="button" id="qAdd">Add an item</button><p><strong>Total: <span id="qTotal">' + RP.money(0, p.currency) + "</span></strong> (calculated again on the server)</p>" +
         '<button class="btn btn-dark" type="submit">Create and send quotation</button><p class="err" id="qErr"></p><div id="qOk" hidden></div></form>';
     }
+    h += '<div class="stack sm"><span class="kicker">Payment review</span><p>Inspect the recorded checkout and held notification references. This check cannot send, replace or retry a payment or notification.</p>' +
+      '<button class="btn btn-line" type="button" id="propPaymentsLoad">Load payment records</button><div class="field"><label for="propPayment">Payment record (latest 20)</label><select id="propPayment" disabled><option value="">Load records for this proposal</option></select></div>' +
+      '<button class="btn btn-line" type="button" id="propPaymentInspect" disabled>Check recorded payment</button><p id="propPaymentReview" role="status" style="overflow-wrap:anywhere"></p></div>';
     $("proposalDetail").innerHTML = h;
     if (p.status === "paid") addQuoteItem();
+    var load = $("propPaymentsLoad"), select = $("propPayment"), inspect = $("propPaymentInspect"), result = $("propPaymentReview");
+    var records = [], loadVersion = 0, receiptVersion = 0;
+    var uuid = function (id) { return typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id); };
+    var statuses = ["pending", "paid", "failed", "refunded"], reasons = ["unknown_target", "target_binding", "unregistered_reference", "financial_or_target_binding", "legacy_payload_requires_review", "legacy_or_refunded_requires_review", "target_not_open"];
+    var active = function () { return cur.proposal && cur.proposal.id === p.id && proposalDetail.paymentGeneration === paymentGeneration; };
+    var connected = function () { return !RP.demo && RP.sb && uuid(p.id); };
+    function fail() {
+      records = []; select.disabled = true; inspect.disabled = true;
+      result.textContent = "Payment review is unavailable or its response could not be verified. No action was executed. Reload records for this proposal; an operator must check the provider before any replacement.";
+    }
+    if (!connected()) { load.disabled = true; result.textContent = "Payment review requires the connected admin site. Sample mode cannot load or inspect payment records."; }
+    load.addEventListener("click", function () {
+      if (!active() || !connected()) return;
+      var version = ++loadVersion; receiptVersion++; records = []; load.disabled = true; select.disabled = true; inspect.disabled = true;
+      result.textContent = "Loading payment records for this proposal…";
+      RP.sb.from("payments").select("id,proposal_id,provider,status").eq("proposal_id", p.id).order("created_at", { ascending: false }).limit(20)
+        .then(function (response) {
+          if (!active() || version !== loadVersion) return;
+          if (response.error || !Array.isArray(response.data) || response.data.length > 20 || response.data.some(function (row) { return !row || !uuid(row.id) || row.proposal_id !== p.id || !["stripe", "razorpay", "bank"].includes(row.provider) || !statuses.includes(row.status); }) || new Set(response.data.map(function (row) { return row.id; })).size !== response.data.length) throw new Error("Unverified payment list");
+          records = response.data;
+          select.innerHTML = '<option value="">Choose a payment record</option>' + records.map(function (row) { return '<option value="' + RP.esc(row.id) + '">' + RP.esc(row.provider + " · " + row.status + " · " + row.id) + '</option>'; }).join("");
+          select.value = ""; select.disabled = !records.length;
+          result.textContent = records.length ? "Choose a record, then check its recorded disposition. No provider call or send is made." : "No payment records were found for this proposal.";
+        }).catch(function () { if (active() && version === loadVersion) fail(); })
+        .finally(function () { if (active() && version === loadVersion) load.disabled = false; });
+    });
+    select.addEventListener("change", function () {
+      if (!active()) return;
+      receiptVersion++; result.textContent = ""; inspect.disabled = !connected() || !records.some(function (row) { return row.id === select.value; });
+    });
+    inspect.addEventListener("click", function () {
+      var id = select.value;
+      if (!active() || !connected() || inspect.disabled || !records.some(function (row) { return row.id === id; })) return;
+      var version = ++receiptVersion; inspect.disabled = true; result.textContent = "Checking the recorded payment disposition…";
+      RP.api("/api/admin/payments/" + id + "/receipt", {})
+        .then(function (receipt) {
+          if (!active() || version !== receiptVersion || select.value !== id) return;
+          var n = receipt && receipt.notification_disposition, review = receipt && receipt.review_disposition;
+          if (!receipt || receipt.payment_id !== id || receipt.proposal_id !== p.id || (receipt.quote_id !== null && !uuid(receipt.quote_id)) || !statuses.includes(receipt.status) || !["creating", "bound", "legacy_requires_review"].includes(receipt.checkout_phase) || (receipt.settled_at !== null && (typeof receipt.settled_at !== "string" || !/^\d{4}-\d\d-\d\dT/.test(receipt.settled_at) || !Number.isFinite(Date.parse(receipt.settled_at)))) ||
+              (review !== null && (!review || review.state !== "human_review_required" || !reasons.includes(review.reason))) ||
+              (n !== null && (!n || n.state !== "human_review_required" || n.automatic_delivery !== false || n.key !== "billing:" + id || n.client_purpose !== (receipt.quote_id ? "quote_paid" : "advance_received") || n.client_recipient_reference !== "proposal:" + p.id || n.admin_recipient_reference !== "configured_admin"))) throw new Error("Unverified payment receipt");
+          var text = "Payment record " + id + ": " + receipt.status + ". Proposal reference: " + p.id + (receipt.quote_id ? "; quote reference: " + receipt.quote_id : "") + ". ";
+          text += receipt.checkout_phase === "creating" ? "Checkout creation or binding is uncertain. " : receipt.checkout_phase === "bound" ? "Bound checkout is recorded. " : "Legacy payment requires reconciliation. ";
+          if (review) text += "Rejected event held for human review: " + review.reason + ". ";
+          text += n ? "Notification held for human review. Reference: " + n.key + "; recipient references: " + n.client_recipient_reference + " and " + n.admin_recipient_reference + ". " : "No verified notification disposition is recorded. ";
+          result.textContent = text + "Check the existing provider checkout before any replacement. This inspection made no provider call and sent no notification.";
+          inspect.disabled = false;
+        }).catch(function () { if (active() && version === receiptVersion && select.value === id) fail(); });
+    });
   }
   function addQuoteItem() {
     var i = $("qItems").children.length;

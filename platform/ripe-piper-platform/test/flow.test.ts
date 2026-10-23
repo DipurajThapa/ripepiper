@@ -50,7 +50,25 @@ function defaults(table: string, row: Row): Row {
 async function fakeSupabase(url: URL, init: RequestInit): Promise<Response> {
   if (url.pathname === "/auth/v1/user") return Response.json(init.headers && (init.headers as Record<string,string>).Authorization === "Bearer client-token"
     ? { id: "client-1", email: "client@example.invalid" } : { id: "admin-1", email: "admin@ripepiper.com" });
-  if (url.pathname.startsWith("/rest/v1/rpc/")) { rpcCalls.push(url.pathname); const b=JSON.parse(String(init.body)); rpcBodies.push(b); return Response.json(url.pathname.endsWith("/claim_fenced_synthetic_action") ? {token:b.p_token,approvalVersion:1,assetVersion:1} : true); }
+  if (url.pathname.startsWith("/rest/v1/rpc/")) {
+    rpcCalls.push(url.pathname);const b=JSON.parse(String(init.body));rpcBodies.push(b);
+    // Billing behavior is independently tested against actual PostgreSQL in payment-settlement.test.ts.
+    if(url.pathname.endsWith("/reserve_payment_checkout")){
+      const payment={id:uuid(),proposal_id:b.p_proposal,quote_id:b.p_quote,provider:b.p_provider,provider_ref:"attempt:"+b.p_attempt,amount:b.p_amount_minor/100,currency:b.p_currency,status:"pending",raw:{checkout:{state:"creating",attemptId:b.p_attempt}}};
+      (tables.payments??=[]).push(payment);return Response.json({version:1,disposition:"reserved",paymentId:payment.id,attemptId:b.p_attempt,provider:b.p_provider,proposalId:b.p_proposal,quoteId:b.p_quote,amountMinor:b.p_amount_minor,currency:b.p_currency});
+    }
+    if(url.pathname.endsWith("/register_payment_checkout")){
+      const m=tables.payments.find(x=>x.provider_ref==="attempt:"+b.p_attempt)!;m.provider_ref=b.p_ref;m.raw.checkout.state="bound";
+      const p=tables.proposals?.find(x=>x.id===b.p_proposal);if(p)p.status="approved";
+      return Response.json({version:1,paymentId:m.id,provider:b.p_provider,ref:b.p_ref,proposalId:b.p_proposal,quoteId:b.p_quote,amountMinor:b.p_amount_minor,currency:b.p_currency,status:"pending"});
+    }
+    if(url.pathname.endsWith("/apply_payment_event")){
+      const m=tables.payments?.find(x=>x.provider_ref===b.p_ref);
+      if(!m)return Response.json({version:1,disposition:"rejected",reason:"unregistered_reference"});
+      return Response.json({version:1,disposition:"applied",paymentId:m.id,provider:b.p_provider,ref:b.p_ref,proposalId:b.p_proposal,quoteId:b.p_quote,amountMinor:b.p_amount_minor,currency:b.p_currency,status:"paid",tenantId:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",feeId:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",activityId:1,inviteId:null,settledAt:new Date().toISOString()});
+    }
+    return Response.json(url.pathname.endsWith("/claim_fenced_synthetic_action") ? {token:b.p_token,approvalVersion:1,assetVersion:1} : true);
+  }
   const table = url.pathname.replace("/rest/v1/", "");
   tables[table] ??= [];
   const t = tables[table], q = url.searchParams, method = init.method ?? "GET";
@@ -100,7 +118,9 @@ async function fakeFetch(input: RequestInfo | URL, init: RequestInit = {}): Prom
     const raw = atob(JSON.parse(String(init.body)).raw.replace(/-/g, "+").replace(/_/g, "/"));
     sentEmails.push({ to: /To: (.*)\r\n/.exec(raw)![1], raw }); return Response.json({ id: "m" });
   }
-  if (url.host === "api.stripe.com") return Response.json({ id: "cs_test_1", url: "https://checkout.stripe.com/c/pay/cs_test_1" });
+  if(url.host==="api.stripe.com"){
+    const b=new URLSearchParams(String(init.body));return Response.json({id:"cs_test_1",url:"https://checkout.stripe.com/c/pay/cs_test_1",amount_total:Number(b.get("line_items[0][price_data][unit_amount]")),currency:"aed",status:"open",payment_status:"unpaid",metadata:{proposal_id:b.get("metadata[proposal_id]"),quote_id:b.get("metadata[quote_id]")}});
+  }
   throw new Error("Unexpected fetch: " + url.href);
 }
 
@@ -308,7 +328,7 @@ describe("synthetic action endpoint", () => {
 });
 
 describe("pre-proposal approval and 10% advance", () => {
-  it("approves, pays through Stripe, creates the client account once", async () => {
+  it("approves through registered Stripe checkout and delegates webhook effects to the atomic billing RPC", async () => {
     tables.leads = [{ id: "lead-1", tenant_id: null, email: "sara@gulfinteriors.ae", name: "Sara Khan", company: "Gulf Interiors", country: "AE", status: "meeting_held" }];
     tables.proposals = [defaults("proposals", { lead_id: "lead-1", kind: "pre", plan: "engine", package: "signal", currency: "AED", fixed_amount: 27500, content_md: "# Pre-proposal", client_email: "sara@gulfinteriors.ae", status: "sent" })];
     const p = tables.proposals[0];
@@ -330,28 +350,21 @@ describe("pre-proposal approval and 10% advance", () => {
     const ok = await call("POST", "/webhooks/stripe", evt, { "Stripe-Signature": await sign("whsec_test", evt) });
     expect(ok.status).toBe(200);
 
-    expect(p.status).toBe("paid");
-    expect(tables.tenants).toHaveLength(1);
-    expect(tables.tenants[0]).toMatchObject({ name: "Gulf Interiors", currency: "AED", plan: "engine", package: "signal" });
-    expect(tables.invites[0]).toMatchObject({ email: "sara@gulfinteriors.ae", role: "owner" });
-    expect(tables.fees[0]).toMatchObject({ amount: 2750, type: "setup" });
-    expect(tables.payments.find(x => x.provider_ref === "cs_test_1")!.status).toBe("paid");
-    expect(tables.leads[0].status).toBe("won");
-
-    // Stripe retries webhooks: a replay must not create a second client account or fee.
-    await call("POST", "/webhooks/stripe", evt, { "Stripe-Signature": await sign("whsec_test", evt) });
-    expect(tables.tenants).toHaveLength(1);
-    expect(tables.fees).toHaveLength(1);
+    expect(rpcBodies.find(b=>b.p_status==="paid")).toMatchObject({p_proposal:p.id,p_ref:"cs_test_1",p_amount_minor:275000,p_currency:"AED"});
+    // No notification or per-table financial side effects are implemented by the webhook handler.
+    expect(sentEmails).toHaveLength(0);expect(tables.tenants??[]).toHaveLength(0);expect(tables.fees??[]).toHaveLength(0);
+    expect((await call("POST","/webhooks/stripe",evt,{"Stripe-Signature":await sign("whsec_test",evt)})).status).toBe(200);
+    expect(rpcCalls.filter(x=>x.endsWith("apply_payment_event"))).toHaveLength(2);
   });
 
   it("does not start work when the paid amount is less than the advance", async () => {
     tables.proposals = [defaults("proposals", { kind: "pre", plan: "sprint", package: "revive", currency: "AED", fixed_amount: 3500, content_md: "x", client_email: "c@d.ae", status: "approved" })];
     const p = tables.proposals[0];
     const evt = JSON.stringify({ type: "checkout.session.completed", data: { object: { id: "cs_low", payment_status: "paid", amount_total: 1000, currency: "aed", metadata: { proposal_id: p.id } } } });
-    await call("POST", "/webhooks/stripe", evt, { "Stripe-Signature": await sign("whsec_test", evt) });
+    expect((await call("POST", "/webhooks/stripe", evt, { "Stripe-Signature": await sign("whsec_test", evt) })).status).toBe(409);
     expect(p.status).toBe("approved");
     expect(tables.tenants ?? []).toHaveLength(0);
-    expect(sentEmails.some(e => e.to === "founder@ripepiper.com" && e.raw.includes("expected 350 AED, received 10 AED"))).toBe(true);
+    expect(sentEmails).toHaveLength(0);
   });
 });
 
@@ -364,19 +377,20 @@ describe("quotation checkout resilience", () => {
       return fakeFetch(input, init);
     });
     const res = await call("POST", "/api/portal/quotes/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/accept", undefined, { Authorization: "Bearer simulated-admin-token" });
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(503);
     expect(tables.quotes[0].status).toBe("sent");
-    expect(tables.payments ?? []).toHaveLength(0);
+    expect(tables.payments).toHaveLength(1);expect(tables.payments[0].raw.checkout.state).toBe("creating");
   });
 });
 
 describe("reminders", () => {
-  it("sends the 24-hour reminder once, even if the job runs twice", async () => {
+  it("leaves legacy reminder delivery off until an explicit provider release", async () => {
     const { sendReminders } = await import("../src/jobs");
     tables.meetings = [{ id: "m1", status: "booked", start_at: "2026-11-03T04:00:00.000Z", end_at: "2026-11-03T04:15:00.000Z", attendee_email: "sara@gulfinteriors.ae", attendee_name: "Sara", google_event_id: "evt_test", meet_url: "https://meet.google.com/abc-defg-hij", reminder_24h_at: null, reminder_1h_at: null }];
-    expect((await sendReminders(env)).sent).toBe(1);
     expect((await sendReminders(env)).sent).toBe(0);
-    expect(sentEmails.filter(e => e.to === "sara@gulfinteriors.ae")).toHaveLength(1);
+    expect((await sendReminders(env)).sent).toBe(0);
+    expect(sentEmails.filter(e => e.to === "sara@gulfinteriors.ae")).toHaveLength(0);
+    expect(tables.meetings[0].reminder_24h_at).toBeNull();
   });
 });
 

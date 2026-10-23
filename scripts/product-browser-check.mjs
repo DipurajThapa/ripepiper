@@ -132,18 +132,22 @@ try {
  await page.addScriptTag({content:await readFile(new URL('site/assets/app-common.js',root),'utf8')});
  await page.evaluate(()=>{
   window.reconcileCalls=[];window.calendarReady=false;
+  window.fixtureProposal={id:'55555555-5555-4555-8555-555555555555',status:'approved',client_email:'fixture@example.invalid',currency:'AED',fixed_amount:500,advance_pct:10,advance_amount:50,plan:'sprint',package:'revive',content_md:'Reviewed fixture proposal'};window.fixturePayment={id:'66666666-6666-4666-8666-666666666666',proposal_id:window.fixtureProposal.id,provider:'stripe',status:'paid'};
   window.fixtureMeeting={id:'11111111-1111-4111-8111-111111111111',start_at:'2026-11-01T08:00:00Z',end_at:'2026-11-01T08:15:00Z',attendee_email:'fixture@example.invalid',status:'booked',meet_url:null};
   RP.demo=false;RP.auth=ready=>{document.getElementById('app').hidden=false;ready({id:'fixture',email:'staff@example.invalid'});};
   RP.sb={from:table=>{
-   const result=()=>({data:table==='profiles'?{is_admin:true}:table==='meetings'?[{...window.fixtureMeeting}]:[]});
+   const result=()=>({data:table==='profiles'?{is_admin:true}:table==='meetings'?[{...window.fixtureMeeting}]:table==='proposals'?[window.fixtureProposal]:table==='payments'?[window.fixturePayment]:[]});
    const q={select:()=>q,is:()=>q,order:()=>q,limit:()=>q,eq:()=>q,single:()=>q,then:(resolve,reject)=>Promise.resolve(result()).then(resolve,reject)};return q;
   }};
   RP.api=async(path,body)=>{
    window.reconcileCalls.push({path,body});
+   if(path.endsWith('/attendance')){window.fixtureMeeting.status=body.classification==='unknown'?'attendance_unknown':body.classification;window.fixtureMeeting.attendance_review_version=body.expected_version+1;window.fixtureMeeting.attendance_review={state:'reviewed',classification:body.classification,evidenceReference:body.evidence_reference,actor:'fixture-staff',reviewedAt:new Date().toISOString()};return {ok:true,review:{meetingId:window.fixtureMeeting.id,version:body.expected_version+1,classification:body.classification,replayed:false},delivery:'not_sent'};}
+   if(path.endsWith('/receipt'))return {payment_id:window.fixturePayment.id,proposal_id:window.fixtureProposal.id,quote_id:null,status:'paid',settled_at:'2026-10-23T12:00:00Z',checkout_phase:'bound',review_disposition:null,notification_disposition:{state:'human_review_required',key:'billing:'+window.fixturePayment.id,client_purpose:'advance_received',client_recipient_reference:'proposal:'+window.fixtureProposal.id,admin_recipient_reference:'configured_admin',automatic_delivery:false}};
    if(!window.calendarReady)throw Error('Calendar confirmation is still unavailable.');
    window.fixtureMeeting.meet_url='https://meet.google.com/abc-defg-hij';return {ok:true,delivery:'not_sent'};
   };
  });
+ await page.addScriptTag({content:await readFile(new URL('site/assets/consultation-review.js',root),'utf8')});
  await page.addScriptTag({content:await readFile(new URL('site/assets/admin.js',root),'utf8')});
  await page.locator('[data-tab="meetings"]').click();
  await page.locator('#meetingsTable tr.click').click();
@@ -158,7 +162,22 @@ try {
  await page.getByRole('button',{name:'Check calendar confirmation',exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('#meetingDetail a')?.href==='https://meet.google.com/abc-defg-hij');
  assert.equal(await page.evaluate(()=>window.reconcileCalls.length),2);
+ await page.evaluate(()=>{window.fixtureMeeting.start_at='2026-01-01T10:00:00Z';window.fixtureMeeting.end_at='2026-01-01T10:15:00Z';window.fixtureMeeting.status='attendance_unknown';window.fixtureMeeting.attendance_review_version=2;window.fixtureMeeting.reminder_receipts={'24h':{state:'review',reason:'delivery_uncertain'}};});
+ await page.getByRole('button',{name:'Check calendar confirmation',exact:true}).click();
+ await page.waitForSelector('#attendanceReviewForm');assert.match(await page.locator('#meetingDetail').textContent(),/Attendance is unverified/);assert.match(await page.locator('#meetingDetail').textContent(),/delivery_uncertain/);
+ await page.selectOption('#attendanceClassification','held');await page.fill('#attendanceEvidence','Fixture authoritative attendee log');await page.fill('#attendanceReason','Staff verified intended attendee joined');await page.check('#attendanceVerified');
+ await page.getByRole('button',{name:'Record staff attendance review',exact:true}).click();
+ await page.waitForFunction(()=>window.fixtureMeeting.attendance_review?.classification==='held');
+ const attendance=await page.evaluate(()=>window.reconcileCalls.find(c=>c.path.endsWith('/attendance')));assert.equal(attendance.body.expected_version,2);assert.equal(attendance.body.evidence_verified,true);assert.equal(attendance.body.classification,'held');assert.match(attendance.body.request_id,/^[0-9a-f-]{36}$/);
+
  for(const width of [1280,390]){await page.setViewportSize({width,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2),false,`Meeting overflow at ${width}`);}
+ await page.locator('[data-tab="proposals"]').click();await page.locator('#proposalsTable tr.click').click();
+ await page.getByRole('button',{name:'Load payment records',exact:true}).click();await page.waitForFunction(()=>!document.getElementById('propPayment').disabled);
+ await page.selectOption('#propPayment','66666666-6666-4666-8666-666666666666');await page.getByRole('button',{name:'Check recorded payment',exact:true}).click();
+ await page.waitForFunction(()=>document.getElementById('propPaymentReview').textContent.includes('Notification held for human review'));
+ assert.equal(await page.evaluate(()=>window.reconcileCalls.filter(c=>c.path.endsWith('/receipt')).length),1);
+ assert.match(await page.locator('#propPaymentReview').textContent(),/sent no notification/);
+ for(const width of [1280,390]){await page.setViewportSize({width,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2),false,`Payment review overflow at ${width}`);}
  assert.deepEqual(failures,[]);
- console.log('PASS: four rendered product forms, import/report, campaign draft and dirty-approval guard, desktop/mobile overflow, inbox preview/review/import, human owner/resolution review, synthetic event configuration/registration/cancellation, meeting reconciliation/sample/error/recovery, no page errors; synthetic API only.');
+ console.log('PASS: four rendered product forms, import/report, campaign draft and dirty-approval guard, desktop/mobile overflow, inbox preview/review/import, human owner/resolution review, synthetic event configuration/registration/cancellation, meeting reconciliation/sample/error/recovery, staff attendance evidence and held reminder display, read-only held payment review, no page errors; synthetic API only.');
 }finally{await browser.close();}

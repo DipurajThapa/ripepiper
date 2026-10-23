@@ -164,10 +164,10 @@
     }).join("");
     html += state.quotes.map(function (q) {
       var items = (q.items || []).map(function (i) { return "<tr><td>" + RP.esc(i.description) + '</td><td class="r mono">' + RP.num(i.quantity) + '</td><td class="r mono">' + RP.money(i.unit_price, c) + "</td></tr>"; }).join("");
-      return '<div class="formbox"><div class="price-head flush"><h3>Quotation for customisations</h3>' + RP.badge(q.status) + "</div>" +
+      return '<div class="formbox"><div class="price-head flush"><h3>Quotation for customisations</h3>' + RP.badge(q.paid_at ? "paid" : q.status) + "</div>" +
         '<div class="table-wrap flush"><table class="text"><thead><tr><th>Item</th><th class="r">Quantity</th><th class="r">Price</th></tr></thead><tbody>' + items + "</tbody></table></div>" +
         "<p><strong>Total " + RP.money(q.total, c) + "</strong>. Prices exclude " + (c === "AED" ? "VAT" : "GST") + ".</p>" +
-        (q.status === "sent" && owner ? '<button class="btn btn-dark" type="button" data-accept="' + q.id + '">Accept and pay' + RP.icon("arrow_forward") + '</button><p class="err" data-qerr="' + q.id + '"></p>' : "") + "</div>";
+        (["sent", "accepted"].includes(q.status) && !q.paid_at && owner ? '<button class="btn btn-dark" type="button" data-accept="' + q.id + '">' + (q.status === "accepted" ? "Continue to payment" : "Accept and pay") + RP.icon("arrow_forward") + '</button><p class="err" data-qerr="' + q.id + '"></p>' : "") + "</div>";
     }).join("");
     html += '<div class="stack"><h3>Payments</h3><div class="table-wrap flush">' + RP.table([{ label: "Date", render: function (r) { return RP.date(r.created_at); } }, { key: "purpose", label: "For" },
       { label: "Status", render: function (r) { return RP.badge(r.status); } }, { label: "Amount", num: true, render: function (r) { return RP.money(r.amount, r.currency); } }], state.payments, { empty: "No payments yet." }) + "</div></div>";

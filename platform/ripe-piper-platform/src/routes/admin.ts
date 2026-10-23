@@ -1,3 +1,4 @@
+import { saveMeetingDraft } from "../foundation/consultation-review";
 import type { Env } from "../env";
 import { Db } from "../lib/db";
 import { meetTranscript, sendEmail, reconcileMeetEvent } from "../lib/google";
@@ -25,8 +26,7 @@ export async function processMeeting(req: Request, env: Env, id: string) {
   const lead = m.lead_id ? await db.one<any>("leads", `id=eq.${m.lead_id}&select=name,company,website`) : null;
   const a = await analyseMeeting(env, transcript!, { company: lead?.company ?? lead?.website, attendee: m.attendee_name });
   const minutes = minutesMarkdown(a, `Call with ${m.attendee_name ?? m.attendee_email}`, new Date(m.start_at).toISOString().slice(0, 10));
-  await db.update("meetings", `id=eq.${id}`, { transcript, notes: { summary: a.summary, ...a.notes }, minutes, requirements: { ...a.requirements, decisions: a.minutes.decisions, actions: a.minutes.actions }, ai_processed_at: new Date().toISOString(), status: "held" });
-  if (m.lead_id) await db.update("leads", `id=eq.${m.lead_id}`, { status: "meeting_held" });
+  await saveMeetingDraft(db,m,{transcript,notes:{summary:a.summary,...a.notes},minutes,requirements:{...a.requirements,decisions:a.minutes.decisions,actions:a.minutes.actions}},"transcript_unverified");
   return json({ ok: true, analysis: a, minutes });
 }
 

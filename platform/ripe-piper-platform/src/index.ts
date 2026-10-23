@@ -1,8 +1,9 @@
+import { reviewConsultation } from './foundation/consultation-review';
 import type { Env } from "./env";
 import { Db, DbError } from "./lib/db";
 import { fillShell, postPage, indexPage, type Post } from "./lib/blog";
 import { postLead, getSlots, postBook, postCalculator, postNewsletter, getNewsletterConfirm, postOptOut } from "./routes/public";
-import { viewProposal, approveProposal, stripeWebhook, razorpayWebhook, acceptQuote } from "./routes/proposals";
+import { viewProposal, approveProposal, stripeWebhook, razorpayWebhook, acceptQuote, inspectPayment } from "./routes/proposals";
 import { processMeeting, reconcileBooking, draftProposal, sendProposal, createQuote, sendQuote, inviteUser, runAdsSync } from "./routes/admin";
 import { json, html, HttpError } from "./routes/http";
 import { runScheduled } from "./jobs";
@@ -21,6 +22,8 @@ import { signalSource } from "./foundation/signal-sources";
 
 type Handler = (req: Request, env: Env, ctx: ExecutionContext, p: string[]) => Promise<Response>;
 const routes: [string, RegExp, Handler][] = [
+  ["POST", /^\/api\/admin\/payments\/([0-9a-f-]{36})\/receipt$/, (r,e,_c,p)=>inspectPayment(r,e,p[0])],
+  ["POST", /^\/api\/admin\/meetings\/([0-9a-f-]{36})\/attendance$/, (r,e,_c,p)=>reviewConsultation(r,e,p[0])],
   ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/signal-source$/, (r,e,_c,p)=>signalSource(r,e,p[0])],
   ["GET", /^\/api\/health$/, async () => json({ok:true,service:"ripe-piper-api",contract:1,database:"not_probed",providers:"not_probed"})],
   ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/actions\/([0-9a-f-]{36})\/receipt$/, (r,e,_c,p)=>inspectActionReceipt(r,e,p[0],p[1])],

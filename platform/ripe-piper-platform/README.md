@@ -29,8 +29,8 @@ Visitor ──► RipePiper.com (Cloudflare Pages: static website, /portal, /adm
 | 1. Inquiry | Form → lead saved, scored, deduplicated, founder alerted within a minute | `POST /api/lead` |
 | 2. Qualify | Personal email → ask for work email. Deals under AED 10,000 → polite "not yet". Others → free slots | same call |
 | 3. Book | Slot checked against Google Calendar and existing bookings (database blocks double booking). Calendar event with a Google Meet link, invitation and confirmation email | `POST /api/book` |
-| 4. Remind | Emails 24 hours and 1 hour before the call. Each reminder is sent once, even if the job overlaps | cron, every 5 min |
-| 5. Notes and minutes | 20 minutes after the call, the Meet transcript is fetched and Claude writes notes, minutes and structured requirements. No transcript after 3 hours → no-show or "held without transcript" alert | cron, or admin button |
+| 4. Remind | Default off. A fenced booking claim authorizes one email attempt per reminder window; only verified Gmail acknowledgement records a reminder timestamp. Uncertainty is held for operator review without automatic resend | existing cron, every 5 min after separately authorized release |
+| 5. Notes and minutes | After the initial wait, available transcripts can produce draft notes under the paid-AI guard. Missing evidence after the waiting window remains attendance_unknown and requires staff review. Transcript text and participant counts never prove held/no-show | existing cron, or admin button |
 | 6. Pre-proposal | Admin creates the draft; AI writes the text, **code inserts the prices** from the published price list and calculates the 10% advance. Admin edits and sends | Admin → Proposals |
 | 7. Approve and pay | Client opens the secret link, approves, pays the advance (Stripe for AED, Razorpay for INR) | `/p/<token>` |
 | 8. Start | Verified webhook → proposal marked paid → client account (tenant) created → client invited as owner → fee recorded → client emailed. Webhook replays never create duplicates | `/webhooks/*` |
@@ -104,7 +104,7 @@ Then deploy the website folder to Cloudflare Pages on the same domain. The Worke
 
 ### 4.6 Optional
 - **Cloudflare Turnstile** on the forms: set `TURNSTILE_SECRET` and add the widget to the forms.
-- **WhatsApp reminders:** only for people who contacted you on WhatsApp first, using approved utility templates `meeting_reminder_24h` and `meeting_reminder_1h`. Set `WHATSAPP_ENABLED=true`.
+- **WhatsApp consultation reminders:** blocked pending a separate reviewed provider receipt and release scope. `WHATSAPP_ENABLED` alone cannot activate this legacy consultation path.
 
 ## 5. Tests
 
@@ -112,7 +112,7 @@ Then deploy the website folder to Cloudflare Pages on the same domain. The Worke
 npm test        # 49 tests
 ```
 - `test/db.test.ts`: runs the real migrations on Postgres (PGlite) and proves tenant isolation, admin access, viewer vs owner rights, duplicate-lead protection, double-booking protection, the advance calculation, Sheet queueing and the ROI maths.
-- `test/flow.test.ts`: runs the Worker end to end with simulated services: inquiry → slots → booking with Meet link → second booking of the same slot refused → approval → Stripe redirect → forged webhook refused → signed webhook starts the client account → replay creates nothing new → short payment does not start work → reminders sent once.
+- `test/flow.test.ts`: runs the Worker end to end with simulated services: inquiry → slots → booking with Meet link → second booking of the same slot refused → approval → Stripe redirect → forged webhook refused → signed webhook starts the client account → replay creates nothing new → short payment does not start work → consultation reminders remain disabled until explicit provider release. Focused consultation suites cover fenced claims, provider receipts, uncertain delivery and staff attendance review.
 - `test/logic.test.ts`: routing, scoring, pricing, slots in GST, reminder windows, webhook signatures, AI output checks, Sheet mapping, blog safety, currency conversion.
 - `test/seed.test.ts`: the launch articles load and render safely.
 
@@ -133,3 +133,11 @@ The public metadata and registration handlers remain unavailable unless both `EV
 A browser-generated random control code is needed for cancellation or acknowledgement of a changed schedule. Keep that code privately; only its SHA-256 digest is stored. Lost response retries use the same identity, event version and code; committed receipt recovery is read-only before repeating verification. A different code cannot recover/control an earlier registration for the same address. Capability changes expire seven days after the retained event end.
 
 Intake remains identity-unverified and unreviewed. It is excluded from prospect qualification and the reviewed product timeline until staff records reviewed source evidence using the existing product history form. Registration is never attendance or a no-show. The event operator card lists the synthetic lifecycle without exposing control codes/digests. Reminder queuing/delivery, real attendee verification, public registration rollout, provider/calendar reconciliation and operational acceptance remain separate open milestones.
+
+## Consultation reminders and attendance review
+
+`CONSULTATION_REMINDERS_ENABLED` is absent/off by default; no configuration or cron is enabled by this change. A future owner-authorized provider release must validate the configured Gmail/Calendar identity and hosted Auth/PostgREST execution first. Uncertain reminder receipts remain held on the existing Meetings detail; this milestone deliberately provides no resend button or automatic retry. A provider may have accepted a message when a network acknowledgement is lost. Cancellation after provider dispatch begins cannot undo that external delivery; the original receipt is retained for review. Legacy reminder timestamps are preserved and labelled acknowledgement-unverified, rather than backfilled as successful receipts.
+
+Ended consultations lacking verified attendance use `attendance_unknown`, which is neither held nor no-show and does not occupy the active-consultation booking index. Existing historical statuses are not backfilled. Notes alone do not advance a lead to meeting_held. Staff use the existing Meetings detail to classify an ended, current booking with a version check, an authoritative evidence reference and reason; no-show additionally requires explicit confirmation of a complete attendance record. Unknown remains a neutral review outcome. Booking identity changes invalidate reviewed attendance and retain prior evidence in the private activity log. Correcting held evidence retracts only its current lead-level meeting_held projection when no other reviewed held meeting supports it; later sales statuses remain intact.
+
+Automated notes-ready email alerts and the legacy WhatsApp side-send are withheld here because they lack independently reconciled receipts. Notes remain visible in Meetings. No provider operation, migration, live data change or deployment was performed while implementing this increment.

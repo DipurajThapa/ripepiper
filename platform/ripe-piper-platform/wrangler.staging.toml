@@ -11,7 +11,7 @@ routes = []
 crons = []
 
 [vars]
-SITE_URL = "https://staging.example.invalid"
+SITE_URL = "https://ripe-piper-api-staging.dipuraj-thapa.workers.dev"
 GOOGLE_CALENDAR_ID = "unconfigured-staging-calendar"
 AI_MODEL = "unconfigured"
 MAIL_FROM = "Ripe Piper Test <test@example.invalid>"
@@ -21,3 +21,9 @@ SYNTHETIC_SINK_ENABLED = "true"
 # Add only the isolated Supabase URL/keys through secure environment setup.
 # No production key, global Google send/calendar grant, payment key or AI key.
 # Configure permitted read-only tenant Google bindings separately after consent.
+
+# Existing site copied by the same preview builder, public staging anon key only.
+[assets]
+directory = "../../.staging-site"
+run_worker_first = ["/api/*", "/p/*", "/blog", "/blog/*"]
+not_found_handling = "none"

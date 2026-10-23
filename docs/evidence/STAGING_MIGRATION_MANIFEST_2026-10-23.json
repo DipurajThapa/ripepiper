@@ -81,6 +81,20 @@
       "hosted_version": "20261023102058",
       "applied_after": "20261023100353_baseline_function_hardening.sql",
       "order_note": "Late-arriving reviewed migration appended as hosted migration 17; canonical sorted fresh composition separately tested with PGlite."
+    },
+    {
+      "file": "20261023103840_consultation_reminder_receipts.sql",
+      "sha256": "d692a7b9411bc50d7bd4ce9e1378f0b510709e72f41e711d3766b4a9f25f9690",
+      "source_commit": "ffcd40eb4b0b378ceb4c404d0d511a6cdfdd3fe4",
+      "hosted_version": "20261023110549",
+      "applied_after": "20261023095346_events_registration_lifecycle.sql"
+    },
+    {
+      "file": "20261023103854_atomic_payment_settlement.sql",
+      "sha256": "5e77eea36aae25b9be2cc5491a8e59a5d793752bd548c0691823cf15443dc03d",
+      "source_commit": "fee3d82f3768404e905df694cb65fee7589df04f",
+      "hosted_version": "20261023110824",
+      "applied_after": "20261023103840_consultation_reminder_receipts.sql"
     }
   ]
 }

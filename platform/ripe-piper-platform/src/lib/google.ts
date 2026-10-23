@@ -36,8 +36,9 @@ export async function googleToken(env: Env): Promise<string> {
   })();
   try { return await current.pending; } finally { current.pending = undefined; }
 }
-async function g<T>(env: Env, url: string, init: RequestInit = {}): Promise<T> {
+async function g<T>(env: Env, url: string, init: RequestInit = {}, beforeRequest?:()=>Promise<void>): Promise<T> {
   const token = await googleToken(env);
+  if(beforeRequest)await beforeRequest();
   const res = await request(url, { ...init, headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(init.headers || {}) } });
   if (!res.ok) {
     if (res.status === 401 && tokens.get(env)?.token === token) tokens.delete(env);
@@ -147,10 +148,12 @@ export function buildMime(from: string, to: string, subject: string, text: strin
     `--${b}`, "Content-Type: text/plain; charset=UTF-8", "", text, `--${b}`, "Content-Type: text/html; charset=UTF-8", "", html, `--${b}--`].join("\r\n");
 }
 
-export async function sendEmail(env: Env, to: string, subject: string, text: string, html?: string) {
-  await g(env, "https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+export async function sendEmail(env: Env, to: string, subject: string, text: string, html?: string, beforeSend?:()=>Promise<void>) {
+  const receipt = await g<any>(env, "https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
     method: "POST", body: JSON.stringify({ raw: b64url(buildMime(env.MAIL_FROM, to, subject, text, html)) }),
-  });
+  },beforeSend);
+  if(typeof receipt?.id!=="string"||!/^[a-zA-Z0-9_-]{1,128}$/.test(receipt.id))throw new GoogleError(0,"Gmail acknowledgement is uncertain");
+  return {messageId:receipt.id as string};
 }
 
 // ------------------------------------------------------------------ Sheets (CRM)

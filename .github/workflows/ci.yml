@@ -97,6 +97,8 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Validate isolated target without revealing secrets
         run: node scripts/staging-bindings.mjs
+      - name: Build existing site with isolated public configuration
+        run: node scripts/preview.mjs staging
       - name: Publish only the separately named staging Worker
         working-directory: platform/ripe-piper-platform
         run: npx --no-install wrangler deploy --config wrangler.staging.toml

@@ -5,7 +5,7 @@ import {stagingBindings} from './staging-bindings.mjs';
 import {probeRuntime} from './runtime-probe.mjs';
 export const STAGING_WORKER='https://ripe-piper-api-staging.dipuraj-thapa.workers.dev';
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const tables=['tenants','profiles','memberships','leads','campaigns','lead_observations','outbound_actions'];
+const tables=['tenants','profiles','memberships','leads','campaigns','lead_observations','outbound_actions','sheet_outbox'];
 export async function stagingHttpAcceptance(env,{apply=false,workerOrigin=STAGING_WORKER,fetcher=fetch,onProgress=()=>{},clock=Date.now}={}){
  const bindings=stagingBindings(env);
  if(workerOrigin!==STAGING_WORKER)throw Error('Only the approved staging Worker origin is allowed.');
@@ -65,6 +65,7 @@ export async function stagingHttpAcceptance(env,{apply=false,workerOrigin=STAGIN
    cleanupDeadline=clock()+90000;const cleanupErrors=[];
    // Recover only exact attempted run identities if an Admin create response was lost.
    try{const{data}=await auth('admin/users?page=1&per_page=1000',{cleanup:true});ensure(Array.isArray(data?.users)&&data.users.length<=1000);for(const email of attemptedEmails){const matches=data.users.filter(u=>u.email===email);ensure(matches.length<=1&&(!matches.length||uuid.test(matches[0].id??'')));if(matches.length&&!evidence.cleanup.userIds.includes(matches[0].id)){evidence.cleanup.userIds.push(matches[0].id);onProgress({event:'auth_fixture_recovered',run,userId:matches[0].id,email});}}}catch{cleanupErrors.push('auth_identity_recovery');evidence.cleanup.unresolvedEmails=attemptedEmails.filter(email=>!users.some(u=>u.email===email));}
+   try{const filter='entity=eq.lead&entity_id=in.('+leadIds.join(',')+')';await rest('sheet_outbox?'+filter,{method:'DELETE',cleanup:true});const{data}=await rest('sheet_outbox?select=id&'+filter,{cleanup:true});ensure(Array.isArray(data)&&data.length===0);}catch{cleanupErrors.push('sheet_outbox');}
    for(const [table,ids] of [['leads',leadIds],['tenants',tenantIds]])try{await rest(table+'?id=in.('+ids.join(',')+')',{method:'DELETE',cleanup:true});const{data}=await rest(table+'?select=id&id=in.('+ids.join(',')+')',{cleanup:true});ensure(Array.isArray(data)&&data.length===0);}catch{cleanupErrors.push(table);}
    for(const id of evidence.cleanup.userIds)try{await auth('admin/users/'+id,{method:'DELETE',body:{should_soft_delete:false},cleanup:true});await auth('admin/users/'+id,{status:[404],cleanup:true});}catch{cleanupErrors.push('auth_user:'+id);}
    evidence.cleanup.status=cleanupErrors.length?'failed':'verified';if(cleanupErrors.length){evidence.cleanup.errors=cleanupErrors;failure=true;evidence.status='failed';}
