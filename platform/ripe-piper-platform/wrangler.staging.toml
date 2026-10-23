@@ -18,6 +18,7 @@ MAIL_FROM = "Ripe Piper Test <test@example.invalid>"
 PAID_AI_ENABLED = "false"
 WHATSAPP_ENABLED = "false"
 SYNTHETIC_SINK_ENABLED = "true"
+REVIVE_AUTOMATION_ENABLED = "false"
 # Add only the isolated Supabase URL/keys through secure environment setup.
 # No production key, global Google send/calendar grant, payment key or AI key.
 # Configure permitted read-only tenant Google bindings separately after consent.

@@ -12,6 +12,33 @@ function mount(api) {
   vm.runInNewContext(source,{window:{RP,addEventListener:(name,fn)=>listeners[name]=fn},document:{getElementById:node}});
   return {nodes,select:(id)=>{listeners['rp:tenant-selected']({detail:{id,name:'Fixture '+id}});nodes.prospectMode.value='synthetic';}};
 }
+test('Revive cohort decision uses a current server snapshot and loaded review version',async()=>{
+ const calls=[];const snapshot='a'.repeat(32);
+ const ui=mount(async(path,body)=>{calls.push({path,body});if(path.endsWith('/shortlist'))return response();if(body.operation==='preview')return {assessment:{eligible:true,fitState:'candidate',historyState:'dormant_review',reasons:[],expiresAt:'2026-11-01T00:00:00Z'},snapshot,version:2};return {review:{version:3,state:'accepted'}};});
+ ui.select('tenant-a');await tick();const n=ui.nodes;n.reviveLead.value='lead-a';n.reviveReason.value='Verified current need and history';
+ n.reviveAccept.onclick();assert.equal(calls.some(c=>c.body.operation==='accept'),false);
+ n.revivePreview.onclick();await tick();assert.equal(n.reviveAccept.disabled,false);n.reviveAccept.onclick();await tick();
+ const saved=calls.find(c=>c.body.operation==='accept');assert.equal(saved.path,'/api/admin/tenants/tenant-a/revive-review');assert.deepEqual(JSON.parse(JSON.stringify(saved.body)),{operation:'accept',lead_id:'lead-a',snapshot,version:2,reason:'Verified current need and history'});
+ assert.match(n.reviveStatus.textContent,/No message was sent/);assert.equal(n.reviveAccept.disabled,true);
+});
+test('Revive declined or malformed eligibility never enables acceptance',async()=>{
+ for(const result of [{assessment:{eligible:false,fitState:'candidate',historyState:'not_interested',reasons:['not_interested']},snapshot:'a'.repeat(32),version:0},{assessment:{eligible:'true'},snapshot:'forged',version:0}]){
+  const calls=[];const ui=mount(async(path,body)=>{calls.push(body);return path.endsWith('/shortlist')?response():result;});ui.select('tenant-a');await tick();ui.nodes.reviveLead.value='lead-a';ui.nodes.revivePreview.onclick();await tick();
+  assert.equal(ui.nodes.reviveAccept.disabled,true);ui.nodes.reviveReason.value='Reviewed relationship';ui.nodes.reviveAccept.onclick();assert.equal(calls.some(c=>c.operation==='accept'),false);
+ }
+});
+test('late Revive previews cannot expose another tenant or approve a changed contact',async()=>{
+ let finish;const ui=mount((path,body)=>body.operation==='preview'?new Promise(r=>finish=r):Promise.resolve(response()));
+ ui.select('tenant-a');await tick();ui.nodes.reviveLead.value='lead-a';ui.nodes.revivePreview.onclick();ui.select('tenant-b');await tick();
+ finish({assessment:{eligible:true,fitState:'PRIVATE previous tenant',historyState:'dormant_review',reasons:[]},snapshot:'b'.repeat(32),version:1});await tick();
+ assert.doesNotMatch(ui.nodes.reviveStatus.textContent,/PRIVATE/);assert.equal(ui.nodes.reviveAccept.disabled,true);
+});
+test('Revive outcomes submit the paired action reference without inventing delivery',async()=>{
+ const calls=[];const ui=mount(async(path,body)=>{calls.push({path,body});return path.endsWith('/shortlist')?response():{ok:true};});ui.select('tenant-a');await tick();const n=ui.nodes;
+ n.productChoice.value='revive';n.productKind.value='outcome';n.productChoice.onchange();n.productLead.value='lead-a';n.productReference.value='reviewed-result';n.productRights.value='permitted-use';n.productExcerpt.value='Synthetic rehearsal';n.productObserved.value='2026-10-23T12:00';n.productOutcome.value='meeting_held';n.productReason.value='Synthetic fixture only';n.outcomeCampaign.value='campaign-id';n.outcomeAction.value='action-id';
+ n.productForm.onsubmit({preventDefault(){}});await tick();const body=calls.find(c=>c.path.endsWith('/product-event')).body;
+ assert.equal(body.context.campaignId,'campaign-id');assert.equal(body.context.actionId,'action-id');assert.equal(body.context.delivered,undefined);assert.equal(body.synthetic,true);
+});
 const response=(version=1)=>({brief:{version,body:{offer:'Fixture offer',industries:['construction'],markets:['AE'],roles:['owner'],needs:['dormant leads'],excludedIndustries:[],maxAgeDays:90,source:{reference:'interview:test',excerpt:'Reviewed fixture',observedAt:'2026-10-22T00:00:00Z'}}},leads:[],results:[]});
 test('brief UI sends loaded version and selected tenant, then reloads',async()=>{
   const calls=[];const ui=mount(async(path,body)=>{calls.push({path,body});return path.endsWith('/shortlist')?response(3):{ok:true,version:4};});

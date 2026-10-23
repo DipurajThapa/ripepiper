@@ -12,6 +12,15 @@ function mount(api){
  return {nodes,select:id=>listeners['rp:tenant-selected']({detail:{id,name:id}})};
 }
 const empty=()=>({campaigns:[],assets:[],actions:[]});
+test('Revive automation runs the selected tenant scope and reports only synthetic results',async()=>{
+ const calls=[];const ui=mount(async(path,body)=>{calls.push({path,body});return path.endsWith('/revive-run')?{enrolled:1,tested:0,blocked:2,review:0,limited:false}:empty();});
+ ui.select('tenant-a');await tick();ui.nodes.reviveRun.onclick();await tick();await tick();
+ assert.equal(calls.find(c=>c.path.endsWith('/revive-run')).path,'/api/admin/tenants/tenant-a/revive-run');assert.match(ui.nodes.reviveRunStatus.textContent,/1 enrolled/);assert.match(ui.nodes.reviveRunStatus.textContent,/No email was sent/);
+});
+test('late Revive run responses cannot update another client',async()=>{
+ let finish;const ui=mount(path=>path.endsWith('/revive-run')?new Promise(r=>finish=r):Promise.resolve(empty()));ui.select('tenant-a');await tick();ui.nodes.reviveRun.onclick();ui.select('tenant-b');await tick();
+ finish({enrolled:999,tested:999,blocked:0,review:0});await tick();assert.doesNotMatch(ui.nodes.reviveRunStatus.textContent,/999/);
+});
 test('campaign draft uses selected tenant and exact loaded content; dirty edits cannot be approved',async()=>{
  const calls=[];const ui=mount(async(path,body)=>{calls.push({path,body});return body.operation==='list'?empty():{id:body.campaign_id};});
  ui.select('tenant-a');await tick();const n=ui.nodes;

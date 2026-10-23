@@ -67,6 +67,7 @@ async function fakeSupabase(url: URL, init: RequestInit): Promise<Response> {
       if(!m)return Response.json({version:1,disposition:"rejected",reason:"unregistered_reference"});
       return Response.json({version:1,disposition:"applied",paymentId:m.id,provider:b.p_provider,ref:b.p_ref,proposalId:b.p_proposal,quoteId:b.p_quote,amountMinor:b.p_amount_minor,currency:b.p_currency,status:"paid",tenantId:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",feeId:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",activityId:1,inviteId:null,settledAt:new Date().toISOString()});
     }
+    if(url.pathname.endsWith("/record_product_event"))return Response.json(uuid());
     return Response.json(url.pathname.endsWith("/claim_fenced_synthetic_action") ? {token:b.p_token,approvalVersion:1,assetVersion:1} : true);
   }
   const table = url.pathname.replace("/rest/v1/", "");

@@ -93,9 +93,11 @@ export async function recordProductEvent(req: Request, env: Env, tenantId: strin
   }
   try {
     const id=await db.rpc<string>("record_product_event",{p_tenant:tenantId,p_lead:lead.id,p_actor:user.id,p_reference:b.reference.trim(),p_rights:b.rights_reference.trim(),p_excerpt:b.excerpt.trim(),p_observed:b.observed_at,p_synthetic:b.synthetic,p_context:b.context});
+    if(typeof id!=="string" || !uuid.test(id)) return bad("The evidence receipt is uncertain. Inspect or retry the same source reference; do not create another outcome.",503);
     return json({ok:true,id,delivery:"not_sent"},201);
   } catch(e) {
     if(e instanceof DbError && e.isConflict) return bad("This reference is already attached to different evidence. Reload or use a new correction reference.",409);
+    if(e instanceof DbError && (e.body.includes('22023') || e.body.includes('23514') || e.body.includes('23503'))) return bad("Outcome evidence does not match this account, contact, campaign, action receipt or observation time.",409);
     throw e;
   }
 }

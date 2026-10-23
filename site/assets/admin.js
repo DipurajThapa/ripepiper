@@ -201,6 +201,7 @@
     window.dispatchEvent(new CustomEvent("rp:tenant-selected", { detail: { id: t.id, name: t.name } }));
     var today = new Date(), monday = new Date(today.getTime() - ((today.getUTCDay() + 6) % 7) * 864e5).toISOString().slice(0, 10);
     $("tenantDetail").innerHTML = "<h3>" + RP.esc(t.name) + "</h3>" +
+      (["onboarding", "paused"].indexOf(t.status) !== -1 ? '<form class="stack" data-form="activate"><span class="kicker">' + (t.status === "paused" ? 'Resume account' : 'Activate prepared account') + '</span><p class="hint">Requires the current reviewed business brief. This changes account readiness only. Campaigns, contact rights, provider connections and unrelated stops are not resumed.</p><div class="form-grid"><div class="field"><label for="activationBriefVersion">Current brief version</label><input id="activationBriefVersion" type="number" min="1" readonly required placeholder="Loading current brief"></div><div class="field"><label for="activationReason">Reason for this decision</label><input id="activationReason" type="text" minlength="8" maxlength="500" required></div></div><button class="btn btn-dark" type="submit" id="activateAccount" disabled>' + (t.status === "paused" ? 'Resume account readiness' : 'Activate account readiness') + '</button><p class="hint" id="activationHint">' + (RP.demo ? 'Sample workspace: connect the verified application environment to activate an account.' : 'Loading the current brief…') + '</p><div data-ok hidden></div><p class="err" data-err></p></form>' : '') +
       (t.status === "paused" || t.status === "ended" ? '<p class="hint">This client is ' + RP.esc(t.status) + '. Campaign execution and connected ad reporting are stopped.</p>' :
       '<form class="stack" data-form="pause"><span class="kicker">Emergency stop</span><div class="field"><label for="pauseReason">Reason for pausing</label><input id="pauseReason" type="text" minlength="8" maxlength="500" required></div><button class="btn btn-line" type="submit">Pause client execution</button><div data-ok hidden></div><p class="err" data-err></p></form>') +
       (t.status === "paused" || t.status === "ended" ? '' :
@@ -217,18 +218,28 @@
       '<div class="field"><label for="aRef">Account ID</label><input id="aRef" type="text"></div></div><p class="hint">The client must first give our business account read access to this ad account.</p><button class="btn btn-line" type="submit">Connect</button><div data-ok hidden></div><p class="err" data-err></p></form>' : '') +
       '<form class="stack" data-form="note"><span class="kicker">Add an update to the client\'s activity timeline</span><div class="field"><label for="nKind">Type</label><select id="nKind"><option value="note">Note</option><option value="change">Change we made</option><option value="milestone">Milestone</option><option value="alert">Alert</option></select></div>' +
       '<div class="field"><label for="nMsg">Message (what changed, why, and what happens next)</label><textarea id="nMsg"></textarea></div><button class="btn btn-line" type="submit">Publish update</button><div data-ok hidden></div><p class="err" data-err></p></form>';
+    if (!RP.demo && ["onboarding", "paused"].indexOf(t.status) !== -1) {
+      RP.sb.from("business_briefs").select("version").eq("tenant_id", t.id).order("version", { ascending: false }).limit(1).then(function (r) {
+        if (!cur.tenant || cur.tenant.id !== t.id || !$("activationBriefVersion")) return;
+        var brief = r && r.data && r.data[0];
+        if (!r || r.error || !brief || !Number.isInteger(brief.version) || brief.version < 1) { $("activationHint").textContent = "Save a reviewed business brief, then reopen this client before activation."; return; }
+        $("activationBriefVersion").value = brief.version; $("activateAccount").disabled = false;
+        $("activationHint").textContent = "Version " + brief.version + " will be rechecked with account state at submission. Expired briefs cannot activate an account.";
+      }).catch(function () { if (cur.tenant && cur.tenant.id === t.id && $("activationHint")) $("activationHint").textContent = "The brief could not be loaded. Reopen this client before activation."; });
+    }
   }
   function tenantSubmit(form) {
     var t = cur.tenant, kind = form.dataset.form, ok = form.querySelector("[data-ok]"), err = form.querySelector("[data-err]"), v = function (id) { return $(id).value; };
     err.textContent = "";
     var p;
+    if (kind === "activate") p = RP.api("/api/admin/tenants/" + t.id + "/activate", { expected_status: t.status, expected_version: t.execution_version || 0, brief_version: +v("activationBriefVersion"), reason: v("activationReason") });
     if (kind === "pause") p = RP.api("/api/admin/tenants/" + t.id + "/pause", { reason: v("pauseReason") });
     if (kind === "invite") p = RP.demo ? Promise.resolve() : RP.api("/api/admin/tenants/" + t.id + "/invite", { email: v("iEmail"), role: v("iRole") });
     if (kind === "weekly") p = save("outreach_weekly", "upsert", { tenant_id: t.id, week_start: v("wWeek"), sent: +v("wSent") || 0, delivered: +v("wDel") || 0, replies: +v("wRep") || 0, positive_replies: +v("wPos") || 0, meetings_booked: +v("wBook") || 0, meetings_held: +v("wHeld") || 0, icp_match_pct: v("wIcp") === "" ? null : +v("wIcp") }, { onConflict: "tenant_id,week_start" });
     if (kind === "fee") p = save("fees", "insert", { tenant_id: t.id, month: v("fMonth") + "-01", type: v("fType"), amount: +v("fAmt"), currency: t.currency, note: v("fNote") });
     if (kind === "ads") p = save("ad_accounts", "insert", { tenant_id: t.id, platform: v("aPlat"), account_ref: v("aRef").replace(/[^0-9a-zA-Z_-]/g, "") });
     if (kind === "note") p = save("activity_log", "insert", { tenant_id: t.id, actor: "Ripe Piper", kind: v("nKind"), message: v("nMsg"), visible_to_client: true });
-    p.then(function () { if (kind === "pause") { t.status = "paused"; renderTenants(); tenantDetail(t); } else done(ok, "Saved."); })
+    p.then(function () { if (kind === "pause" || kind === "activate") return fetchAll().then(function () { renderTenants(); var current = data.tenants.find(function (row) { return row.id === t.id; }); if (current && cur.tenant && cur.tenant.id === t.id) tenantDetail(current); }); else done(ok, "Saved."); })
       .catch(function (e) { err.textContent = e.message; });
   }
 

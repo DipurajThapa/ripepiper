@@ -44,6 +44,7 @@ export interface Env {
   CONSULTATION_REMINDERS_ENABLED?: string; // default off; owner-authorized provider release only
   TURNSTILE_SECRET?: string;
   SYNTHETIC_SINK_ENABLED?: string;    // explicit development-only action test; never real delivery
+  REVIVE_AUTOMATION_ENABLED?: string; // default off; bounded approved/accepted synthetic sequences only
   EVENT_REGISTRATION_ENABLED?: string; // default-off, requires synthetic sink flag; .invalid contacts only
   SITE_URL: string;                   // https://ripepiper.com
 }

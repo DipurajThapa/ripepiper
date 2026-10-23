@@ -14,7 +14,7 @@
       '<details><summary>Import permitted contacts</summary><form id="prospectImportForm" class="stack"><label for="prospectImportRows">Paste up to 50 spreadsheet rows, without a header: email, company, source reference, permitted-use reference, observed date (YYYY-MM-DD). Separate columns with tabs.</label><textarea id="prospectImportRows" rows="6" required></textarea><button class="btn btn-line" type="submit">Validate and import</button><p id="prospectImportReport" role="status"></p></form></details><button id="prospectExport" class="btn btn-line" type="button">Download internal review</button><p id="productMetrics" role="status"></p><details><summary>Business brief</summary><form id="briefForm" class="stack"><div class="field"><label for="briefOffer">Offer and problem solved</label><textarea id="briefOffer" maxlength="500" required></textarea></div><div class="form-grid">'+
       fields.map(function(f,i){return input('brief_'+f,labels[i]+' (comma-separated)');}).join('')+ ['industry','market','role','need'].map(function(f){return input('alias_'+f,f+' aliases: target = alias; target = alias');}).join('')+input('briefAge','Evidence validity in days','number')+input('briefReference','Brief source reference')+input('briefObserved','Source date','date')+'</div><div class="field"><label for="briefExcerpt">Supporting source excerpt or interview note</label><textarea id="briefExcerpt" maxlength="2000" required></textarea></div><button class="btn btn-dark" type="submit">Save reviewed brief version</button></form></details>'+
       '<details><summary>Add reviewed prospect evidence</summary><form id="evidenceForm" class="stack"><div class="field"><label for="evidenceLead">Existing lead</label><select id="evidenceLead"></select></div><div class="form-grid">'+input('evidenceSource','Source type, e.g. client interview')+input('evidenceReference','Unique dated source reference')+input('evidenceRights','Permitted-use reference')+input('evidenceObserved','Observation date','date')+
-      ['industry','market','role','need'].map(function(f){return input('evidence_'+f,f.charAt(0).toUpperCase()+f.slice(1)+' (leave unknown blank)');}).join('')+'</div><div class="field"><label for="evidenceExcerpt">Source excerpt containing the recorded values</label><textarea id="evidenceExcerpt" maxlength="2000" required></textarea></div><button class="btn btn-line" type="submit">Record reviewed evidence</button></form></details>'+conversationForm()+productForm()+inboxForm()+'<div id="prospectResults" aria-live="polite"></div>';
+      ['industry','market','role','need'].map(function(f){return input('evidence_'+f,f.charAt(0).toUpperCase()+f.slice(1)+' (leave unknown blank)');}).join('')+'</div><div class="field"><label for="evidenceExcerpt">Source excerpt containing the recorded values</label><textarea id="evidenceExcerpt" maxlength="2000" required></textarea></div><button class="btn btn-line" type="submit">Record reviewed evidence</button></form></details>'+conversationForm()+productForm()+inboxForm()+reviveReviewForm()+'<div id="prospectResults" aria-live="polite"></div>';
     el('inboxCheck').onclick=checkInbox;
     el('inboxList').onclick=listInbox;
     el('inboxPreview').onclick=previewInbox;
@@ -26,6 +26,10 @@
     el('conversationOwners').onclick=loadConversationOwners;
     el('conversationChoice').onchange=showConversation;
     el('conversationForm').onsubmit=saveConversation;
+    el('revivePreview').onclick=previewRevive;
+    el('reviveAccept').onclick=function(){decideRevive('accept');};
+    el('reviveReject').onclick=function(){decideRevive('reject');};
+    el('reviveLead').onchange=clearRevive;
     el('productChoice').value='revive';
     el('productChoice').onchange=renderProductFields;
     el('productKind').onchange=renderProductFields;
@@ -57,18 +61,42 @@
       el('briefExcerpt').value = b ? b.source.excerpt : '';
       el('evidenceLead').innerHTML = j.leads.filter(function(l){return synthetic === l.email.toLowerCase().endsWith('.invalid');}).map(function(l){return '<option value="'+esc(l.id)+'">'+esc(l.company || l.email)+'</option>';}).join('');
       el('productLead').innerHTML=el('evidenceLead').innerHTML;
+      el('reviveLead').innerHTML=el('evidenceLead').innerHTML;clearRevive();
       el('inboxLead').innerHTML=el('evidenceLead').innerHTML;
       el('inboxLead').onchange=function(){inboxSelection=null;el('inboxMessage').innerHTML='';el('inboxExcerpt').textContent='';el('inboxReviewed').checked=false;};
       el('prospectResults').innerHTML = j.results.length ? j.results.map(function(r){
         return '<details><summary>'+esc(r.company)+' · '+esc(r.state)+'</summary><p>'+esc(r.nextAction)+'</p><p>'+esc(r.reasons.join(', '))+'</p>'+r.fields.map(function(f){
           return '<p><strong>'+esc(f.field)+': '+esc(f.state)+'</strong> '+esc(f.values.join(', '))+'</p>'+f.evidence.map(function(e){return '<blockquote>'+esc(e.excerpt)+'<br><small>'+esc(e.reference)+' · '+esc(e.observedAt)+'</small></blockquote>';}).join('');
-        }).join('')+(r.products||[]).map(function(p){return '<section><h4>Ripe '+esc(p.product)+'</h4>'+(p.reference?'<p>Conversation / event: '+esc(p.reference)+'</p>':p.outcomeScope==='unattributed'?'<p>Unattributed history — no conversation or event link recorded.</p>':'')+'<p>'+esc(p.state)+' · '+esc(p.nextAction)+'</p>'+(p.question?'<p>Suggested question: '+esc(p.question)+'</p>':'')+(p.dueAt?'<p>Review due: '+esc(p.dueAt)+(p.overdue?' · overdue':'')+'</p>':'')+(p.conversation?'<p>Conversation owner: '+esc(p.conversation.ownerLabel||'Unassigned')+' · '+esc(p.conversation.state)+(p.conversation.reviewedAt?' · reviewed '+esc(p.conversation.reviewedAt):'')+'</p>':'')+'<p>Delivery unavailable · client booking unavailable</p>'+p.outcomes.map(function(o){return '<p>Recorded outcome: '+esc(o.outcome)+' · '+esc(o.reason)+' · '+esc(o.at)+'</p>';}).join('')+p.history.map(function(h){return '<blockquote>'+esc(h.excerpt)+'<br><small>'+esc(h.reference)+' · '+esc(h.observedAt)+'</small></blockquote>';}).join('')+'</section>';}).join('')+'</details>';
+        }).join('')+(r.products||[]).map(function(p){return '<section><h4>Ripe '+esc(p.product)+'</h4>'+(p.reference?'<p>Conversation / event: '+esc(p.reference)+'</p>':p.outcomeScope==='unattributed'?'<p>Unattributed history — no verified workflow link recorded.</p>':'')+'<p>'+esc(p.state)+' · '+esc(p.nextAction)+'</p>'+(p.question?'<p>Suggested question: '+esc(p.question)+'</p>':'')+(p.dueAt?'<p>Review due: '+esc(p.dueAt)+(p.overdue?' · overdue':'')+'</p>':'')+(p.conversation?'<p>Conversation owner: '+esc(p.conversation.ownerLabel||'Unassigned')+' · '+esc(p.conversation.state)+(p.conversation.reviewedAt?' · reviewed '+esc(p.conversation.reviewedAt):'')+'</p>':'')+'<p>Delivery unavailable · client booking unavailable</p>'+p.outcomes.map(function(o){return '<p>Recorded outcome: '+esc(o.outcome)+' · '+esc(o.reason)+' · '+esc(o.at)+(p.product==='revive'?' · '+(o.attributionScope==='synthetic_action'?'Synthetic rehearsal only':o.attributionScope==='action_reference'?'Action reference verified; causality unproven':'Unattributed'):'')+(o.actionId?' · Action '+esc(o.actionId)+' · Campaign '+esc(o.campaignId):'')+'</p>';}).join('')+p.history.map(function(h){return '<blockquote>'+esc(h.excerpt)+'<br><small>'+esc(h.reference)+' · '+esc(h.observedAt)+'</small></blockquote>';}).join('')+'</section>';}).join('')+'</details>';
       }).join('') : '<p class="muted">No assessed prospects in this evidence set. Save a brief and attach reviewed evidence to existing client leads.</p>';
       snapshot=j; renderConversations();
       var observed=j.results.filter(function(r){return (r.products||[]).some(function(p){return p.history.length;});}).length;
       el('productMetrics').textContent=observed+' contacts with product history / '+j.results.length+' reviewed contacts. Outcome counts describe recorded evidence, not conversion uplift.';
       ready = true;
     }).catch(function(e){if(ticket===generation){ready=false; error(e.message); el('briefVersion').textContent='Review unavailable. Nothing has been saved.';el('prospectResults').textContent='';}});
+  }
+  var reviveSelection=null,reviveBusy=false;
+  function reviveReviewForm(){return '<details><summary>Ripe Revive cohort review</summary><p class="hint">Review current business fit and dormant relationship history together. Acceptance is bound to these exact facts and expires with their evidence. Campaign approval and channel rights remain separate. This does not send a message.</p><label for="reviveLead">Existing contact</label><select id="reviveLead"></select><button id="revivePreview" class="btn btn-line" type="button">Check current Revive eligibility</button><p id="reviveStatus" role="status"></p><label for="reviveReason">Cohort decision reason</label><textarea id="reviveReason" maxlength="1000"></textarea><button id="reviveAccept" class="btn btn-line" type="button">Accept reviewed contact</button><button id="reviveReject" class="btn btn-line" type="button">Reject reviewed contact</button></details>';}
+  function clearRevive(){reviveSelection=null;el('reviveStatus').textContent='Check this contact before making a cohort decision.';el('reviveAccept').disabled=true;el('reviveReject').disabled=true;}
+  function previewRevive(){
+    if(!ready||reviveBusy){error('Load this account and wait for the current review.');return;}
+    var id=tenant.id,ticket=generation,lead=el('reviveLead').value;clearRevive();reviveBusy=true;
+    RP.api(path('revive-review',id),{operation:'preview',lead_id:lead}).then(function(j){
+      if(ticket!==generation||lead!==el('reviveLead').value)return;
+      if(!j.assessment||typeof j.assessment.eligible!=='boolean'||!Array.isArray(j.assessment.reasons)||!Number.isInteger(j.version)||!(/^[a-f0-9]{32}$/).test(j.snapshot))throw Error('Review response unavailable. Refresh before deciding.');
+      reviveSelection={lead:lead,snapshot:j.snapshot,version:j.version,eligible:j.assessment.eligible};
+      el('reviveStatus').textContent='Fit: '+j.assessment.fitState+' · History: '+j.assessment.historyState+' · '+(j.assessment.eligible?'Eligible for a human cohort decision.':'Blocked: '+j.assessment.reasons.join(', '))+(j.review?' · Previous decision: '+j.review.state:'')+(j.assessment.expiresAt?' · Evidence valid until '+j.assessment.expiresAt:'');
+      el('reviveAccept').disabled=!j.assessment.eligible;el('reviveReject').disabled=false;
+    }).catch(function(e){if(ticket===generation)el('reviveStatus').textContent=e.message;}).finally(function(){reviveBusy=false;});
+  }
+  function decideRevive(operation){
+    var s=reviveSelection,reason=el('reviveReason').value.trim();
+    if(!ready||reviveBusy||!s||s.lead!==el('reviveLead').value||operation==='accept'&&!s.eligible){error('Check the current contact eligibility before deciding.');return;}
+    if(reason.length<8){error('Record a decision reason of at least eight characters.');return;}
+    var id=tenant.id,ticket=generation;reviveBusy=true;el('reviveAccept').disabled=true;el('reviveReject').disabled=true;
+    RP.api(path('revive-review',id),{operation:operation,lead_id:s.lead,snapshot:s.snapshot,version:s.version,reason:reason}).then(function(j){
+      if(ticket!==generation)return;clearRevive();el('reviveStatus').textContent='Recorded '+j.review.state+' · review version '+j.review.version+'. No message was sent. Changed evidence requires another review.';
+    }).catch(function(e){if(ticket===generation){clearRevive();el('reviveStatus').textContent=e.message;}}).finally(function(){reviveBusy=false;});
   }
   function date(id) { var v=el(id).value; return v ? v+'T00:00:00.000Z' : ''; }
   function saveBrief(event) {
@@ -166,7 +194,7 @@
   function productForm(){return '<details><summary>Product history and outcomes</summary><p class="hint">Staff-reviewed records on existing contacts. Recording a reply holds follow-ups across products. Opt-out records apply suppression. These forms do not send, publish or book.</p><form id="productForm" class="stack">'+select('productChoice','Product',['revive','signal','response','events'])+select('productKind','Record type',['evidence','outcome'])+'<div class="field"><label for="productLead">Existing lead</label><select id="productLead"></select></div>'+input('productReference','Unique source or message reference')+input('productRights','Permitted-use reference')+input('productObserved','Observed at (UTC)','datetime-local')+'<div class="field"><label for="productExcerpt">Reviewed source excerpt</label><textarea id="productExcerpt" maxlength="2000" required></textarea></div><div id="productFields" class="form-grid"></div><button class="btn btn-line" type="submit">Record reviewed event</button></form></details>';}
   function renderProductFields(){
     var p=el('productChoice').value, html='';
-    if(el('productKind').value==='outcome') html=select('productOutcome','Verified outcome',['accepted','rejected','qualified_conversation','meeting_held','opportunity','won','lost'])+input('productReason','Reason supported by the source')+(p==='response'?input('outcomeThread','Existing conversation reference'):p==='events'?input('outcomeEvent','Existing event reference'):'');
+    if(el('productKind').value==='outcome') html=select('productOutcome','Verified outcome',['accepted','rejected','qualified_conversation','meeting_held','opportunity','won','lost'])+input('productReason','Reason supported by the source')+(p==='response'?input('outcomeThread','Existing conversation reference'):p==='events'?input('outcomeEvent','Existing event reference'):p==='revive'?input('outcomeCampaign','Campaign ID (optional; requires action ID)')+input('outcomeAction','Acknowledged action ID (optional; requires campaign ID)')+'<p class="hint">Leave both IDs blank for pre-campaign decisions or historical evidence. Test-sink outcomes remain synthetic; an action reference does not prove causality.</p>':'');
     else if(p==='revive')html=input('lastContact','Last contact (UTC)','datetime-local')+select('previousInterest','Previously expressed interest',['unknown','yes','no'])+input('stalledReason','Why it stopped (enter unknown if unverified)');
     else if(p==='signal')html=input('signalRelevance','Why this business change relates to the offer')+input('signalExpiry','Evidence expires (UTC)','datetime-local');
     else if(p==='response')html=select('responseKind','Conversation event',['enquiry','reply'])+input('threadRef','Verified thread reference')+select('disposition','Reviewed disposition',['uncertain','interested','not_interested','later','wrong_person','opt_out','human'])+input('answerNeed','Stated need (blank if unknown)')+input('answerAuthority','Decision participants (blank if unknown)')+input('answerTiming','Stated timing (blank if unknown)')+input('nextContact','Agreed review time, required for later (UTC)','datetime-local');
@@ -178,7 +206,7 @@
     event.preventDefault();if(!ready){error('Load this client account before saving.');return;}
     var id=tenant.id,ticket=generation,p=el('productChoice').value,c={product:p},v=function(id){return el(id).value.trim();};
     try {
-      if(el('productKind').value==='outcome'){c.kind='outcome';c.outcome=v('productOutcome');c.reason=v('productReason');if(p==='response')c.threadRef=v('outcomeThread');if(p==='events')c.eventRef=v('outcomeEvent');}
+      if(el('productKind').value==='outcome'){c.kind='outcome';c.outcome=v('productOutcome');c.reason=v('productReason');if(p==='response')c.threadRef=v('outcomeThread');if(p==='events')c.eventRef=v('outcomeEvent');if(p==='revive'&&(v('outcomeCampaign')||v('outcomeAction'))){c.campaignId=v('outcomeCampaign');c.actionId=v('outcomeAction');}}
       else if(p==='revive'){c.kind='history';c.lastContactAt=utc('lastContact');c.previousInterest=v('previousInterest');c.stalledReason=v('stalledReason');}
       else if(p==='signal'){c.kind='trigger';c.relevance=v('signalRelevance');c.expiresAt=utc('signalExpiry');}
       else if(p==='response'){c.kind=v('responseKind');c.threadRef=v('threadRef');c.disposition=v('disposition');c.need=v('answerNeed');c.authority=v('answerAuthority');c.timing=v('answerTiming');if(v('nextContact'))c.nextContactAt=utc('nextContact');}
