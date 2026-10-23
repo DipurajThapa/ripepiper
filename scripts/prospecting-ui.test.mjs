@@ -73,3 +73,16 @@ test('late inbox previews cannot populate a different tenant or contact',async()
 test('missing tenant connection never reports an import or exposes a stale excerpt',async()=>{
  const ui=mount(async(path)=>path.endsWith('/shortlist')?response():{ok:true,state:'not_connected'});ui.select('tenant-a');await tick();ui.nodes.inboxCheck.onclick();await tick();assert.match(ui.nodes.inboxStatus.textContent,/No active tenant connection/);
 });
+
+test('outcome form carries the selected conversation or event reference',async()=>{
+ for(const product of ['response','events']){
+  const calls=[];const ui=mount(async(path,body)=>{calls.push({path,body});return path.endsWith('/shortlist')?response():{ok:true};});
+  ui.select('tenant-a');await tick();const n=ui.nodes;
+  n.productChoice.value=product;n.productKind.value='outcome';n.productChoice.onchange();
+  n.productLead.value='lead-a';n.productReference.value='outcome-source';n.productRights.value='purpose';n.productExcerpt.value='Verified outcome';n.productObserved.value='2026-10-22T12:00';
+  n.productOutcome.value='meeting_held';n.productReason.value='Verified by owner';
+  n[product==='response'?'outcomeThread':'outcomeEvent'].value='existing-reference';
+  n.productForm.onsubmit({preventDefault(){}});await tick();
+  assert.equal(calls.find(c=>c.path.endsWith('/product-event')).body.context[product==='response'?'threadRef':'eventRef'],'existing-reference');
+ }
+});

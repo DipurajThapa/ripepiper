@@ -59,6 +59,17 @@ try {
  await page.waitForFunction(()=>document.getElementById('prospectImportReport').textContent.includes('created'));
  const contexts=await page.evaluate(()=>window.fixtureCalls.filter(c=>c.path.endsWith('/product-event')).map(c=>c.body.context));
  assert.equal(contexts.length,4);assert.equal(contexts[2].authority,'');assert.equal(contexts[3].attendance,'unknown');
+ for(const product of ['response','events']){
+  await page.selectOption('#productChoice',product);await page.selectOption('#productKind','outcome');
+  await page.fill('#productReference','outcome-'+product);await page.fill('#productRights','fixture-only');await page.fill('#productObserved','2026-10-22T12:00');await page.fill('#productExcerpt','Owner verified meeting');
+  await page.fill('#productReason','Verified by owner');await page.selectOption('#productOutcome','meeting_held');
+  await page.fill(product==='response'?'#outcomeThread':'#outcomeEvent','fixture-'+product);
+  await page.getByRole('button',{name:'Record reviewed event',exact:true}).click();
+  await page.waitForFunction(p=>window.fixtureCalls.some(c=>c.path.endsWith('/product-event')&&c.body.context.product===p&&c.body.context.kind==='outcome'),product);
+ }
+ const scoped=await page.evaluate(()=>window.fixtureCalls.filter(c=>c.body?.context?.kind==='outcome').map(c=>c.body.context));
+ assert.equal(scoped[0].threadRef,'fixture-response');assert.equal(scoped[1].eventRef,'fixture-events');
+
  await page.fill('#campaignPurpose','Fixture reactivation');await page.fill('#campaignMarket','AE');
  await page.fill('#messageSubject0','Fixture subject');await page.fill('#messageBody0','Is this still a priority?');await page.fill('#messageEvidence0','fixture-evidence');
  await page.getByRole('button',{name:'Save draft version',exact:true}).click();

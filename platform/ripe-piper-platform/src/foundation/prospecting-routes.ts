@@ -78,12 +78,18 @@ export async function prospectShortlist(req: Request, env: Env, tenantId: string
 export async function recordProductEvent(req: Request, env: Env, tenantId: string) {
   const user=await requireUser(req,env,true), b=await readJson(req);
   if(!uuid.test(b.lead_id??"") || !bounded(b.reference,240) || !bounded(b.rights_reference,240) || !bounded(b.excerpt,2000) || typeof b.synthetic!=="boolean") return bad("Provide an existing lead, source reference, permitted-use reference and reviewed excerpt.");
-  const error=productError(b.context,b.observed_at,Date.now());
+  const error=productError(b.context,b.observed_at,Date.now(),true);
   if(error) return bad(error);
   const db=new Db(env);
   const lead=await db.one<any>("leads",`tenant_id=eq.${tenantId}&id=eq.${b.lead_id}&select=id,email`);
   if(!lead) return bad("Lead not found in this client account.",404);
   if(b.synthetic !== lead.email.toLowerCase().endsWith(".invalid")) return bad("Evidence mode must match the contact.");
+  if(b.context.kind==='outcome' && ['response','events'].includes(b.context.product)) {
+    const field=b.context.product==='response'?'threadRef':'eventRef';
+    const kinds=b.context.product==='response'?'enquiry,reply':'registration,attendance';
+    const source=await db.one("lead_observations",`tenant_id=eq.${tenantId}&lead_id=eq.${lead.id}&synthetic=eq.${b.synthetic}&assessment_reviewed_by=not.is.null&product_context->>product=eq.${b.context.product}&product_context->>kind=in.(${kinds})&product_context->>${field}=eq.${encodeURIComponent(b.context[field])}&observed_at=lte.${encodeURIComponent(b.observed_at)}&select=id`);
+    if(!source) return bad("Record reviewed evidence for this conversation or event before attributing an outcome.",409);
+  }
   try {
     const id=await db.rpc<string>("record_product_event",{p_tenant:tenantId,p_lead:lead.id,p_actor:user.id,p_reference:b.reference.trim(),p_rights:b.rights_reference.trim(),p_excerpt:b.excerpt.trim(),p_observed:b.observed_at,p_synthetic:b.synthetic,p_context:b.context});
     return json({ok:true,id,delivery:"not_sent"},201);

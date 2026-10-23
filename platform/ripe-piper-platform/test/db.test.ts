@@ -327,6 +327,20 @@ describe('shared product persistence, import and cross-product stops',()=>{
  async function record(lead:string,ref:string,context:any,tenant=T1,actor=ADMIN){
   return (await db.query<any>(`select public.record_product_event($1,$2,$3,$4,'fixture-rights','Fixture reply',$5,true,$6) id`,[tenant,lead,actor,ref,when,JSON.stringify(context)])).rows[0].id;
  }
+ it('persists scoped outcomes through the existing RPC without duplicating replayed evidence',async()=>{
+  const lead=(await db.query<any>(`insert into leads(tenant_id,source,email) values($1,'import','scoped-outcomes@example.invalid') returning id`,[T1])).rows[0].id;
+  await db.exec('set role service_role');
+  try{
+   await record(lead,'scope-reply',reply);
+   const context={product:'response',kind:'outcome',threadRef:'fixture-thread',outcome:'meeting_held',reason:'Verified by owner'};
+   const id=await record(lead,'scope-outcome',context);
+   expect(await record(lead,'scope-outcome',context)).toBe(id);
+   const rows=(await db.query<any>('select * from lead_observations where tenant_id=$1 and lead_id=$2',[T1,lead])).rows;
+   const {reviewProducts}=await import('../src/foundation/products');
+   const result=reviewProducts(JSON.parse(JSON.stringify(rows)),Date.now(),false,'candidate').find(r=>r.product==='response');
+   expect(result?.reference).toBe('fixture-thread');expect(result?.outcomes).toHaveLength(1);expect(result?.contactAllowed).toBe(false);
+  }finally{await db.exec('reset role');}
+ });
  it('imports case-normalised identity once, preserves existing state, and rejects source-reference reuse',async()=>{
   await db.exec('set role service_role');
   try {

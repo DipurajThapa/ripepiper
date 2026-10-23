@@ -9,12 +9,18 @@ export type ProductContext =
  | {product:'signal';kind:'trigger';relevance:string;expiresAt:string}
  | {product:'response';kind:'enquiry'|'reply';threadRef:string;disposition:typeof DISPOSITIONS[number];need:string;authority:string;timing:string;nextContactAt?:string}
  | {product:'events';kind:'registration'|'attendance';eventRef:string;endsAt:string;timezone:string;attendance:'unknown'|'attended'|'verified_no_show';rosterComplete:boolean}
- | {product:Product;kind:'outcome';outcome:typeof OUTCOMES[number];reason:string};
+ | {product:Product;kind:'outcome';outcome:typeof OUTCOMES[number];reason:string;threadRef?:string;eventRef?:string};
 const text=(v:unknown,n=500):v is string=>typeof v==='string' && !!v.trim() && v.length<=n;
 const answer=(v:unknown):v is string=>typeof v==='string' && v.length<=500;
-export function productError(v:any,observedAt:string,now:number):string|null {
+export function productError(v:any,observedAt:string,now:number,requireOutcomeScope=false):string|null {
  if(!v || !PRODUCTS.includes(v.product) || !validDate(observedAt,now)) return 'Choose a product and a valid observation time.';
- if(v.kind==='outcome') return OUTCOMES.includes(v.outcome) && text(v.reason) ? null : 'Choose an outcome and record its evidence-based reason.';
+ if(v.kind==='outcome') {
+   if(!OUTCOMES.includes(v.outcome) || !text(v.reason)) return 'Choose an outcome and record its evidence-based reason.';
+   if(v.threadRef!==undefined && (v.product!=='response' || !text(v.threadRef,240))) return 'Use a valid conversation reference only for Response.';
+   if(v.eventRef!==undefined && (v.product!=='events' || !text(v.eventRef,240))) return 'Use a valid event reference only for Events.';
+   if(requireOutcomeScope && ((v.product==='response' && !text(v.threadRef,240)) || (v.product==='events' && !text(v.eventRef,240)))) return 'Link this outcome to its existing conversation or event reference.';
+   return null;
+ }
  if(v.product==='revive' && v.kind==='history') return validDate(v.lastContactAt,Date.parse(observedAt)) && ['yes','no','unknown'].includes(v.previousInterest) && text(v.stalledReason) ? null : 'Record last contact, previous interest and the known reason or explicitly unknown reason.';
  if(v.product==='signal' && v.kind==='trigger') return text(v.relevance) && validInstant(v.expiresAt) && Date.parse(v.expiresAt)>Date.parse(observedAt) && Date.parse(v.expiresAt)-Date.parse(observedAt)<=365*86400000 ? null : 'Record business relevance and an expiry within one year of observation.';
  if(v.product==='response' && ['enquiry','reply'].includes(v.kind)) {
@@ -37,12 +43,11 @@ export function reviewProducts(observations:Observation[],now:number,suppressed:
  const replies=source.filter(o=>o.product_context?.product==='response' && ['reply','enquiry'].includes(o.product_context.kind));
  const stopped=suppressed || replies.some(o=>(o.product_context as any).disposition==='opt_out');
  const work = PRODUCTS.flatMap(product=>{
-   const keys=[...new Set(source.filter(o=>o.product_context!.product===product && o.product_context!.kind!=='outcome').map(o=>{const c=o.product_context!;return 'threadRef' in c?c.threadRef:'eventRef' in c?c.eventRef:'';}))];
-   if(source.some(o=>o.product_context!.product===product && o.product_context!.kind==='outcome') && !keys.includes(''))keys.push('');
+   const keys=[...new Set(source.filter(o=>o.product_context!.product===product).map(o=>{const c=o.product_context!;return 'threadRef' in c?c.threadRef:'eventRef' in c?c.eventRef:'';}))];
    return (keys.length?keys:['']).map(key=>({product,key}));
  });
  return work.map(({product,key})=>{
-   const history=source.filter(o=>{const c=o.product_context!;return c.product===product && ((c.kind==='outcome' && !key) || ('threadRef' in c?c.threadRef:'eventRef' in c?c.eventRef:'')===key);});
+   const history=source.filter(o=>{const c=o.product_context!;return c.product===product && (('threadRef' in c?c.threadRef:'eventRef' in c?c.eventRef:'')===key);});
    const latest=history.find(o=>o.product_context!.kind!=='outcome');
    const context=latest?.product_context;
    let state='needs_evidence', nextAction='Record reviewed source evidence.', dueAt:string|null=null;
@@ -86,7 +91,7 @@ export function reviewProducts(observations:Observation[],now:number,suppressed:
    if(product!=='response' && replies.length) {state='reply_hold';nextAction='A reply or enquiry exists. Review the conversation before any further prospecting.';question=null;}
    if(stopped) {state='suppressed';nextAction='No marketing follow-up. Route any service request to staff.';question=null;dueAt=null;}
    return {product,reference:key || null,state,nextAction,question,missing,dueAt,overdue:dueAt!==null && Date.parse(dueAt)<now,
-     contactAllowed:false,bookingAvailable:false,history:history.map(o=>({id:o.id,reference:o.external_ref,observedAt:o.observed_at,excerpt:o.assessment_excerpt,context:o.product_context,briefVersion:o.brief_version ?? null})),
+     contactAllowed:false,bookingAvailable:false,outcomeScope:(product==='response'||product==='events') && !key?(history.some(o=>o.product_context?.kind==='outcome')?'unattributed':null):'product_reference',history:history.map(o=>({id:o.id,reference:o.external_ref,observedAt:o.observed_at,excerpt:o.assessment_excerpt,context:o.product_context,briefVersion:o.brief_version ?? null})),
      outcomes:history.filter(o=>o.product_context?.kind==='outcome').map(o=>({at:o.observed_at,...o.product_context as Extract<ProductContext,{kind:'outcome'}>}))};
  });
 }

@@ -18,7 +18,7 @@ function matches(row: Row, query: URLSearchParams): boolean {
   for (const [k, v] of query) {
     if (["select", "order", "limit", "on_conflict"].includes(k)) continue;
     const [op, ...rest] = v.split("."); const val = rest.join(".");
-    const cell = row[k];
+    const cell = k.includes('->>') ? row[k.split('->>')[0]]?.[k.split('->>')[1]] : row[k];
     if (op === "eq" && String(cell) !== decodeURIComponent(val)) return false;
     if (op === "neq" && String(cell) === val) return false;
     if (op === "is" && val === "null" && cell != null) return false;
@@ -426,6 +426,23 @@ describe('managed product API boundaries',()=>{
   expect((await call('POST',root+'/product-event',{...payload,context:{...payload.context,product:'revive'}},headers)).status).toBe(400);
   expect((await call('POST',root+'/product-event',payload,headers)).status).toBe(201);
   expect(rpcCalls.filter(p=>p.endsWith('/record_product_event'))).toHaveLength(1);
+  expect(sentEmails).toHaveLength(0);expect(calendarEvents).toHaveLength(0);
+ });
+ it('requires outcome evidence from the same tenant, lead, mode, reference and observation time',async()=>{
+  tables.leads=[{id:lead,tenant_id:tenant,email:'fixture@example.invalid'}];
+  const context={product:'response',kind:'outcome',outcome:'meeting_held',reason:'Verified by owner',threadRef:'fixture-thread'};
+  const request={...payload,context};
+  expect((await call('POST',root+'/product-event',{...request,context:{...context,threadRef:undefined}},headers)).status).toBe(400);
+  expect((await call('POST',root+'/product-event',request,headers)).status).toBe(409);
+  const source={id:'source',tenant_id:tenant,lead_id:lead,synthetic:true,assessment_reviewed_by:'admin',observed_at:payload.observed_at,product_context:payload.context};
+  for(const patch of [{tenant_id:lead},{lead_id:tenant},{synthetic:false},{assessment_reviewed_by:null},{observed_at:'2026-10-23T00:00:00Z'},{product_context:{...payload.context,threadRef:'different'}}]){
+   tables.lead_observations=[{...source,...patch}];
+   expect((await call('POST',root+'/product-event',request,headers)).status).toBe(409);
+  }
+  expect(rpcCalls).toHaveLength(0);
+  tables.lead_observations=[source];
+  expect((await call('POST',root+'/product-event',request,headers)).status).toBe(201);
+  expect(rpcBodies[0].p_context.threadRef).toBe('fixture-thread');
   expect(sentEmails).toHaveLength(0);expect(calendarEvents).toHaveLength(0);
  });
  it('shows standalone product review without requiring a business brief or another product',async()=>{

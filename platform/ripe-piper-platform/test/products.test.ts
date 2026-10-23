@@ -59,3 +59,23 @@ describe('four standalone managed product reviews',()=>{
   expect(reviewProducts([o(event),o({...event,eventRef:'event-2'})],now,false,'candidate').filter(r=>r.product==='events')).toHaveLength(2);
  });
 });
+
+it('attributes outcomes to their own thread or event and retains legacy unattributed history',()=>{
+ for(const context of [reply,event]) {
+  const product=context.product, field=product==='response'?'threadRef':'eventRef';
+  const outcome={product,kind:'outcome',outcome:'meeting_held',reason:'Owner verified',[field]:'second'} as ProductContext;
+  const legacy={product,kind:'outcome',outcome:'accepted',reason:'Historical record'} as ProductContext;
+  const rows=reviewProducts([o(context),o({...context,[field]:'second'}),o(outcome),o(legacy)],now,false,'candidate').filter(r=>r.product===product);
+  expect(rows.find(r=>r.reference==='second')!.outcomes).toHaveLength(1);
+  expect(rows.find(r=>r.reference && r.reference!=='second')!.outcomes).toHaveLength(0);
+  expect(rows.find(r=>!r.reference)).toMatchObject({outcomeScope:'unattributed',contactAllowed:false});
+  expect(productError(legacy,at,now,true)).not.toBeNull();
+  expect(productError(legacy,at,now)).toBeNull();
+  expect(productError(outcome,at,now,true)).toBeNull();
+ }
+ expect(productError({product:'revive',kind:'outcome',outcome:'won',reason:'Verified',threadRef:'foreign'},at,now,true)).not.toBeNull();
+});
+
+it('does not label empty Response or Events groups as historical outcomes',()=>{
+ for(const product of ['response','events']) expect(review([],product)).toMatchObject({outcomeScope:null,outcomes:[],state:'needs_evidence'});
+});
