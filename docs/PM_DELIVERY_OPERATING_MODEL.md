@@ -37,3 +37,14 @@ The PM is the **single accountable coordinator for delivery through completion**
 - **OPERATING**: validated real, tenant-scoped journey with observed provider outcomes.
 
 Machine gate currently recognises `not_started`, `in_progress`, `blocked`, `verified`; production RELEASED/OPERATING is a separately reviewed milestone in DELIVERY.md. Neither code nor daily chat reporting alone means agents are continuously executing.
+
+## Unblocking mandate and escalation ladder
+The PM must **enable delivery rather than turn missing external dependencies into a general stop-work order**. For each blocked stage:
+1. Confirm the exact blocker with CTO/Development/QA and identify independent work that can proceed using local fixtures, test sinks, read-only verification, mock adapters, or prepared PRs.
+2. Assign a technical workaround and time-bounded next action without weakening rights, tenant isolation, budget, QA, or release safety.
+3. Split tasks into **offline implementation**, **integration verification**, and **owner-gated production action**. A blocked live connection must not block safe tests or code completion.
+4. Escalate only irreducible owner actions, naming the account/service, reason, exact click-by-click steps, expected cost, consequence, and what engineering continues meanwhile.
+5. Track each unblock attempt and owner question in the existing delivery tracker with evidence and owner; avoid repeating answered questions.
+6. CTO decides between safe technical alternatives; QA continues to test independently; PM keeps a ready backlog of unblocked slices.
+
+**Never substitute a simulated provider success for a delivered message, or silently incur hourly service costs.**
