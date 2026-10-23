@@ -80,7 +80,7 @@ export function reviewProducts(observations:Observation[],now:number,suppressed:
        : context.disposition==='not_interested'?'Close this conversation; do not continue persuasion.'
        : 'Human review required. Follow-ups are held.';
      if(conflicting){state='review';question=null;nextAction='Resolve conflicting answers in this thread before qualification.';}
-     dueAt=context.disposition==='later' ? context.nextContactAt! : new Date(Date.parse(latest!.observed_at)+60000).toISOString();
+     dueAt=context.disposition==='later' ? context.nextContactAt! : ['interested','human','uncertain'].includes(context.disposition) ? new Date(Date.parse(latest!.observed_at)+60000).toISOString() : null;
    }
    if(context && (context.kind==='registration'||context.kind==='attendance')) {
      // A registration is never interpreted as attendance; incomplete rosters stay unknown.
