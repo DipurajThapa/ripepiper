@@ -74,6 +74,7 @@ export function calendarEventId(id: string): string {
 export function isMeetUrl(value: unknown): value is string {
   return typeof value === "string" && /^https:\/\/meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}$/.test(value);
 }
+class PendingConferenceError extends GoogleError {}
 function verifiedEvent(ev: any, p: MeetingInput, expectedId: string) {
   if (ev?.id !== expectedId || ev.status !== "confirmed" || ev.extendedProperties?.private?.ripe_meeting_id !== p.id ||
       Date.parse(ev.start?.dateTime) !== Date.parse(p.start) || Date.parse(ev.end?.dateTime) !== Date.parse(p.end) ||
@@ -81,7 +82,9 @@ function verifiedEvent(ev: any, p: MeetingInput, expectedId: string) {
     throw new GoogleError(0, "Calendar event does not match the reservation");
   const entry = (ev.conferenceData?.entryPoints ?? []).find((e: any) => e.entryPointType === "video");
   const meetUrl = entry?.uri ?? ev.hangoutLink;
-  if (!isMeetUrl(meetUrl) || ["pending", "failure"].includes(ev.conferenceData?.createRequest?.status?.statusCode))
+  if (ev.conferenceData?.createRequest?.status?.statusCode === "pending")
+    throw new PendingConferenceError(0, "Calendar conference is pending");
+  if (!isMeetUrl(meetUrl) || ev.conferenceData?.createRequest?.status?.statusCode === "failure")
     throw new GoogleError(0, "Calendar conference is not ready");
   return { eventId: ev.id as string, meetUrl, meetCode: meetUrl.split("/").pop()! };
 }
@@ -90,6 +93,15 @@ export async function reconcileMeetEvent(env: Env, p: MeetingInput, eventId = ca
   if (!/^[a-z0-9_]{5,1024}$/.test(eventId)) throw new Error("Invalid calendar event identifier");
   const ev = await g<any>(env, `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(env.GOOGLE_CALENDAR_ID)}/events/${encodeURIComponent(eventId)}`);
   return verifiedEvent(ev, p, eventId);
+}
+/** Bound asynchronous conference readiness to three reads; never repeat insertion. */
+async function awaitConference(env: Env, p: MeetingInput) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 250));
+    try { return await reconcileMeetEvent(env, p); }
+    catch (e) { if (!(e instanceof PendingConferenceError) || attempt === 2) throw e; }
+  }
+  throw new GoogleError(0, "Calendar conference is not ready");
 }
 /** One insertion only. On uncertain response/duplicate ID, GET the same event; never replay an invitation. */
 export async function createMeetEvent(env: Env, p: MeetingInput) {
@@ -107,10 +119,11 @@ export async function createMeetEvent(env: Env, p: MeetingInput) {
         }),
       });
   } catch (e) {
-    if (e instanceof GoogleError && (e.status === 0 || e.status === 409 || e.status >= 500)) return reconcileMeetEvent(env, p);
+    if (e instanceof GoogleError && (e.status === 0 || e.status === 409 || e.status >= 500)) return awaitConference(env, p);
     throw e;
   }
-  return verifiedEvent(ev, p, eventId);
+  try { return verifiedEvent(ev, p, eventId); }
+  catch (e) { if (e instanceof PendingConferenceError) return awaitConference(env, p); throw e; }
 }
 
 export async function cancelEvent(env: Env, eventId: string) {

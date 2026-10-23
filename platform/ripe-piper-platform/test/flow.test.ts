@@ -538,7 +538,7 @@ it('does not repair a booking whose attendee changes during the provider read',a
   }
   return fakeFetch(input,init);
  });
- expect((await call('POST','/api/admin/meetings/'+id+'/reconcile',{}, {Authorization:'Bearer test-admin'})).status).toBe(409);expect(m.meet_url).toBeNull();expect(sentEmails).toHaveLength(0);
+ expect((await call('POST','/api/admin/meetings/'+id+'/reconcile',{}, {Authorization:'Bearer test-admin'})).status).toBe(409);expect(m.meet_url).toBeNull();expect(sentEmails).toHaveLength(0);expect(tables.activity_log ?? []).toHaveLength(0);
 });
 
 describe('tenant read-only inbox integration',()=>{

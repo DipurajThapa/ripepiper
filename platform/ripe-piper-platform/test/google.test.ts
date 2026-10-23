@@ -60,6 +60,18 @@ describe('stable calendar reservation reconciliation',()=>{
   const calls=mockProvider((_url,init)=>{if(init.method==='POST'){if(!status)throw Error('timeout');return new Response('',{status});}return Response.json(event());});
   expect((await createMeetEvent(env,p)).eventId).toBe(calendarEventId(p.id));expect(calls.filter(c=>c.url.pathname.includes('/events')&&c.init.method==='POST')).toHaveLength(1);expect(calls.at(-1)!.url.pathname.endsWith('/'+calendarEventId(p.id))).toBe(true);
  });
+ it.each([false, true])('bounds pending conference reads (permanently pending: %s)', async neverReady => {
+  let reads = 0;
+  const pending = () => ({...event(), conferenceData:{createRequest:{status:{statusCode:'pending'}}}});
+  const calls = mockProvider((_url,init) => {
+   if (init.method === 'POST') return Response.json(pending());
+   reads++; return Response.json(neverReady || reads < 2 ? pending() : event());
+  });
+  if (neverReady) await expect(createMeetEvent(env,p)).rejects.toThrow('pending');
+  else expect((await createMeetEvent(env,p)).meetCode).toBe('abc-defg-hij');
+  expect(reads).toBe(neverReady ? 3 : 2);
+  expect(calls.filter(c=>c.url.pathname.includes('/events') && c.init.method==='POST')).toHaveLength(1);
+ });
  it('does not retry a definite provider rejection',async()=>{
   const calls=mockProvider(()=>new Response('PRIVATE',{status:403}));await expect(createMeetEvent(env,p)).rejects.toThrow('(403)');expect(calls.filter(c=>c.url.pathname.includes('/events'))).toHaveLength(1);
  });
