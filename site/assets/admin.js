@@ -5,6 +5,48 @@
   var RP = window.RP, $ = function (id) { return document.getElementById(id); };
   var data = { leads: [], meetings: [], proposals: [], tenants: [], posts: [] };
   var cur = { meeting: null, proposal: null, tenant: null, post: null };
+  var viewState = { loadedAt: null, partial: {}, limits: {leads:300,meetings:200,proposals:200,tenants:1000,posts:200}, error: false };
+  var fetchGeneration = 0, shellWired = false;
+
+  function renderDashboard() {
+    var target = $("crmOverview");
+    if (!target || !RP.crmDashboard) return;
+    target.setAttribute("aria-busy", "false");
+    if (viewState.error) { target.innerHTML = '<div class="crm-card"><h3>Workspace data is unavailable</h3><p>Use Refresh data to try again. Counts are not shown because the latest read could not be verified.</p></div>'; return; }
+    RP.crmDashboard.render(target, data, {demo:RP.demo,loadedAt:viewState.loadedAt,partial:viewState.partial,limits:viewState.limits,now:Date.now()});
+  }
+  function dataStatus(message, state) {
+    var node = $("crmDataStatus"); if (node) { node.textContent=message;node.dataset.state=state; }
+  }
+  function showSection(name, focus) {
+    var titles={overview:"Overview",leads:"Inquiries",meetings:"Meetings",proposals:"Proposals",clients:"Clients",blog:"Content"};
+    if (!Object.hasOwn(titles,name)) name="overview";
+    document.querySelectorAll("[data-tab]").forEach(function(a){a.setAttribute("aria-current",a.dataset.tab===name?"page":"false");});
+    document.querySelectorAll("[data-panel]").forEach(function(panel){panel.hidden=panel.dataset.panel!==name;});
+    if ($("crmTitle")) { $("crmTitle").textContent=titles[name];if(focus)$("crmTitle").focus(); }
+  }
+  function showWorkspace(name) {
+    var names=["account","brief","setup","campaigns","signal","events"];if(names.indexOf(name)===-1)return;
+    document.querySelectorAll("[data-workspace]").forEach(function(button){button.setAttribute("aria-pressed",button.dataset.workspace===name?"true":"false");});
+    document.querySelectorAll("[data-workspace-panel]").forEach(function(panel){panel.hidden=panel.dataset.workspacePanel!==name;});
+  }
+  function wireShell() {
+    if(shellWired)return;shellWired=true;
+    if ($("crmNavigation")) $("crmNavigation").hidden=false;
+    if ($("crmRefresh")) $("crmRefresh").addEventListener("click",function(){
+      if(RP.demo){dataStatus("Sample records refreshed. No live data connection.","sample");renderDashboard();return;}
+      fetchAll().then(renderAll).catch(function(){});
+    });
+    document.addEventListener("click",function(e){
+      var link=e.target.closest("[data-tab],[data-crm-go]");
+      if(link){e.preventDefault();var name=link.dataset.tab||link.dataset.crmGo;if(location.hash!=="#"+name)history.pushState(null,"","#"+name);showSection(name,true);return;}
+      var step=e.target.closest("[data-workspace]");if(step)showWorkspace(step.dataset.workspace);
+    });
+    function restore(){showSection(location.hash.slice(1)||"overview",false);}
+    window.addEventListener("hashchange",restore);window.addEventListener("popstate",restore);
+    window.addEventListener("rp:tenant-selected",function(e){if($("crmClientName"))$("crmClientName").textContent=e.detail.name;showWorkspace("account");});
+    restore();
+  }
 
   function demo() {
     data.leads = [
@@ -23,14 +65,27 @@
   }
 
   function fetchAll() {
-    var sb = RP.sb;
+    var sb = RP.sb, ticket=++fetchGeneration, keys=["leads","meetings","proposals","tenants","posts"];
+    if($("crmRefresh"))$("crmRefresh").disabled=true;
+    if($("crmOverview"))$("crmOverview").setAttribute("aria-busy","true");
+    dataStatus(viewState.loadedAt?"Refreshing records. Previous snapshot remains visible until the read completes.":"Loading CRM records…","loading");
     return Promise.all([
-      sb.from("leads").select("*").is("tenant_id", null).order("created_at", { ascending: false }).limit(300),
-      sb.from("meetings").select("*").is("tenant_id", null).order("start_at", { ascending: false }).limit(200),
-      sb.from("proposals").select("*").order("created_at", { ascending: false }).limit(200),
-      sb.from("tenants").select("*").order("name"),
-      sb.from("posts").select("*").order("updated_at", { ascending: false })
-    ]).then(function (r) { ["leads", "meetings", "proposals", "tenants", "posts"].forEach(function (k, i) { data[k] = r[i].data || []; }); });
+      sb.from("leads").select("*",{count:"exact"}).is("tenant_id", null).order("created_at", { ascending: false }).limit(viewState.limits.leads),
+      sb.from("meetings").select("*",{count:"exact"}).is("tenant_id", null).order("start_at", { ascending: false }).limit(viewState.limits.meetings),
+      sb.from("proposals").select("*",{count:"exact"}).order("created_at", { ascending: false }).limit(viewState.limits.proposals),
+      sb.from("tenants").select("*",{count:"exact"}).order("name").limit(viewState.limits.tenants),
+      sb.from("posts").select("*",{count:"exact"}).order("updated_at", { ascending: false }).limit(viewState.limits.posts)
+    ]).then(function(results){
+      if(ticket!==fetchGeneration)throw Error("A newer CRM refresh is in progress.");
+      if(results.some(function(r){return !r||r.error||!Array.isArray(r.data)||r.data.some(function(row){return !row||typeof row!=="object"||Array.isArray(row);});}))throw Error("CRM records could not be loaded. Refresh data to try again.");
+      var partial={};keys.forEach(function(k,i){var r=results[i];partial[k]=!Number.isInteger(r.count)||r.count!==r.data.length;});
+      keys.forEach(function(k,i){data[k]=results[i].data;});viewState.partial=partial;viewState.loadedAt=new Date().toISOString();viewState.error=false;
+      dataStatus("Connected records · Updated "+new Date(viewState.loadedAt).toLocaleTimeString("en-GB")+" (your browser time). "+(keys.some(function(k){return partial[k];})?"Limited snapshot: one or more lists are incomplete or their totals are unavailable. Counts use loaded records only.":"Counts use the records loaded in this workspace."),"ready");
+      renderDashboard();
+    }).catch(function(error){
+      if(ticket===fetchGeneration){viewState.error=true;dataStatus("Refresh failed. "+(viewState.loadedAt?"Tables may show the previous snapshot; review their records again before acting.":"No verified records are available.")+" Use Refresh data to retry.","error");renderDashboard();}
+      throw error;
+    }).finally(function(){if(ticket===fetchGeneration&&$("crmRefresh"))$("crmRefresh").disabled=false;});
   }
 
   function save(table, op, payload, match) {
@@ -43,7 +98,8 @@
 
   /* ---------------------------------------------------------- leads */
   function renderLeads() {
-    var f = $("leadFilter").value, rows = data.leads.filter(function (l) { return !f || l.status === f; });
+    var f = $("leadFilter").value, search = $("leadSearch") ? $("leadSearch").value.trim().toLowerCase() : "", rows = data.leads.filter(function (l) { return (!f || l.status === f) && (!search || [l.name,l.email,l.company].some(function(v){return String(v||"").toLowerCase().includes(search);})); });
+    if($("leadCount"))$("leadCount").textContent=rows.length+" of "+data.leads.length+" loaded inquiries"+(viewState.partial.leads?" · limited snapshot":"");
     var bands = ["< AED 10k", "AED 10k–50k", "AED 50k–250k", "> AED 250k"];
     $("leadsTable").innerHTML = RP.table([
       { label: "Received", render: function (l) { return RP.dateTime(l.created_at); } }, { label: "Name", render: function (l) { return RP.esc(l.name) + '<br><span class="hint">' + RP.esc(l.email) + "</span>"; } },
@@ -201,6 +257,7 @@
     window.dispatchEvent(new CustomEvent("rp:tenant-selected", { detail: { id: t.id, name: t.name } }));
     var today = new Date(), monday = new Date(today.getTime() - ((today.getUTCDay() + 6) % 7) * 864e5).toISOString().slice(0, 10);
     $("tenantDetail").innerHTML = "<h3>" + RP.esc(t.name) + "</h3>" +
+      (["onboarding", "paused"].indexOf(t.status) !== -1 ? '<form class="stack" data-form="activate"><span class="kicker">' + (t.status === "paused" ? 'Resume account' : 'Activate prepared account') + '</span><p class="hint">Requires the current reviewed business brief. This changes account readiness only. Campaigns, contact rights, provider connections and unrelated stops are not resumed.</p><div class="form-grid"><div class="field"><label for="activationBriefVersion">Current brief version</label><input id="activationBriefVersion" type="number" min="1" readonly required placeholder="Loading current brief"></div><div class="field"><label for="activationReason">Reason for this decision</label><input id="activationReason" type="text" minlength="8" maxlength="500" required></div></div><button class="btn btn-dark" type="submit" id="activateAccount" disabled>' + (t.status === "paused" ? 'Resume account readiness' : 'Activate account readiness') + '</button><p class="hint" id="activationHint">' + (RP.demo ? 'Sample workspace: connect the verified application environment to activate an account.' : 'Loading the current brief…') + '</p><div data-ok hidden></div><p class="err" data-err></p></form>' : '') +
       (t.status === "paused" || t.status === "ended" ? '<p class="hint">This client is ' + RP.esc(t.status) + '. Campaign execution and connected ad reporting are stopped.</p>' :
       '<form class="stack" data-form="pause"><span class="kicker">Emergency stop</span><div class="field"><label for="pauseReason">Reason for pausing</label><input id="pauseReason" type="text" minlength="8" maxlength="500" required></div><button class="btn btn-line" type="submit">Pause client execution</button><div data-ok hidden></div><p class="err" data-err></p></form>') +
       (t.status === "paused" || t.status === "ended" ? '' :
@@ -217,18 +274,28 @@
       '<div class="field"><label for="aRef">Account ID</label><input id="aRef" type="text"></div></div><p class="hint">The client must first give our business account read access to this ad account.</p><button class="btn btn-line" type="submit">Connect</button><div data-ok hidden></div><p class="err" data-err></p></form>' : '') +
       '<form class="stack" data-form="note"><span class="kicker">Add an update to the client\'s activity timeline</span><div class="field"><label for="nKind">Type</label><select id="nKind"><option value="note">Note</option><option value="change">Change we made</option><option value="milestone">Milestone</option><option value="alert">Alert</option></select></div>' +
       '<div class="field"><label for="nMsg">Message (what changed, why, and what happens next)</label><textarea id="nMsg"></textarea></div><button class="btn btn-line" type="submit">Publish update</button><div data-ok hidden></div><p class="err" data-err></p></form>';
+    if (!RP.demo && ["onboarding", "paused"].indexOf(t.status) !== -1) {
+      RP.sb.from("business_briefs").select("version").eq("tenant_id", t.id).order("version", { ascending: false }).limit(1).then(function (r) {
+        if (!cur.tenant || cur.tenant.id !== t.id || !$("activationBriefVersion")) return;
+        var brief = r && r.data && r.data[0];
+        if (!r || r.error || !brief || !Number.isInteger(brief.version) || brief.version < 1) { $("activationHint").textContent = "Save a reviewed business brief, then reopen this client before activation."; return; }
+        $("activationBriefVersion").value = brief.version; $("activateAccount").disabled = false;
+        $("activationHint").textContent = "Version " + brief.version + " will be rechecked with account state at submission. Expired briefs cannot activate an account.";
+      }).catch(function () { if (cur.tenant && cur.tenant.id === t.id && $("activationHint")) $("activationHint").textContent = "The brief could not be loaded. Reopen this client before activation."; });
+    }
   }
   function tenantSubmit(form) {
     var t = cur.tenant, kind = form.dataset.form, ok = form.querySelector("[data-ok]"), err = form.querySelector("[data-err]"), v = function (id) { return $(id).value; };
     err.textContent = "";
     var p;
+    if (kind === "activate") p = RP.api("/api/admin/tenants/" + t.id + "/activate", { expected_status: t.status, expected_version: t.execution_version || 0, brief_version: +v("activationBriefVersion"), reason: v("activationReason") });
     if (kind === "pause") p = RP.api("/api/admin/tenants/" + t.id + "/pause", { reason: v("pauseReason") });
     if (kind === "invite") p = RP.demo ? Promise.resolve() : RP.api("/api/admin/tenants/" + t.id + "/invite", { email: v("iEmail"), role: v("iRole") });
     if (kind === "weekly") p = save("outreach_weekly", "upsert", { tenant_id: t.id, week_start: v("wWeek"), sent: +v("wSent") || 0, delivered: +v("wDel") || 0, replies: +v("wRep") || 0, positive_replies: +v("wPos") || 0, meetings_booked: +v("wBook") || 0, meetings_held: +v("wHeld") || 0, icp_match_pct: v("wIcp") === "" ? null : +v("wIcp") }, { onConflict: "tenant_id,week_start" });
     if (kind === "fee") p = save("fees", "insert", { tenant_id: t.id, month: v("fMonth") + "-01", type: v("fType"), amount: +v("fAmt"), currency: t.currency, note: v("fNote") });
     if (kind === "ads") p = save("ad_accounts", "insert", { tenant_id: t.id, platform: v("aPlat"), account_ref: v("aRef").replace(/[^0-9a-zA-Z_-]/g, "") });
     if (kind === "note") p = save("activity_log", "insert", { tenant_id: t.id, actor: "Ripe Piper", kind: v("nKind"), message: v("nMsg"), visible_to_client: true });
-    p.then(function () { if (kind === "pause") { t.status = "paused"; renderTenants(); tenantDetail(t); } else done(ok, "Saved."); })
+    p.then(function () { if (kind === "pause" || kind === "activate") return fetchAll().then(function () { renderTenants(); var current = data.tenants.find(function (row) { return row.id === t.id; }); if (current && cur.tenant && cur.tenant.id === t.id) tenantDetail(current); }); else done(ok, "Saved."); })
       .catch(function (e) { err.textContent = e.message; });
   }
 
@@ -280,6 +347,7 @@
       }).catch(function (error) { $("tenantErr").textContent = error.message; });
     });
     $("leadFilter").addEventListener("change", renderLeads);
+    if($("leadSearch"))$("leadSearch").addEventListener("input",renderLeads);
     RP.onRowClick($("meetingsTable"), function () { return data.meetings; }, meetingDetail);
     RP.onRowClick($("proposalsTable"), function () { return data.proposals; }, proposalDetail);
     RP.onRowClick($("tenantsTable"), function () { return data.tenants; }, tenantDetail);
@@ -323,19 +391,20 @@
     });
   }
 
-  function renderAll() { renderLeads(); renderMeetings(); renderProposals(); renderTenants(); renderPosts(); }
+  function renderAll() { renderLeads(); renderMeetings(); renderProposals(); renderTenants(); renderPosts(); renderDashboard(); }
 
   RP.auth(function (user) {
     $("whoami").textContent = "Signed in as " + user.email;
-    var go = function () { wire(); renderAll(); RP.tabs(); };
-    if (RP.demo) { demo(); return go(); }
+    var go = function () { wire(); wireShell(); };
+    if (RP.demo) { demo();viewState.loadedAt=new Date().toISOString();go();renderAll();if($("crmRefresh"))$("crmRefresh").disabled=false;dataStatus("Sample records · Illustrative snapshot, not live performance.","sample");return; }
     RP.sb.from("profiles").select("is_admin").eq("id", user.id).single().then(function (r) {
-      if (!r.data || !r.data.is_admin) {
-        $("whoami").textContent = user.email + " is not an administrator. Sign out and sign in with an admin account.";
+      if (!r || r.error || !r.data || r.data.is_admin!==true) {
+        $("whoami").textContent = "Administrator access is required.";
+        dataStatus("Administrator access could not be verified. Sign out and use an invited admin account.","error");
         document.querySelectorAll("[data-panel],.tabs").forEach(function (p) { p.hidden = true; });
         return;
       }
-      fetchAll().then(go);
-    });
+      go();return fetchAll().then(renderAll).catch(function(){});
+    }).catch(function(){dataStatus("Administrator access could not be verified. Sign out and try again.","error");});
   });
 })();

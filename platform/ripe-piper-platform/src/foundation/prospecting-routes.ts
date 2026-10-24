@@ -14,6 +14,8 @@ export async function saveBrief(req: Request, env: Env, tenantId: string) {
   if (!await db.one("tenants", `id=eq.${tenantId}&select=id`)) return bad("Client not found.",404);
   try {
     const version = await db.rpc<number>("save_business_brief", {p_tenant_id:tenantId,p_expected_version:b.expected_version,p_body:b.brief,p_actor:user.id});
+    if (!Number.isInteger(version) || version < 1 || (version !== b.expected_version + 1 && version !== b.expected_version))
+      return bad("The brief acknowledgement is uncertain. Reload the current brief before continuing.",503);
     return json({ok:true,version});
   } catch (e) {
     if (e instanceof DbError && e.body.includes("40001")) return bad("The brief changed. Reload before saving.",409);
@@ -93,9 +95,11 @@ export async function recordProductEvent(req: Request, env: Env, tenantId: strin
   }
   try {
     const id=await db.rpc<string>("record_product_event",{p_tenant:tenantId,p_lead:lead.id,p_actor:user.id,p_reference:b.reference.trim(),p_rights:b.rights_reference.trim(),p_excerpt:b.excerpt.trim(),p_observed:b.observed_at,p_synthetic:b.synthetic,p_context:b.context});
+    if(typeof id!=="string" || !uuid.test(id)) return bad("The evidence receipt is uncertain. Inspect or retry the same source reference; do not create another outcome.",503);
     return json({ok:true,id,delivery:"not_sent"},201);
   } catch(e) {
     if(e instanceof DbError && e.isConflict) return bad("This reference is already attached to different evidence. Reload or use a new correction reference.",409);
+    if(e instanceof DbError && (e.body.includes('22023') || e.body.includes('23514') || e.body.includes('23503'))) return bad("Outcome evidence does not match this account, contact, campaign, action receipt or observation time.",409);
     throw e;
   }
 }
@@ -113,7 +117,16 @@ export async function importReviewLeads(req:Request,env:Env,tenantId:string) {
   }
   try {
    const result=await db.rpc<any>('import_review_lead',{p_tenant:tenantId,p_actor:user.id,p_email:r.email.trim().toLowerCase(),p_company:r.company.trim(),p_reference:r.reference.trim(),p_rights:r.rights_reference.trim(),p_observed:r.observed_at,p_synthetic:b.synthetic});
-   results.push({row:index+1,...result});
+   // A missing/malformed acknowledgement may follow a committed write. Stop the
+   // batch and retain its source references for reconciliation; never guess success.
+   if(!result || typeof result!=='object' || Array.isArray(result) ||
+      !['created','linked','duplicate'].includes(result.state) ||
+      typeof result.lead_id!=='string' || !uuid.test(result.lead_id) ||
+      typeof result.observation_id!=='string' || !uuid.test(result.observation_id)) {
+    results.push({row:index+1,state:'review',reason:'result_uncertain_retry_same_reference'});
+    return json({ok:false,results,nextRow:index+2,contactAllowed:false},503);
+   }
+   results.push({row:index+1,state:result.state,lead_id:result.lead_id,observation_id:result.observation_id});
   }catch(e){
    if(e instanceof DbError && e.isConflict) results.push({row:index+1,state:'rejected',reason:'reference_conflict'});
    else if(e instanceof DbError && e.body.includes('22023'))results.push({row:index+1,state:'rejected',reason:'invalid_row_or_capacity'});

@@ -1,0 +1,52 @@
+{
+  "date_utc": "2026-10-23",
+  "environment": "isolated staging only",
+  "project_id": "wgomywhuzyboxlckopca",
+  "production_project_excluded": "jtoafjjszqqrtwerxspw",
+  "baseline_hosted_migrations": 19,
+  "current_hosted_migrations": 22,
+  "prior_manifest": "docs/evidence/STAGING_MIGRATION_MANIFEST_2026-10-23.json",
+  "implementation_local_sha": "464904674ace1b8d326c97636b0150c40f0fced8",
+  "implementation_published_sha": "64d6767d79376a9f841594cff7f9d82e9d1968b3",
+  "implementation_tree": "73a755325fbb2fd1c5abc8ee8bcd9d1dd15961f8",
+  "appended_migrations": [
+    {
+      "source_path": "platform/ripe-piper-platform/supabase/migrations/20261023164229_tenant_activation_review.sql",
+      "source_sha256": "c0ad2d9b189bc28a6430ba13623e3c4dda6cb0c63450a754a4e7eee8f753d4fc",
+      "source_bytes": 6798,
+      "hosted_version": "20261023165843",
+      "hosted_name": "ripepiper_20261023164229_tenant_activation_review",
+      "stored_statement_count": 1,
+      "stored_statement_md5": "83bd5619294f17ad9eb61906bceb8dc7",
+      "source_md5_matches_stored_statement": true
+    },
+    {
+      "source_path": "platform/ripe-piper-platform/supabase/migrations/20261023164301_revive_outcome_attribution.sql",
+      "source_sha256": "2522f77069533c1df72ce8456ba13e007024cc1ef56c86af5e8aaeb9d03282b5",
+      "source_bytes": 4030,
+      "hosted_version": "20261023165847",
+      "hosted_name": "ripepiper_20261023164301_revive_outcome_attribution",
+      "stored_statement_count": 1,
+      "stored_statement_md5": "7651dce7010a038516348eebe360874a",
+      "source_md5_matches_stored_statement": true
+    },
+    {
+      "source_path": "platform/ripe-piper-platform/supabase/migrations/20261023164306_revive_eligibility_gate.sql",
+      "source_sha256": "fe2b7764189139235142ec8b108bd2e6d50722305616f16a477c7e9ed3dba352",
+      "source_bytes": 16333,
+      "hosted_version": "20261023165852",
+      "hosted_name": "ripepiper_20261023164306_revive_eligibility_gate",
+      "stored_statement_count": 1,
+      "stored_statement_md5": "2575e508d447de12fc8d2e114b0cde0d",
+      "source_md5_matches_stored_statement": true
+    }
+  ],
+  "independent_qa": "docs/evidence/QA_REVIVE_2026-10-23.md",
+  "rollback_packet": "qa/staging-revive-rollback-acceptance.sql",
+  "rollback_packet_sha256": "1b1f28a491960d3a51c1f54288442579959b7cc954771f599a4a9c646c0bdbb1",
+  "limits": [
+    "Selected actual PostgreSQL role, queue, fence, attribution and rollback checks only.",
+    "No application Auth/PostgREST/Worker runtime or real provider delivery is certified.",
+    "Production schema, configuration and deployment were not changed."
+  ]
+}

@@ -1,0 +1,463 @@
+{
+  "reportVersion": 1,
+  "kind": "offline_synthetic_regression_baseline",
+  "passed": true,
+  "evaluatedAt": "2026-10-23T12:00:00Z",
+  "provenance": {
+    "dataset": {
+      "id": "ripe-piper-prospect-quality-synthetic",
+      "version": "2026-10-23.v1",
+      "canonicalSha256": "849aecd3a997aef04e0fd08db8cd336061f0aa57fe8738e84a181c96635780b7",
+      "labelSource": "Synthetic scenario expectations authored for regression; not customer review or observed commercial outcomes."
+    },
+    "rules": {
+      "version": 2,
+      "assessorSha256": "0eec9bdcd1410e6b26803ce2cdd843b50e32084fc58c97282ce15e2f9777afea",
+      "shortlistModuleSha256": "182b57bd655e98db0b71172d8565254f69e75fb46eb5671eb40f2ae2bfa6fbb7",
+      "ranking": "independent per-tenant candidate-first then lead ID ascending"
+    },
+    "evaluatorSha256": "4ff2b8d29af7a27ca071fe6bdfbe8c961d8486524e77e2b42623f9b2c56d0acc",
+    "briefs": [
+      {
+        "tenantId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "version": 1,
+        "canonicalSha256": "c76db56a4e9433ea7269c667e9004a4fc8ad85c93ff3deceec2997abc68710ed"
+      },
+      {
+        "tenantId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        "version": 1,
+        "canonicalSha256": "131253d2916421cb4d1f67a28330ac5c2461fa987dcf17305505881f1bc29662"
+      }
+    ]
+  },
+  "top20": {
+    "limitPerTenant": 20,
+    "perTenant": [
+      {
+        "tenantId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "limit": 20,
+        "candidatePool": 6,
+        "selectedCount": 6,
+        "pendingCount": 1,
+        "reviewedDenominator": 5,
+        "acceptedSuitableCount": 5,
+        "precision": 1,
+        "selectedCaseIds": [
+          "a-01-direct-fit",
+          "a-02-reviewed-alias",
+          "a-03-case-variation",
+          "a-04-split-sources",
+          "a-05-injected-source",
+          "a-14-pending-label"
+        ]
+      },
+      {
+        "tenantId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        "limit": 20,
+        "candidatePool": 6,
+        "selectedCount": 6,
+        "pendingCount": 1,
+        "reviewedDenominator": 5,
+        "acceptedSuitableCount": 5,
+        "precision": 1,
+        "selectedCaseIds": [
+          "b-01-direct-fit",
+          "b-02-reviewed-alias",
+          "b-03-case-variation",
+          "b-04-split-sources",
+          "b-05-injected-source",
+          "b-14-pending-label"
+        ]
+      }
+    ],
+    "candidatePool": 12,
+    "selectedCount": 12,
+    "pendingCount": 2,
+    "reviewedDenominator": 10,
+    "acceptedSuitableCount": 10,
+    "precision": 1,
+    "precisionMeaning": "Micro-average of labelled selected candidates from independent tenant top-20 lists."
+  },
+  "coverage": {
+    "cases": 30,
+    "tenants": 2,
+    "assessedCases": 28,
+    "scopeRejectedCases": 2,
+    "labelledFitCases": 26,
+    "pendingCases": 2,
+    "labelCoverage": 0.928571,
+    "decisiveCases": 18,
+    "decisionCoverage": 0.692308,
+    "suitableLabelCount": 10,
+    "suitableCandidateCount": 10,
+    "suitableRecall": 1,
+    "stateChecks": 28,
+    "stateMatches": 28,
+    "stateAccuracy": 1
+  },
+  "safety": {
+    "hardExcluded": 4,
+    "falseHardExclusionPass": 0,
+    "scopeCases": 2,
+    "scopeRejected": 2,
+    "tenantLeaks": 0,
+    "permissionGrants": 0,
+    "citationChecks": 98,
+    "supportedCitations": 98,
+    "unsupportedClaims": 0,
+    "unsafeCandidatePass": 0,
+    "unexpectedErrors": 0,
+    "lexicalCitationSupportRate": 1
+  },
+  "checks": [
+    {
+      "id": "non_empty_reviewed_top",
+      "passed": true,
+      "actual": 10,
+      "required": 6
+    },
+    {
+      "id": "synthetic_label_precision",
+      "passed": true,
+      "actual": 1,
+      "required": 0.9
+    },
+    {
+      "id": "suitable_candidate_coverage",
+      "passed": true,
+      "actual": 1,
+      "required": 0.8
+    },
+    {
+      "id": "expected_state_regression",
+      "passed": true,
+      "actual": 1,
+      "required": 0.95
+    },
+    {
+      "id": "hard_exclusions",
+      "passed": true,
+      "actual": 0,
+      "required": 0
+    },
+    {
+      "id": "tenant_and_identity_isolation",
+      "passed": true,
+      "actual": 0,
+      "required": 0
+    },
+    {
+      "id": "cited_fact_support",
+      "passed": true,
+      "actual": 0,
+      "required": 0
+    },
+    {
+      "id": "candidate_requires_four_supported_matches",
+      "passed": true,
+      "actual": 0,
+      "required": 0
+    },
+    {
+      "id": "no_contact_permission_grants",
+      "passed": true,
+      "actual": 0,
+      "required": 0
+    },
+    {
+      "id": "no_unexpected_assessment_errors",
+      "passed": true,
+      "actual": 0,
+      "required": 0
+    }
+  ],
+  "caseResults": [
+    {
+      "id": "a-01-direct-fit",
+      "label": "suitable",
+      "predictedState": "candidate",
+      "expectedState": "candidate",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "a-02-reviewed-alias",
+      "label": "suitable",
+      "predictedState": "candidate",
+      "expectedState": "candidate",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "a-03-case-variation",
+      "label": "suitable",
+      "predictedState": "candidate",
+      "expectedState": "candidate",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "a-04-split-sources",
+      "label": "suitable",
+      "predictedState": "candidate",
+      "expectedState": "candidate",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "a-05-injected-source",
+      "label": "suitable",
+      "predictedState": "candidate",
+      "expectedState": "candidate",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "a-06-outside-industry",
+      "label": "unsuitable",
+      "predictedState": "excluded",
+      "expectedState": "excluded",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "a-07-outside-market",
+      "label": "unsuitable",
+      "predictedState": "excluded",
+      "expectedState": "excluded",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "a-08-excluded-industry",
+      "label": "unsuitable",
+      "predictedState": "excluded",
+      "expectedState": "excluded",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "a-09-suppressed-contact",
+      "label": "unsuitable",
+      "predictedState": "excluded",
+      "expectedState": "excluded",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "a-10-ambiguous-source",
+      "label": "undetermined",
+      "predictedState": "review",
+      "expectedState": "review",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "a-11-conflicting-source",
+      "label": "undetermined",
+      "predictedState": "review",
+      "expectedState": "review",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "a-12-stale-source",
+      "label": "undetermined",
+      "predictedState": "unknown",
+      "expectedState": "unknown",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "a-13-unreviewed-source",
+      "label": "undetermined",
+      "predictedState": "unknown",
+      "expectedState": "unknown",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "a-14-pending-label",
+      "label": "pending",
+      "predictedState": "candidate",
+      "expectedState": "candidate",
+      "matched": true,
+      "pendingLabel": true,
+      "scopeViolation": false
+    },
+    {
+      "id": "a-15-foreign-tenant",
+      "label": "undetermined",
+      "predictedState": "scope_rejected",
+      "expectedState": "scope_rejected",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": true
+    },
+    {
+      "id": "b-01-direct-fit",
+      "label": "suitable",
+      "predictedState": "candidate",
+      "expectedState": "candidate",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "b-02-reviewed-alias",
+      "label": "suitable",
+      "predictedState": "candidate",
+      "expectedState": "candidate",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "b-03-case-variation",
+      "label": "suitable",
+      "predictedState": "candidate",
+      "expectedState": "candidate",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "b-04-split-sources",
+      "label": "suitable",
+      "predictedState": "candidate",
+      "expectedState": "candidate",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "b-05-injected-source",
+      "label": "suitable",
+      "predictedState": "candidate",
+      "expectedState": "candidate",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "b-06-outside-industry",
+      "label": "unsuitable",
+      "predictedState": "excluded",
+      "expectedState": "excluded",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "b-07-outside-market",
+      "label": "unsuitable",
+      "predictedState": "excluded",
+      "expectedState": "excluded",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "b-08-excluded-industry",
+      "label": "unsuitable",
+      "predictedState": "excluded",
+      "expectedState": "excluded",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "b-09-suppressed-contact",
+      "label": "unsuitable",
+      "predictedState": "excluded",
+      "expectedState": "excluded",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "b-10-ambiguous-source",
+      "label": "undetermined",
+      "predictedState": "review",
+      "expectedState": "review",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "b-11-conflicting-source",
+      "label": "undetermined",
+      "predictedState": "review",
+      "expectedState": "review",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "b-12-unsupported-source",
+      "label": "undetermined",
+      "predictedState": "unknown",
+      "expectedState": "unknown",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "b-13-future-source",
+      "label": "undetermined",
+      "predictedState": "unknown",
+      "expectedState": "unknown",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": false
+    },
+    {
+      "id": "b-14-pending-label",
+      "label": "pending",
+      "predictedState": "candidate",
+      "expectedState": "candidate",
+      "matched": true,
+      "pendingLabel": true,
+      "scopeViolation": false
+    },
+    {
+      "id": "b-15-foreign-lead",
+      "label": "undetermined",
+      "predictedState": "scope_rejected",
+      "expectedState": "scope_rejected",
+      "matched": true,
+      "pendingLabel": false,
+      "scopeViolation": true
+    }
+  ],
+  "costs": {
+    "externalCalls": 0,
+    "modelCalls": 0,
+    "incrementalProviderChargesUsd": 0
+  },
+  "commercialOutcomes": {
+    "measured": false,
+    "conversionUplift": null,
+    "operatorCorrectionRate": null,
+    "modelComparison": null
+  },
+  "limitations": [
+    "Synthetic scenario labels are regression expectations, not customer-accepted prospects.",
+    "Lexical citation checks establish source traceability, not the truth of source claims or buying intent.",
+    "Pending fit labels are excluded from precision failures; unknown commercial outcomes are not losses.",
+    "No live source, provider, model variant or conversion cohort was exercised."
+  ]
+}
