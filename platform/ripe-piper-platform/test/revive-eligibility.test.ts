@@ -16,7 +16,7 @@ function mockApi(){vi.stubGlobal('fetch',async(input:string,init:RequestInit={})
  if(u.pathname==='/rest/v1/profiles')return Response.json([{is_admin:true}]);
  if(u.pathname.startsWith('/rest/v1/rpc/')){const name=u.pathname.split('/').at(-1)!;try{return Response.json(await rpc(name,Object.values(JSON.parse(String(init.body)))));}catch(e:any){return Response.json({code:e.code,message:e.message},{status:400});}}
  const table=u.pathname.replace('/rest/v1/','');
- if(['campaigns','tenants','outbound_actions','revive_reviews','leads'].includes(table)&&(!init.method||init.method==='GET')){
+ if(['campaigns','tenants','outbound_actions','revive_reviews','leads','campaign_assets'].includes(table)&&(!init.method||init.method==='GET')){
   const values:any[]=[],where:string[]=[];
   for(const [field,value] of u.searchParams){
    if(['select','order','limit'].includes(field))continue;
@@ -48,7 +48,7 @@ async function accept(f:{tenant:string;lead:string}){
 }
 async function plan(f:{tenant:string;lead:string}){
  const campaign=crypto.randomUUID();
- await rpc('manage_campaign_plan',[f.tenant,campaign,actor,'save',0,{product:'revive',purpose:'reactivation',market:'AE',timezone:'UTC',steps:[{offsetHours:0,subject:'Reviewing your enquiry',body:'Is this still relevant?',evidenceReference:'fit'}]}]);
+ await rpc('manage_campaign_plan',[f.tenant,campaign,actor,'save',0,{product:'revive',purpose:'reactivation',market:'AE',timezone:'UTC',audience:{leadIds:[f.lead],confirmed:true},steps:[{offsetHours:0,subject:'Reviewing your enquiry',body:'Is this still relevant?',evidenceReference:'fit'}]}]);
  await rpc('manage_campaign_plan',[f.tenant,campaign,actor,'approve',1,{clientAuthority:'fixture-client',ownerAuthority:'fixture-owner',ctsProfile:'fixture-review',maxActions:3,expiresAt:new Date(Date.now()+7*86400000).toISOString()}]);
  const source=(await q(`select id from lead_observations where tenant_id=$1 and lead_id=$2 and external_ref='fit'`,[f.tenant,f.lead]))[0].id;
  await rpc('manage_campaign_plan',[f.tenant,campaign,actor,'rights',1,{leadId:f.lead,sourceId:source,noticeReference:'fixture-notice'}]);
@@ -105,9 +105,9 @@ it('draft save denies anonymous/authenticated execution and nonstaff service act
 });
 
 it('composes actual Worker review, PostgreSQL CAS, campaign enrolment and fenced sink completion',async()=>{
- const f=await fixture(),campaign=await plan(f);
- await expect(queue(f,campaign)).rejects.toThrow(/Revive cohort/);
- await accept(f);
+ const f=await fixture();
+ await expect(plan(f)).rejects.toThrow();
+ await accept(f);const campaign=await plan(f);
  const start=new Date(Date.now()+1000).toISOString(),enrolled=await queue(f,campaign,start);
  expect(enrolled.actionIds).toHaveLength(1);expect((await queue(f,campaign,start)).actionIds).toEqual(enrolled.actionIds);
  const id=enrolled.actionIds[0],token=crypto.randomUUID(),at=new Date(Date.now()+2000).toISOString();
@@ -116,7 +116,7 @@ it('composes actual Worker review, PostgreSQL CAS, campaign enrolment and fenced
  expect((await q('select state,attempts from outbound_actions where id=$1',[id]))[0]).toEqual({state:'tested',attempts:1});
 });
 it('runs the composed approved Revive journey through Worker automation into a source-linked synthetic outcome',async()=>{
- const f=await fixture(),campaign=await plan(f);await accept(f);mockApi();
+ const f=await fixture();await accept(f);const campaign=await plan(f);mockApi();
  const run=()=>worker.fetch(new Request(`https://worker.invalid/api/admin/tenants/${f.tenant}/revive-run`,{method:'POST',headers:{Authorization:'Bearer fixture-staff'}}),{...env,REVIVE_AUTOMATION_ENABLED:'true'},{} as ExecutionContext);
  const first=await (await run()).json() as any;expect(first).toMatchObject({enrolled:1,tested:0,review:0,delivery:'not_sent'});
  try{
@@ -129,7 +129,7 @@ it('runs the composed approved Revive journey through Worker automation into a s
  }finally{vi.useRealTimers();}
 });
 it.each(['history','fit','identity','brief','suppression','expiry','revoked_reviewer'])('rejects a changed %s at dispatch after enrolment',async change=>{
- const f=await fixture(),campaign=await plan(f);await accept(f);const id=(await queue(f,campaign)).actionIds[0];
+ const f=await fixture();await accept(f);const campaign=await plan(f);const id=(await queue(f,campaign)).actionIds[0];
  if(change==='history')await rpc('record_product_event',[f.tenant,f.lead,actor,'new-history','rights','Later reviewed decline',new Date().toISOString(),true,{product:'revive',kind:'history',lastContactAt:new Date(Date.now()-80*86400000).toISOString(),previousInterest:'no',stalledReason:'Declined'}]);
  if(change==='fit')await q(`insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,rights_reference,synthetic,assessment_facts,assessment_excerpt,assessment_reviewed_by) values($1,$2,'fixture','new-fit',now(),'review','rights',true,'{"industry":"retail"}','retail',$3)`,[f.tenant,f.lead,actor]);
  if(change==='identity')await q('update leads set email=$1 where id=$2',[crypto.randomUUID()+'@example.invalid',f.lead]);
@@ -142,7 +142,7 @@ it.each(['history','fit','identity','brief','suppression','expiry','revoked_revi
  if(change==='revoked_reviewer')await q('update profiles set is_admin=true where id=$1',[actor]);
 });
 it('rechecks evidence during an already claimed action and rejects completion',async()=>{
- const f=await fixture(),campaign=await plan(f);await accept(f);const id=(await queue(f,campaign)).actionIds[0],token=crypto.randomUUID(),at=new Date(Date.now()+3000).toISOString();
+ const f=await fixture();await accept(f);const campaign=await plan(f);const id=(await queue(f,campaign)).actionIds[0],token=crypto.randomUUID(),at=new Date(Date.now()+3000).toISOString();
  expect(await rpc('claim_fenced_synthetic_action',[f.tenant,id,token,at])).toMatchObject({token});
  await q(`update leads set company='Changed identity' where id=$1`,[f.lead]);
  expect(await rpc('complete_fenced_synthetic_action',[f.tenant,id,token,1,1,at])).toBe(false);

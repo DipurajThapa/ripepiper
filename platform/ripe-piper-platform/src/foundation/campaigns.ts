@@ -3,7 +3,7 @@ import {Db,DbError} from '../lib/db';
 import {bad,json,readJson,requireUser} from '../routes/http';
 import {validInstant} from './prospecting';
 import {PRODUCTS} from './products';
-import {proposeReviveDraft,reviveDraftInputError,validDraftSave} from './revive-draft';
+import {proposeReviveDraft,reviveDraftInputError,validDraftSave,validReviveProposalId} from './revive-draft';
 import type {ReviveContext} from './revive';
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const bounded=(v:unknown,n:number):v is string=>typeof v==='string' && !!v.trim() && v.length<=n;
@@ -19,6 +19,7 @@ function campaignAcknowledgement(operation:string,value:any,campaign:string,vers
 }
 export function planError(b:any):string|null {
  if(!b || !PRODUCTS.includes(b.product) || !bounded(b.purpose,160) || !/^[A-Z]{2}$/.test(b.market??''))return 'Choose a product, purpose and two-letter market.';
+ if(b.audience!==undefined && (b.product!=='revive'||!b.audience||b.audience.confirmed!==true||!Array.isArray(b.audience.leadIds)||b.audience.leadIds.length<1||b.audience.leadIds.length>25||new Set(b.audience.leadIds).size!==b.audience.leadIds.length||b.audience.leadIds.some((id:unknown)=>typeof id!=='string'||!uuid.test(id))))return 'Review one to 25 distinct eligible contacts for this Revive campaign.';
  try{if(!bounded(b.timezone,80))throw Error();new Intl.DateTimeFormat('en',{timeZone:b.timezone});}catch{return 'Choose a valid timezone.';}
  if(!Array.isArray(b.steps)||b.steps.length<1||b.steps.length>3)return 'Use one to three messages.';
  let prior=-1;
@@ -41,15 +42,28 @@ export async function campaignPlans(req:Request,env:Env,tenantId:string){
   const sources=await db.select<any>('lead_observations',`tenant_id=eq.${tenantId}&synthetic=eq.true&select=id,lead_id,external_ref&limit=1000`);
   const draftSources=await db.select<any>('lead_observations',`tenant_id=eq.${tenantId}&assessment_reviewed_by=not.is.null&select=id,lead_id,external_ref&limit=1000`);
   if(leads.length>100||sources.length>=1000||draftSources.length>=1000||campaigns.length>100||assets.length>=1000||actions.length>=1000)return bad('This review needs pagination before more records can be displayed.',409);
-  return json({ok:true,campaigns,assets,actions:actions.map(({dispatch_token,...row}:any)=>row),leads:leads.filter(l=>l.email.toLowerCase().endsWith('.invalid')),sources,draftLeads:leads,draftSources,delivery:'synthetic_only'});
+  const candidates=await db.rpc<any>('revive_audience_candidates',{p_tenant:tenantId,p_actor:user.id});
+  if(!Array.isArray(candidates)||candidates.length>100||candidates.some(c=>!c||!uuid.test(c.leadId??'')||!Number.isInteger(c.reviewVersion)||c.reviewVersion<1||!/^[a-f0-9]{32}$/.test(c.snapshot??'')||!validInstant(c.expiresAt)||!(c.company===null||typeof c.company==='string')||!leads.some(l=>l.id===c.leadId&&l.email===c.email))||new Set(candidates.map(c=>c.leadId)).size!==candidates.length)return bad('The reviewed audience could not be verified. Refresh this client before selecting contacts.',503);
+  const audienceCandidates=candidates.map(({leadId,email,company,reviewVersion,snapshot,expiresAt})=>({leadId,email,company,reviewVersion,snapshot,expiresAt}));
+  return json({ok:true,campaigns,assets,actions:actions.map(({dispatch_token,...row}:any)=>row),leads:leads.filter(l=>l.email.toLowerCase().endsWith('.invalid')),sources,draftLeads:leads,draftSources,audienceCandidates,delivery:'synthetic_only'});
  }
  if(b.operation==='draft'){
   const error=reviveDraftInputError(b.body);if(error)return bad(error);
   const context=await db.rpc<ReviveContext>('revive_review_context',{p_tenant:tenantId,p_lead:b.body.leadId,p_actor:user.id});
   if(!context)return bad('Contact not found in this client account.',404);
   if(context.lead.tenant_id!==tenantId)return bad('Contact not found in this client account.',404);
-  try{return json({ok:true,proposal:proposeReviveDraft(context,tenant.name,b.body)});}
+  let proposal:ReturnType<typeof proposeReviveDraft>;
+  try{proposal=proposeReviveDraft(context,tenant.name,b.body);}
   catch{return bad('Drafting needs a current accepted Revive review, current reviewed need evidence and a plain-text business name/offer. Refresh the review before continuing.',409);}
+  try{
+   const receipt=await db.rpc<any>('record_revive_draft_proposal',{p_tenant:tenantId,p_actor:user.id,p_context:proposal.draftContext});
+   const expected=proposal.draftContext as unknown as Record<string,unknown>,actual=receipt?.draftContext;
+   if(!receipt||!validReviveProposalId(receipt.proposalId)||!actual||typeof actual!=='object'||Array.isArray(actual)||Object.keys(actual).length!==Object.keys(expected).length||Object.keys(expected).some(k=>actual[k]!==expected[k]))return bad('The draft source receipt could not be verified. Prepare a new proposal before saving.',503);
+   return json({ok:true,proposal:{...proposal,draftContext:{...proposal.draftContext,proposalId:receipt.proposalId}}});
+  }catch(e){
+   if(e instanceof DbError&&(e.body.includes('40001')||e.body.includes('22023')||e.body.includes('42501')))return bad('Draft evidence or the reviewer changed. Refresh the review and prepare a new proposal.',409);
+   return bad('The draft receipt result is uncertain. Refresh before preparing another proposal; no campaign was approved or queued.',503);
+  }
  }
  if(!uuid.test(b.campaign_id??'') || !Number.isInteger(b.version) || b.version<0)return bad('Provide the campaign and loaded version.');
  if(b.operation==='save'){

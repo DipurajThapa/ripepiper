@@ -45,11 +45,11 @@ try {
     return {ok:true,delivery:'not_sent'};
    }
    if(path.endsWith('/campaigns')){
-    if(body.operation==='list')return {campaigns:window.fixtureCampaigns,assets:window.fixtureAssets,actions:[],draftLeads:[{id:'lead-fixture',email:'fixture@example.invalid',company:'Synthetic company'}],draftSources:[{id:'source-fixture',lead_id:'lead-fixture',external_ref:'reviewed-need-source'}]};
-    if(body.operation==='draft')return {proposal:{steps:[{offsetHours:0,subject:'A question about follow-up',body:'Reviewed cohort offer. Choose a time: '+body.body.bookingUrl+'\nReply stop to opt out.',evidenceReference:'brief:v1;source:fixture'}],draftContext:{leadId:body.body.leadId,sourceId:body.body.sourceId,briefVersion:1,reviewVersion:1,businessName:'Ripe Piper',snapshot:'a'.repeat(32),expiresAt:'2026-10-24T00:00:00Z'},basis:{briefVersion:1,briefReference:'interview:fixture',sourceReference:'reviewed-need-source',sourceExcerpt:'<script>untrusted source text</script>'},strategy:'One cohort need and one next step.',bookingVerification:'supplied_reviewed_url_only'}};
+    if(body.operation==='list')return {campaigns:window.fixtureCampaigns,assets:window.fixtureAssets,actions:[],audienceCandidates:[{leadId:'lead-fixture',email:'fixture@example.invalid',company:'Synthetic company'},{leadId:'other-fixture',email:'other@example.invalid',company:'Other reviewed company'}],draftLeads:[{id:'lead-fixture',email:'fixture@example.invalid',company:'Synthetic company'}],draftSources:[{id:'source-fixture',lead_id:'lead-fixture',external_ref:'reviewed-need-source'}]};
+    if(body.operation==='draft')return {proposal:{steps:[{offsetHours:0,subject:'A question about follow-up',body:'Reviewed cohort offer. Choose a time: '+body.body.bookingUrl+'\nReply stop to opt out.',evidenceReference:'brief:v1;source:fixture'}],draftContext:{proposalId:'42',canonicalNeed:'lead follow-up',leadId:body.body.leadId,sourceId:body.body.sourceId,briefVersion:1,reviewVersion:1,businessName:'Ripe Piper',snapshot:'a'.repeat(32),expiresAt:new Date(Date.now()+86400000).toISOString()},basis:{briefVersion:1,briefReference:'interview:fixture',sourceReference:'reviewed-need-source',sourceExcerpt:'<script>untrusted source text</script>'},strategy:'One cohort need and one next step.',bookingVerification:'supplied_reviewed_url_only'}};
     if(body.operation==='save'){
-     window.fixtureCampaigns=[{id:body.campaign_id,capability:body.body.product,purpose:body.body.purpose,market:body.body.market,timezone:body.body.timezone,asset_version:1,status:'draft'}];
-     window.fixtureAssets=[{campaign_id:body.campaign_id,version:1,steps:body.body.steps}];
+     window.fixtureCampaigns=[{id:body.campaign_id,capability:body.body.product,purpose:body.body.purpose,market:body.body.market,timezone:body.body.timezone,asset_version:body.version+1,status:'draft'}];
+     window.fixtureAssets=[{campaign_id:body.campaign_id,version:body.version+1,steps:body.body.steps,revive_draft_context:body.body.draftContext,revive_audience:body.body.audience?{members:body.body.audience.leadIds.map(leadId=>({leadId,reviewVersion:1,snapshot:'a'.repeat(32)}))}:null}];
     }
     return {ok:true,id:body.campaign_id};
    }
@@ -144,18 +144,37 @@ try {
  assert.match(await page.locator('#draftBasis').textContent(),/<script>untrusted source text/);
  assert.equal(await page.locator('#draftBasis script').count(),0);
  assert.match(await page.locator('#messageBody0').inputValue(),/https:\/\/calendar.google.com/);
+ assert.equal(await page.locator('#campaignAudience').evaluate(e=>e.selectedOptions.length),0);
+ assert.equal(await page.locator('#campaignAudienceConfirmed').isChecked(),false);
+ await page.selectOption('#campaignAudience',['lead-fixture']);
  await page.fill('#campaignPurpose','Fixture reactivation');await page.fill('#campaignMarket','AE');
  await page.fill('#messageBody0',(await page.locator('#messageBody0').inputValue())+'\nOperator reviewed edit.');
  await page.getByRole('button',{name:'Save draft version',exact:true}).click();
+ assert.match(await page.locator('#campaignError').textContent(),/explicitly review/);
+ assert.equal(await page.evaluate(()=>window.fixtureCalls.filter(c=>c.body?.operation==='save'&&c.path.endsWith('/campaigns')).length),savesBefore);
+ await page.check('#campaignAudienceConfirmed');
+ await page.getByRole('button',{name:'Save draft version',exact:true}).click();
  await page.waitForFunction(()=>document.getElementById('campaignState').textContent.includes('Version 1'));
  const savedDraft=await page.evaluate(()=>window.fixtureCalls.find(c=>c.path.endsWith('/campaigns')&&c.body.operation==='save'));
- assert.equal(savedDraft.body.body.draftContext.reviewVersion,1);assert.match(savedDraft.body.body.steps[0].body,/Operator reviewed edit/);
+ assert.equal(savedDraft.body.body.draftContext.reviewVersion,1);assert.equal(savedDraft.body.body.draftContext.proposalId,'42');assert.deepEqual(savedDraft.body.body.audience,{leadIds:['lead-fixture'],confirmed:true});assert.match(savedDraft.body.body.steps[0].body,/Operator reviewed edit/);
+ // Editing after reload must preserve the server receipt and explicit audience.
+ await page.fill('#messageBody0',(await page.locator('#messageBody0').inputValue())+'\nSecond reviewed edit.');
+ await page.check('#campaignAudienceConfirmed');await page.getByRole('button',{name:'Save draft version',exact:true}).click();
+ await page.waitForFunction(()=>document.getElementById('campaignState').textContent.includes('Version 2'));
+ const revised=await page.evaluate(()=>window.fixtureCalls.filter(c=>c.path.endsWith('/campaigns')&&c.body.operation==='save').at(-1));
+ assert.deepEqual(revised.body.body.draftContext,savedDraft.body.body.draftContext);
  await page.getByText('Revive outcomes and execution report',{exact:true}).click();
  await page.getByRole('button',{name:'Refresh Revive report',exact:true}).click();
  await page.waitForFunction(()=>document.getElementById('reviveReportStatus').textContent.includes('Selected Revive campaign'));
  assert.match(await page.locator('#reviveReportText').textContent(),/Synthetic evidence/);assert.match(await page.locator('#reviveReportText').textContent(),/recipient delivery unverified/);assert.match(await page.locator('#reviveReportText').textContent(),/A\/B comparison unavailable/);
  await page.getByText('Record approval and limits',{exact:true}).click();
  await page.fill('#campaignClientAuthority','fixture-client');await page.fill('#campaignOwnerAuthority','fixture-owner');await page.fill('#campaignCTS','fixture-cts');await page.fill('#campaignCap','3');await page.fill('#campaignExpiry','2026-11-01T12:00');
+ await page.selectOption('#campaignAudience',['other-fixture']);
+ assert.equal(await page.locator('#campaignAudienceConfirmed').isChecked(),false);
+ await page.getByRole('button',{name:'Approve loaded message version',exact:true}).click();
+ assert.match(await page.locator('#campaignError').textContent(),/Save your message changes/);
+ assert.equal(await page.evaluate(()=>window.fixtureCalls.some(c=>c.body.operation==='approve')),false);
+ await page.selectOption('#campaignSelect',savedDraft.body.campaign_id);
  await page.fill('#messageBody0','Unsaved changed message');
  await page.getByRole('button',{name:'Approve loaded message version',exact:true}).click();
  assert.match(await page.locator('#campaignError').textContent(),/Save your message changes/);

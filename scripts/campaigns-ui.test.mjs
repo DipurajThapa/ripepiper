@@ -6,7 +6,7 @@ const source=await readFile(new URL('../site/assets/campaigns-admin.js',import.m
 const tick=()=>new Promise(r=>setImmediate(r));
 function mount(api){
  const nodes={},listeners={};
- function node(id){return nodes[id] ||= {_value:'',get value(){return this._value;},set value(v){this._value=String(v??'');},textContent:'',set innerHTML(v){this._html=v;for(const m of v.matchAll(/id="([^"]+)"/g))node(m[1]);},get innerHTML(){return this._html;}};}
+ function node(id){return nodes[id] ||= {_value:'',options:[],get selectedOptions(){return this.options.filter(o=>o.selected);},get value(){return this._value;},set value(v){this._value=String(v??'');},textContent:'',set innerHTML(v){this._html=v;this.options=[...v.matchAll(/<option value="([^"]*)"([^>]*)>/g)].map(m=>({value:m[1],selected:/\bselected\b/.test(m[2])}));for(const m of v.matchAll(/id="([^"]+)"/g))node(m[1]);},get innerHTML(){return this._html;}};}
  node('campaignPlansPanel');
  // Behave like the DOM: bindings to missing markup return null, never fabricate nodes.
  vm.runInNewContext(source,{crypto:{randomUUID:()=> '11111111-1111-4111-8111-111111111111'},window:{RP:{esc:s=>String(s??'').replaceAll('<','&lt;'),api},addEventListener:(name,fn)=>listeners[name]=fn},document:{getElementById:id=>nodes[id]||null}});
@@ -93,4 +93,41 @@ test('read-only Revive report separates test/provider evidence and does not impl
 test('late read-only reports cannot leak another account result or overwrite a changed campaign selection',async()=>{
  let finish;const ui=mount(path=>path.endsWith('/revive-report')?new Promise(r=>finish=r):Promise.resolve(empty()));ui.select('tenant-a');await tick();ui.nodes.loadReviveReport.onclick();ui.select('tenant-b');await tick();const r=report();r.notes=['PRIVATE prior tenant'];finish({report:r});await tick();assert.doesNotMatch(ui.nodes.reviveReportText.textContent,/PRIVATE/);
  ui.nodes.loadReviveReport.onclick();ui.nodes.campaignSelect.value='other-campaign';ui.nodes.campaignSelect.onchange();finish({report:r});await tick();assert.doesNotMatch(ui.nodes.reviveReportText.textContent,/PRIVATE/);
+});
+
+const contactA='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',contactB='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const audienceData=()=>({...empty(),leads:[{id:contactA,email:'one@test.invalid'},{id:contactB,email:'two@test.invalid'}],audienceCandidates:[{leadId:contactA,email:'one@test.invalid',company:'Reviewed one'},{leadId:contactB,email:'two@test.invalid',company:'Reviewed two'}]});
+function chooseAudience(n,ids){n.campaignAudience.options.forEach(o=>o.selected=ids.includes(o.value));n.campaignAudience.onchange();}
+test('accepted contacts are listed but never automatically chosen or confirmed for a new campaign',async()=>{
+ const calls=[],ui=mount(async(path,body)=>{calls.push(body);return body.operation==='list'?audienceData():{id:body.campaign_id};});ui.select('tenant-a');await tick();const n=ui.nodes;
+ assert.equal(n.campaignAudience.selectedOptions.length,0);assert.equal(n.campaignAudienceConfirmed.checked,false);assert.match(n.campaignAudience.innerHTML,/Reviewed one/);assert.match(n.campaignAudienceStatus.textContent,/No reviewed audience/);
+ assert.doesNotMatch(n.campaignLead.innerHTML,/one@test.invalid/);n.campaignDraft.onsubmit({preventDefault(){}});await tick();assert.equal(calls.find(c=>c.operation==='save').body.audience,undefined);
+});
+test('audience save requires explicit confirmation and sends only selected contacts on the exact asset save',async()=>{
+ const calls=[],ui=mount(async(path,body)=>{calls.push(body);return body.operation==='list'?audienceData():{id:body.campaign_id};});ui.select('tenant-a');await tick();const n=ui.nodes;
+ chooseAudience(n,[contactB]);n.campaignDraft.onsubmit({preventDefault(){}});assert.equal(calls.some(c=>c.operation==='save'),false);assert.match(n.campaignError.textContent,/explicitly review/);
+ n.campaignAudienceConfirmed.checked=true;n.campaignAudienceConfirmed.onchange();n.campaignDraft.onsubmit({preventDefault(){}});await tick();assert.equal(JSON.stringify(calls.find(c=>c.operation==='save').body.audience),JSON.stringify({leadIds:[contactB],confirmed:true}));
+});
+test('changing audience, copy or scope clears confirmation while the checkbox own event remains usable',async()=>{
+ const ui=mount(async()=>audienceData());ui.select('tenant-a');await tick();const n=ui.nodes;
+ chooseAudience(n,[contactA]);n.campaignAudienceConfirmed.checked=true;n.campaignDraft.oninput({target:{id:'campaignAudienceConfirmed'}});assert.equal(n.campaignAudienceConfirmed.checked,true);
+ n.campaignDraft.oninput({target:{id:'messageBody0'}});assert.equal(n.campaignAudienceConfirmed.checked,false);
+ n.campaignAudienceConfirmed.checked=true;n.campaignDraft.oninput({target:{id:'campaignPurpose'}});assert.equal(n.campaignAudienceConfirmed.checked,false);
+ n.campaignAudienceConfirmed.checked=true;chooseAudience(n,[contactB]);assert.equal(n.campaignAudienceConfirmed.checked,false);
+});
+test('replacing copy with a generated proposal requires another audience review without selecting its source contact',async()=>{
+ const ui=mount(async(path,body)=>body.operation==='draft'?{proposal:proposal()}:{...draftData(),...audienceData()});ui.select('tenant-a');await tick();const n=chooseDraft(ui);
+ chooseAudience(n,[contactB]);n.campaignAudienceConfirmed.checked=true;n.prepareReviveDraft.onclick();await tick();assert.equal(n.campaignAudienceConfirmed.checked,false);assert.deepEqual(n.campaignAudience.selectedOptions.map(o=>o.value),[contactB]);
+});
+test('loaded audience and generated-source receipt survive editing while queue choices remain campaign-scoped',async()=>{
+ const fixture=audienceData(),context={...proposal().draftContext,proposalId:'42',canonicalNeed:'reviewed need'};
+ fixture.campaigns=[{id:'campaign-one',capability:'revive',purpose:'fixture',market:'AE',timezone:'UTC',asset_version:2,status:'draft'}];
+ fixture.assets=[{campaign_id:'campaign-one',version:2,steps:proposal().steps,revive_draft_context:context,revive_audience:{members:[{leadId:contactA,reviewVersion:1,snapshot:'a'.repeat(32)}]}}];
+ const calls=[],ui=mount(async(path,body)=>{calls.push(body);return body.operation==='list'?fixture:{id:body.campaign_id};});ui.select('tenant-a');await tick();const n=ui.nodes;n.campaignSelect.value='campaign-one';n.campaignSelect.onchange();
+ assert.deepEqual(n.campaignAudience.selectedOptions.map(o=>o.value),[contactA]);assert.equal(n.campaignAudienceConfirmed.checked,false);assert.match(n.campaignLead.innerHTML,/one@test.invalid/);assert.doesNotMatch(n.campaignLead.innerHTML,/two@test.invalid/);
+ n.messageBody0.value+=' reviewed edit';n.campaignDraft.oninput({target:{id:'messageBody0'}});n.campaignAudienceConfirmed.checked=true;n.campaignDraft.onsubmit({preventDefault(){}});await tick();const saved=calls.find(c=>c.operation==='save');assert.equal(saved.version,2);assert.equal(JSON.stringify(saved.body.draftContext),JSON.stringify(context));assert.equal(JSON.stringify(saved.body.audience),JSON.stringify({leadIds:[contactA],confirmed:true}));
+});
+test('unavailable prior audience contacts remain visible instead of being silently removed from the next version',async()=>{
+ const fixture=audienceData();fixture.audienceCandidates=[];fixture.campaigns=[{id:'campaign-old',capability:'revive',purpose:'fixture',asset_version:1,status:'approved'}];fixture.assets=[{campaign_id:'campaign-old',version:1,steps:[],revive_audience:{members:[{leadId:contactA,reviewVersion:1,snapshot:'a'.repeat(32)}]}}];
+ const ui=mount(async()=>fixture);ui.select('tenant-a');await tick();ui.nodes.campaignSelect.value='campaign-old';ui.nodes.campaignSelect.onchange();assert.match(ui.nodes.campaignAudience.innerHTML,/no current accepted review/);assert.deepEqual(ui.nodes.campaignAudience.selectedOptions.map(o=>o.value),[contactA]);
 });

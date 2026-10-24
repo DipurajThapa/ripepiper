@@ -12,7 +12,8 @@ it('actual Worker coordinator reconciles a committed-but-lost completion once an
  vi.spyOn(Db.prototype,'select').mockImplementation(async(table,query='')=>{
   if(table==='profiles')return [{is_admin:true}];if(table==='tenants')return [{id:tenant}];
   if(table==='campaigns')return [{id:campaign,tenant_id:tenant,operator_id:actor,capability:'revive',status:'approved',asset_version:1}];
-  if(table==='revive_reviews')return [];
+  if(table==='revive_reviews')throw Error('Coordinator must not enumerate account-wide reviews');
+  if(table==='campaign_assets')return [{tenant_id:tenant,campaign_id:campaign,version:1,revive_audience:{members:[{leadId:lead,reviewVersion:1,snapshot:'a'.repeat(32)}],reviewedBy:actor,reviewedAt:new Date(Date.now()-1000).toISOString()}}];
   if(table==='outbound_actions')return query.includes('state=eq.queued')&&row.state!=='queued'?[]:[{...row}];
   throw Error('Unexpected table '+table);
  });

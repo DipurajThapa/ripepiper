@@ -1,5 +1,6 @@
 -- Independent QA: ONLY empty isolated staging wgomywhuzyboxlckopca.
--- No DDL, provider request, Auth API or persistent fixture. Requires all 22 source migrations.
+-- No DDL, provider request, Auth API or persistent fixture. Requires current
+-- source migrations, including immutable draft receipts and reviewed audiences.
 BEGIN;
 DO $$
 DECLARE
@@ -34,17 +35,18 @@ BEGIN
  IF j->>'status'<>'active' OR j->>'version'<>'1' THEN RAISE EXCEPTION 'Activation receipt mismatch';END IF;
  rejected:=false;BEGIN PERFORM public.activate_tenant_execution(t,a,'onboarding',0,1,'Stale activation retry');EXCEPTION WHEN serialization_failure THEN rejected:=true;END;
  IF NOT rejected THEN RAISE EXCEPTION 'Stale activation accepted';END IF;
- j:=public.manage_campaign_plan(t,c,a,'save',0,jsonb_build_object('product','revive','purpose','reactivation','market','AE','timezone','UTC','steps','[{"offsetHours":0,"subject":"QA fixture","body":"Synthetic only","evidenceReference":"qa-revive-source"}]'::jsonb));
- PERFORM public.manage_campaign_plan(t,c,a,'approve',1,jsonb_build_object('clientAuthority','qa-client','ownerAuthority','qa-owner','ctsProfile','qa-profile','maxActions',3,'expiresAt',now()+interval '7 days'));
- PERFORM public.manage_campaign_plan(t,c,a,'rights',1,jsonb_build_object('leadId',l,'sourceId',s,'noticeReference','qa-notice'));
- rejected:=false;BEGIN PERFORM public.manage_campaign_plan(t,c,a,'queue',1,jsonb_build_object('leadId',l,'startAt',now()));EXCEPTION WHEN invalid_parameter_value THEN rejected:=true;END;
- IF NOT rejected THEN RAISE EXCEPTION 'Unreviewed Revive enrolment accepted';END IF;
+ draft_body:=jsonb_build_object('product','revive','purpose','reactivation','market','AE','timezone','UTC','steps','[{"offsetHours":0,"subject":"QA fixture","body":"Synthetic only","evidenceReference":"qa-revive-source"}]'::jsonb,'audience',jsonb_build_object('leadIds',jsonb_build_array(l),'confirmed',true));
+ rejected:=false;BEGIN PERFORM public.manage_campaign_plan(t,c,a,'save',0,draft_body);EXCEPTION WHEN invalid_parameter_value THEN rejected:=true;END;
+ IF NOT rejected OR EXISTS(SELECT 1 FROM public.campaigns WHERE id=c) THEN RAISE EXCEPTION 'Unreviewed Revive audience accepted';END IF;
  snap:=public.revive_input_snapshot(t,l);
  j:=public.review_revive_candidate(t,l,a,0,snap,1,'accepted','Reviewed current fit and prior relationship',now()+interval '3 days');
  IF j->>'state'<>'accepted' OR NOT public.revive_candidate_current(t,l,now()) THEN RAISE EXCEPTION 'Cohort acceptance failed';END IF;
  IF public.revive_candidate_current(x,l,now()) OR public.revive_review_context(x,l,a) IS NOT NULL THEN RAISE EXCEPTION 'Cross-tenant review leaked';END IF;
  rejected:=false;BEGIN PERFORM public.review_revive_candidate(t,l,a,0,snap,1,'accepted','Stale review retry',now()+interval '3 days');EXCEPTION WHEN serialization_failure THEN rejected:=true;END;
  IF NOT rejected THEN RAISE EXCEPTION 'Stale cohort CAS accepted';END IF;
+ j:=public.manage_campaign_plan(t,c,a,'save',0,draft_body);
+ PERFORM public.manage_campaign_plan(t,c,a,'approve',1,jsonb_build_object('clientAuthority','qa-client','ownerAuthority','qa-owner','ctsProfile','qa-profile','maxActions',3,'expiresAt',now()+interval '7 days'));
+ PERFORM public.manage_campaign_plan(t,c,a,'rights',1,jsonb_build_object('leadId',l,'sourceId',s,'noticeReference','qa-notice'));
  j:=public.manage_campaign_plan(t,c,a,'queue',1,jsonb_build_object('leadId',l,'startAt',now()));action:=(j->'actionIds'->>0)::uuid;
  IF action IS NULL OR NOT EXISTS(SELECT 1 FROM public.outbound_actions WHERE id=action AND revive_review_version=1 AND revive_review_snapshot=snap) THEN RAISE EXCEPTION 'Enrolment cohort fence missing';END IF;
  IF public.manage_campaign_plan(t,c,a,'queue',1,jsonb_build_object('leadId',l,'startAt',now()))->'replayed' IS DISTINCT FROM 'true'::jsonb THEN RAISE EXCEPTION 'Enrolment replay failed';END IF;
@@ -60,7 +62,10 @@ BEGIN
  IF NOT rejected THEN RAISE EXCEPTION 'Attributed outcome mutation accepted';END IF;
 
  -- New draft-save wrapper proof: no new engine, approval, contact rights or outbound work.
- draft_body:=jsonb_build_object('product','revive','purpose','qa generated draft','market','AE','timezone','UTC','steps','[{"offsetHours":0,"subject":"Reviewed cohort need","body":"Human reviewed draft only","evidenceReference":"qa-revive-source"}]'::jsonb,'draftContext',jsonb_build_object('leadId',l,'sourceId',s,'briefVersion',1,'reviewVersion',1,'businessName','QA Revive rollback','snapshot',public.revive_input_snapshot(t,l),'expiresAt',now()+interval '1 hour'));
+ draft_body:=jsonb_build_object('product','revive','purpose','qa generated draft','market','AE','timezone','UTC','steps','[{"offsetHours":0,"subject":"Reviewed cohort need","body":"Human reviewed draft only","evidenceReference":"qa-revive-source"}]'::jsonb,'audience',jsonb_build_object('leadIds',jsonb_build_array(l),'confirmed',true),'draftContext',jsonb_build_object('leadId',l,'sourceId',s,'canonicalNeed','quote follow-up','briefVersion',1,'reviewVersion',1,'businessName','QA Revive rollback','snapshot',public.revive_input_snapshot(t,l),'expiresAt',now()+interval '1 hour'));
+ j:=public.record_revive_draft_proposal(t,a,draft_body->'draftContext');
+ IF public.record_revive_draft_proposal(t,a,draft_body->'draftContext') IS DISTINCT FROM j THEN RAISE EXCEPTION 'Identical proposal receipt was not idempotent';END IF;
+ draft_body:=jsonb_set(draft_body,'{draftContext}',(j->'draftContext')||jsonb_build_object('proposalId',j->'proposalId'));
  j:=public.save_reviewed_revive_draft(t,d,a,0,draft_body);
  IF j->>'status'<>'draft' OR j->>'version'<>'1' THEN RAISE EXCEPTION 'New reviewed draft not saved as draft';END IF;
  IF public.save_reviewed_revive_draft(t,d,a,0,draft_body) IS DISTINCT FROM j THEN RAISE EXCEPTION 'Same draft retry changed receipt';END IF;
@@ -69,7 +74,7 @@ BEGIN
  IF (SELECT count(*) FROM public.contact_rights WHERE tenant_id=t)<>1 THEN RAISE EXCEPTION 'Draft save granted contact rights';END IF;
  rejected:=false;BEGIN PERFORM public.save_reviewed_revive_draft(t,d,a,1,jsonb_set(draft_body,'{draftContext,sourceId}',to_jsonb('fa500000-0000-4000-8000-000000000099'::text)));EXCEPTION WHEN serialization_failure THEN rejected:=true;END;
  IF NOT rejected THEN RAISE EXCEPTION 'Foreign/missing draft source accepted';END IF;
- rejected:=false;BEGIN PERFORM public.save_reviewed_revive_draft(t,d,a,1,jsonb_set(draft_body,'{draftContext,businessName}','"Foreign organization"'));EXCEPTION WHEN invalid_parameter_value THEN rejected:=true;END;
+ rejected:=false;BEGIN PERFORM public.save_reviewed_revive_draft(t,d,a,1,jsonb_set(draft_body,'{draftContext,businessName}','"Foreign organization"'));EXCEPTION WHEN serialization_failure THEN rejected:=true;END;
  IF NOT rejected THEN RAISE EXCEPTION 'Changed sender company accepted';END IF;
  rejected:=false;BEGIN PERFORM public.save_reviewed_revive_draft(t,d,a,1,jsonb_set(draft_body,'{draftContext,expiresAt}',to_jsonb(now()::text)));EXCEPTION WHEN serialization_failure THEN rejected:=true;END;
  IF NOT rejected THEN RAISE EXCEPTION 'Expired draft accepted';END IF;

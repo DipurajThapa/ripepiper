@@ -9,7 +9,12 @@ const limits={campaigns:10,reviews:25,actionsPerCampaign:100,enrolments:10,dispa
 type Scope={tenantId?:string;campaignId?:string};
 type Campaign={id:string;tenant_id:string;operator_id:string;capability:string;status:string;asset_version:number};
 type Action={id:string;tenant_id:string;campaign_id:string;lead_id:string;state:string;due_at:string;lease_until:string|null;dispatch_token:string|null};
-type Review={tenant_id:string;lead_id:string;state:string;expires_at:string};
+type AudienceMember={leadId:string;reviewVersion:number;snapshot:string};
+function reviewedMembers(value:any):AudienceMember[]|null {
+ if(!value||typeof value!=='object'||!Array.isArray(value.members)||value.members.length<1||value.members.length>limits.reviews||!uuid.test(value.reviewedBy??'')||!validInstant(value.reviewedAt)||Date.parse(value.reviewedAt)>Date.now())return null;
+ if(value.members.some((m:any)=>!m||!uuid.test(m.leadId??'')||!Number.isInteger(m.reviewVersion)||m.reviewVersion<1||typeof m.snapshot!=='string'||!/^[a-f0-9]{32}$/.test(m.snapshot))||new Set(value.members.map((m:AudienceMember)=>m.leadId)).size!==value.members.length)return null;
+ return value.members;
+}
 const actionFields='id,tenant_id,campaign_id,lead_id,state,due_at,lease_until,dispatch_token';
 
 /** Existing ledger only: no real provider, new approval, contact right or learned rule. */
@@ -45,17 +50,18 @@ export async function runReviveAutomation(env:Env,scope:Scope={}) {
     }
    }
    if(claimed)continue;
-   const reviews=await db().select<Review>('revive_reviews',`tenant_id=eq.${c.tenant_id}&state=eq.accepted&expires_at=gt.${new Date().toISOString()}&select=tenant_id,lead_id,state,expires_at&order=lead_id&limit=${limits.reviews+1}`);
-   if(reviews.length>limits.reviews){report.blocked++;report.limited=true;continue;}
+   const asset=await db().one<any>('campaign_assets',`tenant_id=eq.${c.tenant_id}&campaign_id=eq.${c.id}&version=eq.${c.asset_version}&select=tenant_id,campaign_id,version,revive_audience`);
+   if(Array.isArray(asset?.revive_audience?.members)&&asset.revive_audience.members.length>limits.reviews)report.limited=true;
+   const members=asset&&asset.tenant_id===c.tenant_id&&asset.campaign_id===c.id&&asset.version===c.asset_version?reviewedMembers(asset.revive_audience):null;
+   if(!members){report.blocked++;continue;}
    let enrolmentUncertain=false;
-   for(const review of reviews) {
+   for(const member of members) {
     if(!available()||report.enrolled>=limits.enrolments){report.limited=true;break;}
-    if(review.tenant_id!==c.tenant_id||!uuid.test(review.lead_id)||review.state!=='accepted'||!validInstant(review.expires_at)||Date.parse(review.expires_at)<=Date.now()){report.blocked++;continue;}
-    if(actions.some(a=>a.lead_id===review.lead_id)){report.existing++;continue;}
+    if(actions.some(a=>a.lead_id===member.leadId)){report.existing++;continue;}
     // Persisted enrolments are never rescheduled, including cancelled/blocked/old versions.
     // Database rechecks current review, history, brief, rights, caps and stops atomically.
     try {
-     const ack=await db().rpc<any>('manage_campaign_plan',{p_tenant:c.tenant_id,p_campaign:c.id,p_actor:c.operator_id,p_operation:'queue',p_version:c.asset_version,p_body:{leadId:review.lead_id,startAt:new Date(Date.now()+5000).toISOString()}});
+     const ack=await db().rpc<any>('manage_campaign_plan',{p_tenant:c.tenant_id,p_campaign:c.id,p_actor:c.operator_id,p_operation:'queue',p_version:c.asset_version,p_body:{leadId:member.leadId,startAt:new Date(Date.now()+5000).toISOString()}});
      if(!ack||!Array.isArray(ack.actionIds)||!ack.actionIds.length||ack.actionIds.length>3||new Set(ack.actionIds).size!==ack.actionIds.length||ack.actionIds.some((id:unknown)=>typeof id!=='string'||!uuid.test(id))||typeof ack.replayed!=='boolean')throw Error('Enrolment acknowledgement uncertain');
      if(ack.replayed)report.existing++;else report.enrolled++;
     }catch(e) {
@@ -74,7 +80,7 @@ export async function runReviveAutomation(env:Env,scope:Scope={}) {
    if(due.length>limits.dispatches){report.blocked++;report.limited=true;continue;}
    for(const a of due) {
     if(!available()||dispatchAttempts>=limits.dispatches){report.limited=true;break;}
-    if(a.tenant_id!==c.tenant_id||a.campaign_id!==c.id||a.state!=='queued'||!uuid.test(a.id)||!validInstant(a.due_at)||Date.parse(a.due_at)>Date.now()){report.blocked++;continue;}
+    if(a.tenant_id!==c.tenant_id||a.campaign_id!==c.id||a.state!=='queued'||!uuid.test(a.id)||!members.some(m=>m.leadId===a.lead_id)||!validInstant(a.due_at)||Date.parse(a.due_at)>Date.now()){report.blocked++;continue;}
     dispatchAttempts++;
     const result=await executeSyntheticAction(db(),env,a.id,c.tenant_id);
     if(result.ok) {

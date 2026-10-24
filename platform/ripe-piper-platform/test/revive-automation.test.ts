@@ -7,16 +7,19 @@ const tenant='11111111-1111-4111-8111-111111111111',campaign='22222222-2222-4222
 const now=Date.parse('2026-10-23T12:00:00Z');
 const env={SUPABASE_URL:'https://fixture.supabase.invalid',SUPABASE_ANON_KEY:'fixture-public',SUPABASE_SERVICE_ROLE_KEY:'fixture-secret',REVIVE_AUTOMATION_ENABLED:'true',SYNTHETIC_SINK_ENABLED:'true'}as Env;
 const freshReview=()=>({tenant_id:tenant,lead_id:lead,state:'accepted',expires_at:new Date(now+86400000).toISOString()});
+const freshAudience=(ids=[lead])=>({members:ids.map(leadId=>({leadId,reviewVersion:1,snapshot:'a'.repeat(32)})),reviewedBy:admin,reviewedAt:new Date(now-1000).toISOString()});
 const freshAction=(state='queued')=>({id:crypto.randomUUID(),tenant_id:tenant,campaign_id:campaign,lead_id:lead,state,due_at:new Date(now-1000).toISOString(),lease_until:null,dispatch_token:null,provider_ref:null,acknowledged_at:null,error_code:null,approval_version:1,asset_version:1});
 function adapter(options:any={}) {
  const campaigns:any[]=options.campaigns??[{id:campaign,tenant_id:tenant,operator_id:admin,capability:'revive',status:'approved',asset_version:1}];
  const reviews:any[]=options.reviews??[freshReview()],actions:any[]=options.actions??[],calls:any[]=[];
+ const assets:any[]=options.assets??[{tenant_id:tenant,campaign_id:campaign,version:1,revive_audience:options.audience===undefined?freshAudience(reviews.map(r=>r.lead_id)):options.audience}];
  const select=vi.spyOn(Db.prototype,'select').mockImplementation(async(table,query='')=>{
   calls.push({table,query});
   if(options.readError)throw Error('PRIVATE database details');
   if(table==='tenants')return options.paused?[]:[{id:tenant}];
   if(table==='profiles')return[{is_admin:!options.viewer}];
   if(table==='campaigns')return campaigns.filter(c=>c.status==='approved');
+  if(table==='campaign_assets'){const params=new URLSearchParams(query);return assets.filter(a=>a.tenant_id===params.get('tenant_id')?.slice(3)&&a.campaign_id===params.get('campaign_id')?.slice(3)&&a.version===Number(params.get('version')?.slice(3)));}
   if(table==='revive_reviews')return reviews;
   if(table==='outbound_actions'){
    const params=new URLSearchParams(query),id=params.get('id')?.slice(3),scopeTenant=params.get('tenant_id')?.slice(3),scopeCampaign=params.get('campaign_id')?.slice(3);
@@ -31,9 +34,11 @@ function adapter(options:any={}) {
    if(options.queueBlocked)throw new DbError(400,'22023 rights or review invalid');
    if(options.queueLost)throw Error('PRIVATE queue response lost');
    if(options.malformedQueue)return{ok:true};
+   const review=reviews.find(r=>r.lead_id===args.p_body.leadId&&r.tenant_id===args.p_tenant&&r.state==='accepted'&&Number.isFinite(Date.parse(r.expires_at))&&Date.parse(r.expires_at)>Date.now());
+   if(!review)throw new DbError(400,'22023 current audience review invalid');
    const existing=actions.filter(a=>a.campaign_id===args.p_campaign&&a.lead_id===args.p_body.leadId);
    if(existing.length)return{actionIds:existing.map(a=>a.id),replayed:true};
-   const a={...freshAction(),lead_id:args.p_body.leadId,due_at:args.p_body.startAt};actions.push(a);return{actionIds:[a.id],replayed:false};
+   const a={...freshAction(),campaign_id:args.p_campaign,lead_id:args.p_body.leadId,due_at:args.p_body.startAt};actions.push(a);return{actionIds:[a.id],replayed:false};
   }
   const action=actions.find(a=>a.id===args.p_id&&a.tenant_id===args.p_tenant);
   if(name==='claim_fenced_synthetic_action') {
@@ -53,7 +58,7 @@ function adapter(options:any={}) {
   if(name==='expire_fenced_synthetic_action'){if(action?.state==='claimed'&&action.dispatch_token===args.p_token){action.state='review';campaigns.find(c=>c.id===action.campaign_id).status='paused';}return true;}
   throw Error('Unexpected RPC '+name);
  });
- return{actions,reviews,campaigns,calls,select,rpc};
+ return{actions,reviews,campaigns,assets,calls,select,rpc};
 }
 beforeEach(()=>{vi.useFakeTimers();vi.setSystemTime(now);});
 afterEach(()=>{vi.restoreAllMocks();vi.useRealTimers();});
@@ -68,7 +73,7 @@ describe('bounded autonomous Revive synthetic coordinator',()=>{
   expect(a.actions).toHaveLength(1);expect(a.actions[0].state).toBe('tested');
   expect(a.calls.filter(c=>c.name==='complete_fenced_synthetic_action')).toHaveLength(1);
   expect(a.calls.filter(c=>c.table==='campaigns')[0].query).toContain('capability=eq.revive');
-  expect(a.calls.filter(c=>c.table==='revive_reviews')[0].query).toContain('state=eq.accepted');
+  expect(a.calls.some(c=>c.table==='revive_reviews')).toBe(false);expect(a.calls.filter(c=>c.table==='campaign_assets')[0].query).toContain('version=eq.1');
  });
  it.each(['cancelled','blocked','tested','delivered','review'])('never restarts an existing %s enrolment',async state=>{
   const a=adapter({actions:[freshAction(state)]});expect(await runReviveAutomation(env)).toMatchObject({enrolled:0,tested:0,existing:1});expect(a.calls.some(c=>c.name==='manage_campaign_plan')).toBe(false);
@@ -84,7 +89,7 @@ describe('bounded autonomous Revive synthetic coordinator',()=>{
   vi.restoreAllMocks();a=adapter();expect((await runReviveAutomation(env,{tenantId:'injected&status=active'})).blocked).toBe(1);expect(a.calls).toEqual([]);
  });
  it.each([{tenant_id:crypto.randomUUID()},{state:'rejected'},{expires_at:'invalid'},{expires_at:new Date(now).toISOString()}])('rejects foreign/stale/malformed review records %j',async patch=>{
-  const a=adapter({reviews:[{...freshReview(),...patch}]});expect((await runReviveAutomation(env)).blocked).toBe(1);expect(a.calls.some(c=>c.name)).toBe(false);
+  const a=adapter({reviews:[{...freshReview(),...patch}]});expect((await runReviveAutomation(env)).blocked).toBe(1);expect(a.calls.filter(c=>c.name).map(c=>c.args.p_operation)).toEqual(['queue']);
  });
  it.each([{capability:'signal'},{status:'draft'},{tenant_id:crypto.randomUUID()},{asset_version:0}])('does not trust mismatched campaign response %j',async patch=>{
   const a=adapter({campaigns:[{id:campaign,tenant_id:tenant,operator_id:admin,capability:'revive',status:'approved',asset_version:1,...patch}]});
@@ -120,11 +125,11 @@ describe('bounded autonomous Revive synthetic coordinator',()=>{
   const a=adapter({reviews:Array.from({length:25},()=>({...freshReview(),lead_id:crypto.randomUUID()}))});expect(await runReviveAutomation(env)).toMatchObject({enrolled:10,limited:true});expect(a.actions).toHaveLength(10);
  });
  it('refuses a truncated due-action set instead of hiding the twenty-action capacity boundary',async()=>{
-  const a=adapter({reviews:[],actions:Array.from({length:21},()=>({...freshAction(),lead_id:crypto.randomUUID()}))});
+  const actions=Array.from({length:21},()=>({...freshAction(),lead_id:crypto.randomUUID()})),a=adapter({reviews:[],actions,audience:freshAudience(actions.map(a=>a.lead_id))});
   expect(await runReviveAutomation(env)).toMatchObject({tested:0,limited:true,blocked:1});expect(a.calls.some(c=>c.name)).toBe(false);
  });
  it('can process the exact due-action bound through fenced acknowledgements',async()=>{
-  const a=adapter({reviews:[],actions:Array.from({length:20},()=>({...freshAction(),lead_id:crypto.randomUUID()}))});
+  const actions=Array.from({length:20},()=>({...freshAction(),lead_id:crypto.randomUUID()})),a=adapter({reviews:[],actions,audience:freshAudience(actions.map(a=>a.lead_id))});
   expect(await runReviveAutomation(env)).toMatchObject({tested:20,limited:false,blocked:0});expect(a.actions.every(a=>a.state==='tested')).toBe(true);
  });
  it('stops scheduling further work when the run time budget is exhausted',async()=>{
@@ -133,6 +138,18 @@ describe('bounded autonomous Revive synthetic coordinator',()=>{
  });
  it('returns only aggregate review state when a database read fails',async()=>{
   adapter({readError:true});const result=await runReviveAutomation(env);expect(result.review).toBe(1);expect(JSON.stringify(result)).not.toContain('PRIVATE');
+ });
+ it('uses only this campaign audience rather than every globally accepted tenant contact',async()=>{
+  const outside=crypto.randomUUID(),a=adapter({reviews:[freshReview(),{...freshReview(),lead_id:outside}],audience:freshAudience([lead])});
+  expect(await runReviveAutomation(env)).toMatchObject({enrolled:1,blocked:0});
+  expect(a.calls.filter(c=>c.name==='manage_campaign_plan'&&c.args.p_operation==='queue').map(c=>c.args.p_body.leadId)).toEqual([lead]);expect(a.calls.some(c=>c.table==='revive_reviews')).toBe(false);
+ });
+ it.each([null,{members:[]},freshAudience([lead,lead]),{...freshAudience(),reviewedAt:new Date(now+1000).toISOString()}])('does not act on absent or malformed audience %j',async audience=>{
+  const a=adapter({audience,actions:[freshAction()]});expect(await runReviveAutomation(env)).toMatchObject({enrolled:0,tested:0,blocked:1});expect(a.calls.some(c=>c.name)).toBe(false);
+ });
+ it('does not dispatch an existing due action outside the exact reviewed asset audience',async()=>{
+  const outside=crypto.randomUUID(),a=adapter({reviews:[freshReview()],audience:freshAudience([lead]),actions:[{...freshAction(),lead_id:outside}]});
+  expect(await runReviveAutomation(env)).toMatchObject({enrolled:1,tested:0,blocked:1});expect(a.calls.some(c=>c.name==='claim_fenced_synthetic_action')).toBe(false);
  });
  it('requires a verified administrator before the operator route runs',async()=>{
   const a=adapter();await expect(runReviveAutomationAdmin(new Request('https://fixture.invalid'),env,tenant)).rejects.toMatchObject({status:401});expect(a.calls).toEqual([]);

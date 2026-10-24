@@ -7,7 +7,7 @@ import {readFileSync,readdirSync} from 'node:fs';
 // PGlite executes against template1 despite its database option. Keep the hosted
 // target guard unchanged in the packet; verify it rejects here, then adapt only
 // that expected local database name while preserving every behavioral assertion.
-it('rehearses the shared staging rollback packet with the accepted Revive cohort fence',async()=>{
+it('rehearses the current shared staging rollback packet with the accepted Revive cohort and audience fences',async()=>{
  const db=new PGlite({extensions:{btree_gist}});
  try{
   await db.exec(`create role anon nologin;create role authenticated nologin;create role service_role nologin bypassrls;create schema auth;
@@ -24,7 +24,7 @@ it('rehearses the shared staging rollback packet with the accepted Revive cohort
   const localPacket=packet.replace("current_database()<>'postgres'","current_database()<>'template1'");
   expect(localPacket).not.toBe(packet);
   expect(JSON.stringify(await db.exec(localPacket))).toContain('PASS: hosted SQL role/RLS/FK/fence/replay/response-CAS/global-budget');
-  for(const table of ['tenants','leads','auth.users','revive_reviews','outbound_actions','build_usage'])
+  for(const table of ['tenants','leads','auth.users','revive_reviews','campaign_assets','outbound_actions','activity_log','build_usage'])
    expect((await db.query('select * from '+table)).rows).toHaveLength(0);
  }finally{await db.close();}
 });

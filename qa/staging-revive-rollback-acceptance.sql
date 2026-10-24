@@ -1,5 +1,6 @@
 -- Independent QA: ONLY empty isolated staging wgomywhuzyboxlckopca.
--- No DDL, provider request, Auth API or persistent fixture. Requires all 22 source migrations.
+-- No DDL, provider request, Auth API or persistent fixture. Requires current source migrations.
+-- Updated audience fixtures are not the packet covered by the historical 22-migration receipt.
 BEGIN;
 DO $$
 DECLARE
@@ -35,8 +36,9 @@ BEGIN
  rejected:=false;BEGIN PERFORM public.activate_tenant_execution(t,a,'onboarding',0,1,'Stale activation retry');EXCEPTION WHEN serialization_failure THEN rejected:=true;END;
  IF NOT rejected THEN RAISE EXCEPTION 'Stale activation accepted';END IF;
  j:=public.manage_campaign_plan(t,c,a,'save',0,jsonb_build_object('product','revive','purpose','reactivation','market','AE','timezone','UTC','steps','[{"offsetHours":0,"subject":"QA fixture","body":"Synthetic only","evidenceReference":"qa-revive-source"}]'::jsonb));
- PERFORM public.manage_campaign_plan(t,c,a,'approve',1,jsonb_build_object('clientAuthority','qa-client','ownerAuthority','qa-owner','ctsProfile','qa-profile','maxActions',3,'expiresAt',now()+interval '7 days'));
- PERFORM public.manage_campaign_plan(t,c,a,'rights',1,jsonb_build_object('leadId',l,'sourceId',s,'noticeReference','qa-notice'));
+ IF j->>'status'<>'draft' OR j->>'version'<>'1' THEN RAISE EXCEPTION 'Audience-less manual draft unavailable';END IF;
+ rejected:=false;BEGIN PERFORM public.manage_campaign_plan(t,c,a,'approve',1,jsonb_build_object('clientAuthority','qa-client','ownerAuthority','qa-owner','ctsProfile','qa-profile','maxActions',3,'expiresAt',now()+interval '7 days'));EXCEPTION WHEN invalid_parameter_value THEN rejected:=true;END;
+ IF NOT rejected THEN RAISE EXCEPTION 'Audience-less Revive approval accepted';END IF;
  rejected:=false;BEGIN PERFORM public.manage_campaign_plan(t,c,a,'queue',1,jsonb_build_object('leadId',l,'startAt',now()));EXCEPTION WHEN invalid_parameter_value THEN rejected:=true;END;
  IF NOT rejected THEN RAISE EXCEPTION 'Unreviewed Revive enrolment accepted';END IF;
  snap:=public.revive_input_snapshot(t,l);
@@ -45,12 +47,16 @@ BEGIN
  IF public.revive_candidate_current(x,l,now()) OR public.revive_review_context(x,l,a) IS NOT NULL THEN RAISE EXCEPTION 'Cross-tenant review leaked';END IF;
  rejected:=false;BEGIN PERFORM public.review_revive_candidate(t,l,a,0,snap,1,'accepted','Stale review retry',now()+interval '3 days');EXCEPTION WHEN serialization_failure THEN rejected:=true;END;
  IF NOT rejected THEN RAISE EXCEPTION 'Stale cohort CAS accepted';END IF;
- j:=public.manage_campaign_plan(t,c,a,'queue',1,jsonb_build_object('leadId',l,'startAt',now()));action:=(j->'actionIds'->>0)::uuid;
+ j:=public.manage_campaign_plan(t,c,a,'save',1,jsonb_build_object('product','revive','purpose','reactivation','market','AE','timezone','UTC','steps','[{"offsetHours":0,"subject":"QA fixture","body":"Synthetic only","evidenceReference":"qa-revive-source"}]'::jsonb,'audience',jsonb_build_object('leadIds',jsonb_build_array(l),'confirmed',true)));
+ IF j->>'version'<>'2' OR j->>'status'<>'draft' THEN RAISE EXCEPTION 'Audience change did not create a new draft asset';END IF;
+ PERFORM public.manage_campaign_plan(t,c,a,'approve',2,jsonb_build_object('clientAuthority','qa-client','ownerAuthority','qa-owner','ctsProfile','qa-profile','maxActions',3,'expiresAt',now()+interval '7 days'));
+ PERFORM public.manage_campaign_plan(t,c,a,'rights',2,jsonb_build_object('leadId',l,'sourceId',s,'noticeReference','qa-notice'));
+ j:=public.manage_campaign_plan(t,c,a,'queue',2,jsonb_build_object('leadId',l,'startAt',now()));action:=(j->'actionIds'->>0)::uuid;
  IF action IS NULL OR NOT EXISTS(SELECT 1 FROM public.outbound_actions WHERE id=action AND revive_review_version=1 AND revive_review_snapshot=snap) THEN RAISE EXCEPTION 'Enrolment cohort fence missing';END IF;
- IF public.manage_campaign_plan(t,c,a,'queue',1,jsonb_build_object('leadId',l,'startAt',now()))->'replayed' IS DISTINCT FROM 'true'::jsonb THEN RAISE EXCEPTION 'Enrolment replay failed';END IF;
+ IF public.manage_campaign_plan(t,c,a,'queue',2,jsonb_build_object('leadId',l,'startAt',now()))->'replayed' IS DISTINCT FROM 'true'::jsonb THEN RAISE EXCEPTION 'Enrolment replay failed';END IF;
  j:=public.claim_fenced_synthetic_action(t,action,k,now());IF j->>'token' IS DISTINCT FROM k::text THEN RAISE EXCEPTION 'Claim failed';END IF;
- IF public.complete_fenced_synthetic_action(x,action,k,1,1,now()) OR NOT public.complete_fenced_synthetic_action(t,action,k,1,1,now()) THEN RAISE EXCEPTION 'Exact tenant completion failure';END IF;
- IF NOT public.complete_fenced_synthetic_action(t,action,k,1,1,now()) THEN RAISE EXCEPTION 'Same token receipt replay failed';END IF;
+ IF public.complete_fenced_synthetic_action(x,action,k,2,2,now()) OR NOT public.complete_fenced_synthetic_action(t,action,k,2,2,now()) THEN RAISE EXCEPTION 'Exact tenant completion failure';END IF;
+ IF NOT public.complete_fenced_synthetic_action(t,action,k,2,2,now()) THEN RAISE EXCEPTION 'Same token receipt replay failed';END IF;
  observation:=public.record_product_event(t,l,a,'qa-linked-outcome','qa-authority','Synthetic meeting fixture',now(),true,jsonb_build_object('product','revive','kind','outcome','outcome','meeting_held','reason','Synthetic rehearsal only','campaignId',c,'actionId',action));
  IF observation IS NULL THEN RAISE EXCEPTION 'Attributed synthetic outcome missing';END IF;
  IF public.record_product_event(t,l,a,'qa-linked-outcome','qa-authority','Synthetic meeting fixture',now(),true,jsonb_build_object('product','revive','kind','outcome','outcome','meeting_held','reason','Synthetic rehearsal only','campaignId',c,'actionId',action)) IS DISTINCT FROM observation THEN RAISE EXCEPTION 'Outcome source replay duplicated';END IF;

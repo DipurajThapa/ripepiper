@@ -36,7 +36,7 @@ async function accept(f:any){
  return rpc('review_revive_candidate',[f.tenant,f.lead,actor,context.review?.version??0,context.snapshot,1,'accepted','QA reviewed current relationship',assessment.expiresAt]);
 }
 async function campaign(f:any,offset=0){
- const id=crypto.randomUUID();await rpc('manage_campaign_plan',[f.tenant,id,actor,'save',0,{product:'revive',purpose:'reactivation',market:'AE',timezone:'UTC',steps:[{offsetHours:0,subject:'Is this relevant?',body:'May we close the loop?',evidenceReference:'qa-fit'},...(offset?[{offsetHours:offset,subject:'Closing the loop',body:'Final reviewed step',evidenceReference:'qa-history'}]:[])]}]);
+ const id=crypto.randomUUID();await rpc('manage_campaign_plan',[f.tenant,id,actor,'save',0,{product:'revive',purpose:'reactivation',market:'AE',timezone:'UTC',audience:{leadIds:[f.lead],confirmed:true},steps:[{offsetHours:0,subject:'Is this relevant?',body:'May we close the loop?',evidenceReference:'qa-fit'},...(offset?[{offsetHours:offset,subject:'Closing the loop',body:'Final reviewed step',evidenceReference:'qa-history'}]:[])]}]);
  await rpc('manage_campaign_plan',[f.tenant,id,actor,'approve',1,{clientAuthority:'qa-client',ownerAuthority:'qa-owner',ctsProfile:'qa-profile',maxActions:3,expiresAt:new Date(Date.now()+29*86400000).toISOString()}]);
  const source=(await q(`select id from lead_observations where tenant_id=$1 and external_ref='qa-fit'`,[f.tenant]))[0].id;
  await rpc('manage_campaign_plan',[f.tenant,id,actor,'rights',1,{leadId:f.lead,sourceId:source,noticeReference:'qa-notice'}]);return id;
@@ -44,26 +44,26 @@ async function campaign(f:any,offset=0){
 const queue=(f:any,c:string)=>rpc('manage_campaign_plan',[f.tenant,c,actor,'queue',1,{leadId:f.lead,startAt:new Date(Date.now()+1000).toISOString()}]);
 
 it('rejects accepted cohort snapshots after backdated new evidence, although latest history is unchanged',async()=>{
- const f=await fixture(),c=await campaign(f);await accept(f);
+ const f=await fixture();await accept(f);const c=await campaign(f);
  await rpc('record_product_event',[f.tenant,f.lead,actor,'qa-backdated','qa-authority','Earlier recorded uncertainty',new Date(Date.now()-2*86400000).toISOString(),true,{product:'revive',kind:'history',lastContactAt:new Date(Date.now()-80*86400000).toISOString(),previousInterest:'unknown',stalledReason:'Unknown'}]);
  expect(await rpc('revive_history_current',[f.tenant,f.lead,new Date().toISOString()])).toBe(true);
  expect(await rpc('revive_candidate_current',[f.tenant,f.lead,new Date().toISOString()])).toBe(false);
- await expect(queue(f,c)).rejects.toThrow(/Revive cohort/);
+ await expect(queue(f,c)).rejects.toThrow(/Revive cohort|campaign audience/);
 });
 it('refuses a future step at or after cohort expiry atomically, leaving no partial enrolment',async()=>{
- const f=await fixture(),c=await campaign(f,48);await accept(f);
+ const f=await fixture();await accept(f);const c=await campaign(f,48);
  await q(`update revive_reviews set expires_at=now()+interval '1 day' where tenant_id=$1`,[f.tenant]);
  await expect(queue(f,c)).rejects.toThrow(/expires before/);
  expect((await q('select count(*)::int n from outbound_actions where campaign_id=$1',[c]))[0].n).toBe(0);
 });
 it('cannot complete an old claimed action after a second accepted review of the identical evidence',async()=>{
- const f=await fixture(),c=await campaign(f);await accept(f);const id=(await queue(f,c)).actionIds[0],token=crypto.randomUUID(),at=new Date(Date.now()+3000).toISOString();
+ const f=await fixture();await accept(f);const c=await campaign(f);const id=(await queue(f,c)).actionIds[0],token=crypto.randomUUID(),at=new Date(Date.now()+3000).toISOString();
  expect(await rpc('claim_fenced_synthetic_action',[f.tenant,id,token,at])).toMatchObject({token});
  await accept(f);expect(await rpc('complete_fenced_synthetic_action',[f.tenant,id,token,1,1,at])).toBe(false);
  expect((await q('select state,acknowledged_at from outbound_actions where id=$1',[id]))[0]).toEqual({state:'blocked',acknowledged_at:null});
 });
 it('cannot reuse synthetic acceptance after contact identity changes to a business address',async()=>{
- const f=await fixture(),c=await campaign(f);await accept(f);const id=(await queue(f,c)).actionIds[0];
+ const f=await fixture();await accept(f);const c=await campaign(f);const id=(await queue(f,c)).actionIds[0];
  await q(`update leads set email='qa-person@business.example' where id=$1`,[f.lead]);
  expect(await rpc('claim_fenced_synthetic_action',[f.tenant,id,crypto.randomUUID(),new Date(Date.now()+3000).toISOString()])).toBeNull();
 });
@@ -74,7 +74,7 @@ it('rejects a cohort expiry exactly at claim time and never grants contact permi
  expect(await rpc('claim_fenced_synthetic_action',[f.tenant,id,crypto.randomUUID(),at])).toBeNull();
 });
 it('blocks historical Revive action rows that have no cohort fence, while preserving another product',async()=>{
- const f=await fixture(),c=await campaign(f);await accept(f);const id=(await queue(f,c)).actionIds[0];
+ const f=await fixture();await accept(f);const c=await campaign(f);const id=(await queue(f,c)).actionIds[0];
  await q('update outbound_actions set revive_review_version=null,revive_review_snapshot=null where id=$1',[id]);
  const at=new Date(Date.now()+3000).toISOString();expect(await rpc('synthetic_action_allowed',[id,at])).toBe(false);
  await q(`update campaigns set capability='signal' where id=$1`,[c]);
