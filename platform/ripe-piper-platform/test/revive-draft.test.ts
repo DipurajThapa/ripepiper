@@ -4,6 +4,7 @@ import {currentReviveDraftContext,proposeReviveDraft,reviewedBookingUrl,reviewed
 import type {ReviveContext} from '../src/foundation/revive';
 import type {Env} from '../src/env';
 import {Db} from '../src/lib/db';
+import {setupBody} from './helpers/revive-setup';
 const tenant='11111111-1111-4111-8111-111111111111',lead='22222222-2222-4222-8222-222222222222',source='33333333-3333-4333-8333-333333333333',history='44444444-4444-4444-8444-444444444444',admin='55555555-5555-4555-8555-555555555555';
 const now=Date.parse('2026-10-23T12:00:00Z'),observed=new Date(now-86400000).toISOString();
 const input=()=>({leadId:lead,sourceId:source,messageCount:3,senderName:'Dipuraj'});
@@ -92,12 +93,12 @@ describe('draft route integrates into the existing campaign save and approval wo
   let c=context();const calls:any[]=[];
   vi.spyOn(Db.prototype,'userFromToken').mockResolvedValue({id:admin,email:'fixture@example.invalid',is_admin:true});
   vi.spyOn(Db.prototype,'one').mockImplementation(async(table)=>table==='tenants'?{id:tenant,name:'Ripe Piper'}:null);
-  const rpc=vi.spyOn(Db.prototype,'rpc').mockImplementation(async(name,args:any)=>{calls.push({name,args});if(name==='revive_review_context')return c;if(name==='record_revive_draft_proposal')return{proposalId:'1',draftContext:structuredClone(args.p_context)};return{id:'66666666-6666-4666-8666-666666666666',version:1,status:'draft'};});
+  const rpc=vi.spyOn(Db.prototype,'rpc').mockImplementation(async(name,args:any)=>{calls.push({name,args});if(name==='revive_setup_context')return{tenantId:tenant,setup:{version:1,briefVersion:3,state:'reviewed',body:setupBody(admin,'review:setup',{senderName:'Dipuraj'}),createdBy:admin,createdAt:new Date().toISOString()},currentBriefVersion:3,ready:true,missing:[],owners:[{id:admin,label:'Verified reviewer'}],brief:c.brief};if(name==='revive_review_context')return c;if(name==='record_revive_draft_proposal')return{proposalId:'1',draftContext:structuredClone(args.p_context)};return{id:'66666666-6666-4666-8666-666666666666',version:1,status:'draft'};});
   return{calls,rpc,get context(){return c;},set context(value:ReviveContext){c=value;}};
  }
  it('previews with no campaign mutation, preserves operator edits through the atomic tagged-save RPC, and never autoapproves',async()=>{
   const a=adapter(),preview=await campaignPlans(request({operation:'draft',body:input()}),env,tenant);expect(preview.status).toBe(200);const {proposal}=await preview.json()as any;
-  expect(a.calls.map(c=>c.name)).toEqual(['revive_review_context','record_revive_draft_proposal']);expect(proposal.draftContext.proposalId).toBe('1');
+  expect(a.calls.map(c=>c.name)).toEqual(['revive_setup_context','revive_review_context','record_revive_draft_proposal']);expect(proposal.draftContext.proposalId).toBe('1');expect(proposal.draftContext.setupVersion).toBe(1);
   const edited=proposal.steps.map((s:any,i:number)=>i? s:{...s,body:s.body+'\nReviewed operator edit.'});
   const saved=await campaignPlans(request({operation:'save',campaign_id:'66666666-6666-4666-8666-666666666666',version:0,body:{product:'revive',purpose:'reactivation',market:'AE',timezone:'UTC',steps:edited,draftContext:proposal.draftContext}}),env,tenant);
   expect(saved.status).toBe(200);const mutation=a.calls.at(-1);expect(mutation.name).toBe('save_reviewed_revive_draft');expect(mutation.args.p_body.steps).toEqual(edited);expect(mutation.args.p_version).toBe(0);expect(a.calls.some(c=>c.args.p_operation==='approve')).toBe(false);
@@ -111,7 +112,7 @@ describe('draft route integrates into the existing campaign save and approval wo
    if(mode==='changed_source')result.draftContext.sourceId=crypto.randomUUID();if(mode==='changed_need')result.draftContext.canonicalNeed='different need';if(mode==='changed_expiry')result.draftContext.expiresAt='2026-10-25T12:00:00Z';if(mode==='extra_field')result.draftContext.unverified=true;
    return result;
   });
-  const response=await campaignPlans(request({operation:'draft',body:input()}),env,tenant);expect(response.status).toBe(503);expect(await response.json()).toMatchObject({ok:false});expect(a.calls.every(c=>c.name==='revive_review_context')).toBe(true);
+  const response=await campaignPlans(request({operation:'draft',body:input()}),env,tenant);expect(response.status).toBe(503);expect(await response.json()).toMatchObject({ok:false});expect(a.calls.every(c=>['revive_setup_context','revive_review_context'].includes(c.name))).toBe(true);
  });
  it('rejects a same-evidence re-review or changed business name before a tagged save reaches the database writer',async()=>{
   const a=adapter(),proposal=proposeReviveDraft(a.context,'Ripe Piper',input());a.context.review!.version++;
@@ -120,7 +121,7 @@ describe('draft route integrates into the existing campaign save and approval wo
   a.context.review!.version--;payload.body.draftContext.businessName='Other business';expect((await campaignPlans(request(payload),env,tenant)).status).toBe(409);
  });
  it('never drafts for a foreign tenant even if a malformed context response is returned',async()=>{
-  const a=adapter();a.context.lead.tenant_id=crypto.randomUUID();expect((await campaignPlans(request({operation:'draft',body:input()}),env,tenant)).status).toBe(404);expect(a.calls.map(c=>c.name)).toEqual(['revive_review_context']);
+  const a=adapter();a.context.lead.tenant_id=crypto.randomUUID();expect((await campaignPlans(request({operation:'draft',body:input()}),env,tenant)).status).toBe(404);expect(a.calls.map(c=>c.name)).toEqual(['revive_setup_context','revive_review_context']);
  });
  it('keeps ordinary manual campaign saves on the existing RPC',async()=>{
   const a=adapter(),p=proposeReviveDraft(a.context,'Ripe Piper',input());await campaignPlans(request({operation:'save',campaign_id:crypto.randomUUID(),version:0,body:{product:'revive',purpose:'reactivation',market:'AE',timezone:'UTC',steps:p.steps}}),env,tenant);expect(a.calls.at(-1).name).toBe('manage_campaign_plan');

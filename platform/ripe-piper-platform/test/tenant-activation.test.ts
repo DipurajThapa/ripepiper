@@ -4,6 +4,7 @@ import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
 import {readFileSync,readdirSync} from 'node:fs';
 import {activateTenant} from '../src/foundation/tenants';
 import type {Env} from '../src/env';
+import {seedReviveSetup} from './helpers/revive-setup';
 const admin='11111111-1111-4111-8111-111111111111',other='22222222-2222-4222-8222-222222222222';
 let db:PGlite;
 beforeAll(async()=>{
@@ -14,13 +15,14 @@ beforeAll(async()=>{
  grant usage on schema auth to anon,authenticated;grant execute on function auth.uid() to anon,authenticated;`);
  const dir=new URL('../supabase/migrations/',import.meta.url);
  for(const f of readdirSync(dir).filter(f=>f.endsWith('.sql')).sort())await db.exec(readFileSync(new URL(f,dir),'utf8'));
- await db.exec(`insert into auth.users(id,email)values('${admin}','staff@example.invalid'),('${other}','viewer@example.invalid');update profiles set is_admin=true where id='${admin}';grant select,update on tenants to authenticated;`);
+ await db.exec(`insert into auth.users(id,email,email_confirmed_at)values('${admin}','staff@example.invalid',now()),('${other}','viewer@example.invalid',now());update profiles set is_admin=true where id='${admin}';grant select,update on tenants to authenticated;`);
 },30000);
 afterAll(async()=>db?.close());
 async function service<T>(fn:()=>Promise<T>){await db.exec('set role service_role');try{return await fn();}finally{await db.exec('reset role');}}
 async function tenant(status='onboarding'){
  const id=(await db.query<any>(`insert into tenants(name,slug,country,currency,status) values('Fixture',$1,'AE','AED',$2)returning id`,['activation-'+crypto.randomUUID(),status])).rows[0].id;
- await db.query(`insert into business_briefs(tenant_id,version,body,created_by)values($1,1,$2,$3)`,[id,JSON.stringify({maxAgeDays:30,source:{observedAt:new Date().toISOString()}}),admin]);return id;
+ await db.query(`insert into business_briefs(tenant_id,version,body,created_by)values($1,1,$2,$3)`,[id,JSON.stringify({offer:'Reviewed project recovery',industries:['construction'],markets:['AE'],roles:['owner'],needs:['project recovery'],excludedIndustries:[],maxAgeDays:30,source:{reference:'fixture:interview',excerpt:'Reviewed current business offer',observedAt:new Date().toISOString()}}),admin]);
+ if(status!=='ended')await seedReviveSetup(db,id,admin);return id;
 }
 async function activate(id:string,status='onboarding',version=0,brief=1,actor=admin){return service(async()=>(await db.query<any>('select activate_tenant_execution($1,$2,$3,$4,$5,$6) result',[id,actor,status,version,brief,'Reviewed current offer and account readiness'])).rows[0].result);}
 describe('controlled tenant activation database boundary',()=>{
@@ -46,7 +48,7 @@ describe('controlled tenant activation database boundary',()=>{
   await expect(activate(id,'onboarding',0,2)).rejects.toThrow('Brief changed or expired');
   await db.query(`update business_briefs set body='{"maxAgeDays":1,"source":{"observedAt":"2020-01-01T00:00:00Z"}}' where tenant_id=$1`,[id]);
   await expect(activate(id)).rejects.toThrow('Brief changed or expired');
-  await db.query('delete from business_briefs where tenant_id=$1',[id]);await expect(activate(id)).rejects.toThrow('Brief changed or expired');
+  const missing=(await db.query<any>(`insert into tenants(name,slug,country,currency) values('Missing brief',$1,'AE','AED') returning id`,['missing-'+crypto.randomUUID()])).rows[0].id;await expect(activate(missing)).rejects.toThrow('Brief changed or expired');
  });
  it('blocks direct application activation and execution-version forgery',async()=>{
   const id=await tenant();await service(async()=>{

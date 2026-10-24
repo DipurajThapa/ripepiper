@@ -10,7 +10,7 @@ function mount(api) {
   function node(id){return nodes[id] ||= {value:'',textContent:'',_html:'',set innerHTML(v){this._html=v; for(const m of v.matchAll(/id="([^"]+)"/g))node(m[1]);},get innerHTML(){return this._html;}};}
   node('prospectingPanel');
   const RP={esc:s=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'),api};
-  const context={window:{RP,addEventListener:(name,fn)=>listeners[name]=fn},document:{getElementById:node},TextDecoder};
+  const context={window:{RP,addEventListener:(name,fn)=>listeners[name]=fn,dispatchEvent:event=>listeners[event.type]?.(event)},document:{getElementById:node},TextDecoder,CustomEvent:class {constructor(type,options){this.type=type;this.detail=options.detail;}}};
   vm.runInNewContext(importSource,context);vm.runInNewContext(source,context);
   return {nodes,select:(id)=>{listeners['rp:tenant-selected']({detail:{id,name:'Fixture '+id}});nodes.prospectMode.value='synthetic';}};
 }

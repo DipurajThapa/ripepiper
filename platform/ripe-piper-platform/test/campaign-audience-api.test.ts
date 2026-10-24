@@ -10,14 +10,14 @@ async function list(value:unknown){
  vi.spyOn(Db.prototype,'userFromToken').mockResolvedValue({id:actor,email:'staff@example.invalid',is_admin:true});
  vi.spyOn(Db.prototype,'one').mockResolvedValue({id:tenant,name:'Fixture client'});
  vi.spyOn(Db.prototype,'select').mockImplementation(async table=>table==='leads'?[{id:lead,email:'reviewed@example.invalid',company:null}]:[]);
- const rpc=vi.spyOn(Db.prototype,'rpc').mockResolvedValue(value);
+ const rpc=vi.spyOn(Db.prototype,'rpc').mockImplementation(async name=>name==='revive_audience_candidates'?value:{tenantId:tenant,setup:null,currentBriefVersion:null,ready:false,missing:['setup_required'],owners:[],brief:null});
  const response=await campaignPlans(new Request('https://fixture.invalid/campaigns',{method:'POST',headers:{Authorization:'Bearer fixture'},body:JSON.stringify({operation:'list'})}),{} as Env,tenant);
  return {response,rpc};
 }
 it('lists only verified scoped audience fields without granting sending authority',async()=>{
  const row=candidate(),{response,rpc}=await list([{...row,private:'must not leak'}]);
  expect(response.status).toBe(200);const body=await response.json() as any;expect(body.audienceCandidates).toEqual([row]);expect(body.delivery).toBe('synthetic_only');
- expect(rpc).toHaveBeenCalledExactlyOnceWith('revive_audience_candidates',{p_tenant:tenant,p_actor:actor});
+ expect(rpc).toHaveBeenCalledWith('revive_audience_candidates',{p_tenant:tenant,p_actor:actor});
 });
 it.each([null,true,{},[null],[{...candidate(),leadId:crypto.randomUUID()}],[{...candidate(),email:'other@example.invalid'}],[{...candidate(),reviewVersion:0}],[{...candidate(),snapshot:'not-a-snapshot'}],[{...candidate(),expiresAt:'unknown'}],[candidate(),candidate()]])('refuses malformed or unrelated audience receipts %#',async value=>{
  const {response}=await list(value);expect(response.status).toBe(503);

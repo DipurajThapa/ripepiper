@@ -81,8 +81,13 @@ export async function runReviveAutomation(env:Env,scope:Scope={}) {
    for(const a of due) {
     if(!available()||dispatchAttempts>=limits.dispatches){report.limited=true;break;}
     if(a.tenant_id!==c.tenant_id||a.campaign_id!==c.id||a.state!=='queued'||!uuid.test(a.id)||!members.some(m=>m.leadId===a.lead_id)||!validInstant(a.due_at)||Date.parse(a.due_at)>Date.now()){report.blocked++;continue;}
+    const readiness=await db().rpc<any>('revive_action_readiness',{p_tenant:c.tenant_id,p_id:a.id,p_now:new Date().toISOString()});
+    if(!readiness||readiness.tenantId!==c.tenant_id||readiness.actionId!==a.id||readiness.campaignId!==c.id||readiness.assetVersion!==c.asset_version||!['ready','wait','expired'].includes(readiness.disposition)||!['working_window','strategy_changed','missed_local_day','not_due','outside_working_window','daily_capacity'].includes(readiness.reason)){report.review++;break;}
+    // Closed windows are temporary, without claiming/rescheduling or consuming a send attempt.
+    if(readiness.disposition==='wait')continue;
     dispatchAttempts++;
     const result=await executeSyntheticAction(db(),env,a.id,c.tenant_id);
+    if(readiness.disposition==='expired'){report.review++;continue;}
     if(result.ok) {
      const ack=await result.json() as any;
      if(ack.ok===true&&ack.state==='tested'&&ack.action_id===a.id)report.tested++;

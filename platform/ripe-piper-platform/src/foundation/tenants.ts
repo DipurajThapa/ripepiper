@@ -16,9 +16,12 @@ export async function prepareTenant(req: Request, env: Env) {
       !["AED", "INR"].includes(currency) || !["revive", "signal", "response", "events"].includes(pkg))
     return bad("Enter a name, slug, country, currency and selected capability.");
   try {
-    const [row] = await new Db(env).insert<{ id: string; slug: string; status: string }>("tenants", {
+    const rows = await new Db(env).insert<{ id: string; slug: string; status: string }>("tenants", {
       name, slug, country, currency, package: pkg, plan: "engine", ownership: "managed", status: "onboarding",
     });
+    const row = Array.isArray(rows) && rows.length === 1 ? rows[0] : null;
+    if (!row || typeof row.id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.id) || row.slug !== slug || row.status !== 'onboarding')
+      return bad("The account acknowledgement is uncertain. Reload Clients and check this slug before preparing another account.",503);
     return json({ ok: true, tenant: { id: row.id, slug: row.slug, status: row.status } }, 201);
   } catch (e) {
     if (e instanceof DbError && e.isConflict) return bad("That tenant slug is already in use.", 409);

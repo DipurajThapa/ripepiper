@@ -41,6 +41,7 @@ function adapter(options:any={}) {
    const a={...freshAction(),campaign_id:args.p_campaign,lead_id:args.p_body.leadId,due_at:args.p_body.startAt};actions.push(a);return{actionIds:[a.id],replayed:false};
   }
   const action=actions.find(a=>a.id===args.p_id&&a.tenant_id===args.p_tenant);
+  if(name==='revive_action_readiness')return options.readiness??{tenantId:args.p_tenant,actionId:args.p_id,campaignId:action?.campaign_id,assetVersion:1,disposition:'ready',reason:'working_window'};
   if(name==='claim_fenced_synthetic_action') {
    if(!action||action.state!=='queued')return null;
    if(options.revoked){action.state='blocked';return null;}
@@ -150,6 +151,17 @@ describe('bounded autonomous Revive synthetic coordinator',()=>{
  it('does not dispatch an existing due action outside the exact reviewed asset audience',async()=>{
   const outside=crypto.randomUUID(),a=adapter({reviews:[freshReview()],audience:freshAudience([lead]),actions:[{...freshAction(),lead_id:outside}]});
   expect(await runReviveAutomation(env)).toMatchObject({enrolled:1,tested:0,blocked:1});expect(a.calls.some(c=>c.name==='claim_fenced_synthetic_action')).toBe(false);
+ });
+ it('waits for the reviewed working window without claiming, rescheduling or consuming an attempt',async()=>{
+  const action=freshAction(),a=adapter({actions:[action],readiness:{tenantId:tenant,actionId:action.id,campaignId:campaign,assetVersion:1,disposition:'wait',reason:'outside_working_window'}});
+  expect(await runReviveAutomation(env)).toMatchObject({tested:0,review:0,blocked:0});expect(a.calls.some(c=>c.name==='claim_fenced_synthetic_action')).toBe(false);expect(action.state).toBe('queued');
+ });
+ it('routes a missed local-day action through the existing claim boundary into review, without re-enrolment',async()=>{
+  const action=freshAction(),a=adapter({actions:[action],revoked:true,readiness:{tenantId:tenant,actionId:action.id,campaignId:campaign,assetVersion:1,disposition:'expired',reason:'missed_local_day'}});
+  expect(await runReviveAutomation(env)).toMatchObject({tested:0,review:1,enrolled:0});expect(action.state).toBe('blocked');expect(a.calls.some(c=>c.name==='complete_fenced_synthetic_action')).toBe(false);
+ });
+ it('does not claim on an uncorrelated or malformed working-policy acknowledgement',async()=>{
+  const a=adapter({actions:[freshAction()],readiness:{tenantId:crypto.randomUUID(),disposition:'ready'}});expect(await runReviveAutomation(env)).toMatchObject({tested:0,review:1});expect(a.calls.some(c=>c.name==='claim_fenced_synthetic_action')).toBe(false);
  });
  it('requires a verified administrator before the operator route runs',async()=>{
   const a=adapter();await expect(runReviveAutomationAdmin(new Request('https://fixture.invalid'),env,tenant)).rejects.toMatchObject({status:401});expect(a.calls).toEqual([]);

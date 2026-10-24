@@ -18,6 +18,7 @@ it('actual Worker coordinator reconciles a committed-but-lost completion once an
   throw Error('Unexpected table '+table);
  });
  vi.spyOn(Db.prototype,'rpc').mockImplementation(async(name,args:any)=>{
+  if(name==='revive_action_readiness')return {tenantId:tenant,actionId:id,campaignId:campaign,assetVersion:1,disposition:'ready',reason:'working_window'};
   if(name==='claim_fenced_synthetic_action'){claims++;row.state='claimed';row.dispatch_token=args.p_token;return {token:args.p_token,approvalVersion:1,assetVersion:1};}
   if(name==='complete_fenced_synthetic_action'){completions++;row.state='tested';row.provider_ref='test-sink:'+id;row.acknowledged_at=new Date().toISOString();throw Error('Synthetic committed completion response lost');}
   if(name==='expire_fenced_synthetic_action'){expirations++;return true;}

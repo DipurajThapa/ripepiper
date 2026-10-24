@@ -9,6 +9,6 @@ it('rehearses the current Revive rollback-only acceptance packet with an explici
   const directory=new URL('../supabase/migrations/',import.meta.url);for(const file of readdirSync(directory).filter(f=>f.endsWith('.sql')).sort())await db.exec(readFileSync(new URL(file,directory),'utf8'));
   const result=await db.exec(readFileSync(new URL('../../../qa/staging-revive-rollback-acceptance.sql',import.meta.url),'utf8'));
   expect(JSON.stringify(result)).toContain('PASS: hosted Revive');
-  for(const table of ['tenants','leads','lead_observations','campaign_assets','outbound_actions','revive_reviews','tenant_activation_reviews','activity_log','sheet_outbox','auth.users'])expect((await db.query(`select count(*)::int n from ${table}`)).rows).toEqual([{n:0}]);
+  for(const table of ['tenants','leads','lead_observations','revive_setups','campaign_assets','outbound_actions','revive_reviews','tenant_activation_reviews','activity_log','sheet_outbox','auth.users'])expect((await db.query(`select count(*)::int n from ${table}`)).rows).toEqual([{n:0}]);
  }finally{await db.close();}
 },30000);

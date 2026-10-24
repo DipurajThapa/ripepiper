@@ -5,9 +5,13 @@ import {readFileSync,readdirSync} from 'node:fs';
 import {productError,reviewProducts,type ProductContext} from '../src/foundation/products';
 import {recordProductEvent} from '../src/foundation/prospecting-routes';
 import type {Env} from '../src/env';
+import {seedReviveSetup,resolvedReviveStrategy,type strategyBody} from './helpers/revive-setup';
 const staff='11000000-0000-4000-8000-000000000001';
 const viewer='11000000-0000-4000-8000-000000000002';
 let db:PGlite,tenant:string,foreign:string;
+type Fixture={lead:string;campaign:string;action:string;synthetic:boolean};
+const strategies=new Map<string,ReturnType<typeof strategyBody>>();
+const historicalBusiness=new Map<string,Fixture>();
 const env={SUPABASE_URL:'https://fixture.example.invalid',SUPABASE_SERVICE_ROLE_KEY:'fixture-service',SUPABASE_ANON_KEY:'fixture-public'} as Env;
 beforeAll(async()=>{
  db=new PGlite({extensions:{btree_gist}});
@@ -16,33 +20,55 @@ beforeAll(async()=>{
  create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.sub',true),'')::uuid$$;
  grant usage on schema auth to authenticated,anon;grant execute on function auth.uid() to authenticated,anon;`);
  const dir=new URL('../supabase/migrations/',import.meta.url);
- for(const file of readdirSync(dir).filter(f=>f.endsWith('.sql')).sort())await db.exec(readFileSync(new URL(file,dir),'utf8'));
+ const migrations=readdirSync(dir).filter(f=>f.endsWith('.sql')).sort();
+ const strategyIndex=migrations.indexOf('20261024162439_revive_strategy_schedule.sql');
+ expect(strategyIndex).toBeGreaterThan(0);
+ for(const file of migrations.slice(0,strategyIndex))await db.exec(readFileSync(new URL(file,dir),'utf8'));
  await db.query(`insert into auth.users(id,email,email_confirmed_at)values($1,'staff@example.invalid',now()),($2,'viewer@example.invalid',now())`,[staff,viewer]);
  await db.query('update profiles set is_admin=true where id=$1',[staff]);
  for(const slug of ['attribution-fixture','attribution-foreign']){
-  const id=(await db.query<any>(`insert into tenants(name,slug,country,currency)values('Fixture',$1,'AE','AED')returning id`,[slug])).rows[0].id;
-  await db.query(`insert into business_briefs(tenant_id,version,body,created_by)values($1,1,$2,$3)`,[id,JSON.stringify({maxAgeDays:365,source:{observedAt:new Date().toISOString()}}),staff]);
+  const id=(await db.query<any>(`insert into tenants(name,slug,country,currency,package,status)values('Fixture',$1,'AE','AED','revive','onboarding')returning id`,[slug])).rows[0].id;
+  await db.query(`insert into business_briefs(tenant_id,version,body,created_by)values($1,1,$2,$3)`,[id,JSON.stringify({offer:'Reviewed reactivation service',industries:['construction'],markets:['AE'],roles:['owner'],needs:['quote follow-up'],excludedIndustries:[],maxAgeDays:365,source:{reference:'attribution:brief',excerpt:'Reviewed construction reactivation service for AE owner quote follow-up.',observedAt:new Date(Date.now()-3600_000).toISOString()}}),staff]);
+  const configured=await seedReviveSetup(db,id,staff);strategies.set(id,configured.strategy);
+  await service(()=>db.query('select activate_tenant_execution($1,$2,$3,$4,$5,$6)',[id,staff,'onboarding',0,1,'Reviewed synthetic fixture setup']));
   if(!tenant)tenant=id;else foreign=id;
  }
+ // Preserve genuine historical mode coverage: these acknowledged database fixtures
+ // predate the synthetic-only slot guard. No provider is called and no trigger is
+ // disabled. The new migration must preserve their outcome history while blocking
+ // any future execution of legacy assets without a reviewed strategy.
+ for(const state of ['delivered','tested'])historicalBusiness.set(state,await buildFixture({synthetic:false,state},true));
+ for(const file of migrations.slice(strategyIndex))await db.exec(readFileSync(new URL(file,dir),'utf8'));
 });
 afterAll(async()=>db.close());
 async function service<T>(fn:()=>Promise<T>){await db.exec('set role service_role');try{return await fn();}finally{await db.exec('reset role');}}
-async function fixture(options:{synthetic?:boolean;capability?:string;state?:string}={}){
+async function fixture(options:{synthetic?:boolean;capability?:string;state?:string}={}):Promise<Fixture>{
+ if(options.synthetic===false){const prior=historicalBusiness.get(options.state??'delivered');if(!prior)throw Error('Historical business fixture missing');return prior;}
+ return buildFixture(options);
+}
+async function buildFixture(options:{synthetic?:boolean;capability?:string;state?:string}={},beforeStrategy=false):Promise<Fixture>{
  const synthetic=options.synthetic??true;
  const lead=(await db.query<any>(`insert into leads(tenant_id,source,email)values($1,'import',$2)returning id`,[tenant,`${crypto.randomUUID()}@example.${synthetic?'invalid':'test'}`])).rows[0].id;
+ const source=(await db.query<any>(`insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,rights_reference,synthetic,assessment_facts,assessment_excerpt,assessment_reviewed_by)values($1,$2,'qa_fixture',$3,now()-interval '1 hour','fixture','Reviewed fixture source use',$4,$5,'construction AE owner quote follow-up',$6)returning id`,[tenant,lead,crypto.randomUUID(),synthetic,{industry:'construction',market:'AE',role:'owner',need:'quote follow-up'},staff])).rows[0].id;
  // Seed reviewed history/current acceptance, independently of the eligibility tests.
  await service(()=>db.query('select record_product_event($1,$2,$3,$4,$5,$6,$7,$8,$9)',[tenant,lead,staff,crypto.randomUUID(),'fixture-source','Reviewed fixture history',new Date(Date.now()-86400000).toISOString(),synthetic,JSON.stringify({product:'revive',kind:'history',lastContactAt:new Date(Date.now()-60*86400000).toISOString(),previousInterest:'yes',stalledReason:'Reviewed fixture timing'})]));
- await db.query(`insert into revive_reviews(tenant_id,lead_id,version,brief_version,snapshot,state,reviewer_id,reason,expires_at)values($1,$2,1,1,revive_input_snapshot($1,$2),'accepted',$3,'Reviewed fixture only',now()+interval '1 day')`,[tenant,lead,staff]);
- const campaign=(await db.query<any>(`insert into campaigns(tenant_id,capability,operator_id,purpose,channel,market,timezone)values($1,$2,$3,'fixture','email','AE','UTC')returning id`,[tenant,options.capability??'revive',staff])).rows[0].id;
+ await service(()=>db.query(`select review_revive_candidate($1,$2,$3,0,revive_input_snapshot($1,$2),1,'accepted','Reviewed fixture only',now()+interval '1 day')`,[tenant,lead,staff]));
+ await db.query(`insert into contact_rights(tenant_id,lead_id,source_id,purpose,channel,market,decision,reviewer_id,notice_reference)values($1,$2,$3,'fixture','email','AE','permitted',$4,'Synthetic or historical database fixture only')`,[tenant,lead,source,staff]);
+ const campaign=(await db.query<any>(`insert into campaigns(tenant_id,capability,operator_id,purpose,channel,market,timezone,status,client_authority_ref,owner_authority_ref,cts_profile_ref,expires_at,max_actions)values($1,$2,$3,'fixture','email','AE','UTC','approved','fixture-client','fixture-owner','fixture-profile',now()+interval '1 day',3)returning id`,[tenant,options.capability??'revive',staff])).rows[0].id;
  const audience=(options.capability??'revive')==='revive'?(await service(()=>db.query<any>('select build_revive_audience($1,$2,$3) value',[tenant,staff,{leadIds:[lead],confirmed:true}]))).rows[0].value:null;
- await db.query(`insert into campaign_assets(tenant_id,campaign_id,version,steps,created_by,approved_by,approved_at,revive_audience)values($1,$2,1,$3,$4,$4,now()-interval '1 hour',$5)`,[tenant,campaign,JSON.stringify([{offsetHours:0,subject:'Fixture',body:'Fixture only',evidenceReference:'fixture'}]),staff,audience]);
+ const steps=JSON.stringify([{offsetHours:0,subject:'Fixture',body:'Fixture only',evidenceReference:'attribution:brief'}]);
+ if(beforeStrategy)await db.query(`insert into campaign_assets(tenant_id,campaign_id,version,brief_version,steps,created_by,approved_by,approved_at,revive_audience)values($1,$2,1,1,$3,$4,$4,now(),$5)`,[tenant,campaign,steps,staff,audience]);
+ else {
+  const resolved=(options.capability??'revive')==='revive'?await resolvedReviveStrategy(db,tenant,staff,[lead],strategies.get(tenant)!):{strategy:null};
+  await db.query(`insert into campaign_assets(tenant_id,campaign_id,version,brief_version,steps,created_by,approved_by,approved_at,revive_audience,revive_strategy)values($1,$2,1,1,$3,$4,$4,now(),$5,$6)`,[tenant,campaign,steps,staff,audience,resolved.strategy]);
+ }
  const action=crypto.randomUUID();
- await db.query(`insert into outbound_actions(id,tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at,state,dispatch_token,provider_ref,acknowledged_at)values($1::uuid,$2,$3,$4,$1::text,1,1,now()-interval '30 minutes',$5,$6,$7,now()-interval '20 minutes')`,[action,tenant,campaign,lead,options.state??(synthetic?'tested':'delivered'),crypto.randomUUID(),synthetic?'test-sink:'+action:'provider-fixture:'+action]);
+ await db.query(`insert into outbound_actions(id,tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at,state,dispatch_token,provider_ref,acknowledged_at)values($1::uuid,$2,$3,$4,$1::text,1,1,now(),$5,$6,$7,now())`,[action,tenant,campaign,lead,options.state??(synthetic?'tested':'delivered'),crypto.randomUUID(),synthetic?'test-sink:'+action:'provider-fixture:'+action]);
  return {lead,campaign,action,synthetic};
 }
 function context(f:Awaited<ReturnType<typeof fixture>>):ProductContext{return {product:'revive',kind:'outcome',outcome:'meeting_held',reason:'Reviewed fixture attendance, not an inferred meeting',campaignId:f.campaign,actionId:f.action};}
 async function record(f:Awaited<ReturnType<typeof fixture>>,ctx:any=context(f),options:{tenant?:string;lead?:string;synthetic?:boolean;at?:string;reference?:string}={}){
- const at=options.at??new Date(Date.now()-1000).toISOString();
+ const at=options.at??new Date().toISOString();
  return service(async()=>(await db.query<any>('select record_product_event($1,$2,$3,$4,$5,$6,$7,$8,$9) id',[options.tenant??tenant,options.lead??f.lead,staff,options.reference??crypto.randomUUID(),'fixture-permitted-source','Reviewed outcome source',at,options.synthetic??f.synthetic,JSON.stringify(ctx)])).rows[0].id);
 }
 describe('exact acknowledged Revive action attribution',()=>{
@@ -61,7 +87,7 @@ describe('exact acknowledged Revive action attribution',()=>{
   expect(reviewProducts(rows,Date.now(),false,'candidate').find(p=>p.product==='revive')).toMatchObject({outcomeScope:'unattributed',outcomes:[{attributionScope:'unattributed',synthetic:true}]});
  });
  it('preserves same-reference identity and rejects changed payload replay',async()=>{
-  const f=await fixture(),reference=crypto.randomUUID(),at=new Date(Date.now()-1000).toISOString();
+  const f=await fixture(),reference=crypto.randomUUID(),at=new Date().toISOString();
   const first=await record(f,context(f),{reference,at});expect(await record(f,context(f),{reference,at})).toBe(first);
   await expect(record(f,{...context(f),outcome:'won'},{reference,at})).rejects.toThrow('Reference reused');
  });
@@ -129,7 +155,7 @@ describe('Revive outcome API to actual local SQL persistence',()=>{
    throw Error('Unexpected network request '+u.pathname);
   });
  }
- function body(f:Awaited<ReturnType<typeof fixture>>){return {lead_id:f.lead,reference:crypto.randomUUID(),rights_reference:'fixture-source',excerpt:'Reviewed fixture',observed_at:new Date(Date.now()-1000).toISOString(),synthetic:f.synthetic,context:context(f)};}
+ function body(f:Awaited<ReturnType<typeof fixture>>){return {lead_id:f.lead,reference:crypto.randomUUID(),rights_reference:'fixture-source',excerpt:'Reviewed fixture',observed_at:new Date().toISOString(),synthetic:f.synthetic,context:context(f)};}
  it('persists and reads an exact linked outcome without any provider call',async()=>{
   const f=await fixture();mockDatabase();const r=await recordProductEvent(request(body(f)),env,tenant);expect(r.status).toBe(201);
   const receipt:any=await r.json();expect(receipt.delivery).toBe('not_sent');

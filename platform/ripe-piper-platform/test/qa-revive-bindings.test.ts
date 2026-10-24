@@ -4,6 +4,7 @@ import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
 import {readFileSync,readdirSync} from 'node:fs';
 import worker from '../src/index';
 import type {Env} from '../src/env';
+import {seedReviveSetup,strategyBody} from './helpers/revive-setup';
 // Disposable PostgreSQL and intercepted HTTP only; unexpected endpoints throw.
 const staff='cd114378-1c4b-4be2-a0fa-cd1285f35229';
 const env={SUPABASE_URL:'https://bindings-qa.invalid',SUPABASE_SERVICE_ROLE_KEY:'fixture-service',SUPABASE_ANON_KEY:'fixture-public',SYNTHETIC_SINK_ENABLED:'true'} as Env;
@@ -35,16 +36,18 @@ afterAll(async()=>{vi.unstubAllGlobals();await db.close();});
 async function setup(){
  const tenant=(await rows("insert into tenants(name,slug,country,currency,status) values('QA Bindings',$1,'AE','AED','active') returning id",[crypto.randomUUID()]))[0].id;
  const observedAt=new Date(Date.now()-3600000).toISOString(),brief={offer:'Reviewed enquiry follow-up',industries:['construction'],markets:['AE'],roles:['owner'],needs:['lead follow-up','pipeline visibility'],excludedIndustries:['gambling'],maxAgeDays:90,source:{reference:'qa-interview',excerpt:'Reviewed business targets',observedAt}};
- await service('save_business_brief',[tenant,0,brief,staff]);const contacts=[] as Array<{lead:string;source:string}>;
- for(const need of brief.needs){
+ await service('save_business_brief',[tenant,0,brief,staff]);const seeded=await seedReviveSetup(db,tenant,staff,{senderName:'QA Owner'});const contacts=[] as Array<{lead:string;source:string}>;
+ // Use the SAME supported need for both contacts so audience denial cannot
+ // accidentally pass merely because the new strategy rejects a different need.
+ for(const need of [brief.needs[0],brief.needs[0]]){
   const lead=(await rows("insert into leads(tenant_id,source,email) values($1,'import',$2) returning id",[tenant,crypto.randomUUID()+'@example.invalid']))[0].id;
   const source=(await rows(`insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,rights_reference,synthetic,assessment_facts,assessment_excerpt,assessment_reviewed_by) values($1,$2,'staff_import',$3,$4,'review','QA source rights',true,$5,$6,$7) returning id`,[tenant,lead,crypto.randomUUID(),observedAt,{industry:'construction',market:'AE',role:'owner',need},`construction AE owner ${need}`,staff]))[0].id;
   await service('record_product_event',[tenant,lead,staff,crypto.randomUUID(),'QA history rights','Reviewed previous interest',observedAt,true,{product:'revive',kind:'history',lastContactAt:new Date(Date.now()-80*86400000).toISOString(),previousInterest:'yes',stalledReason:'Deferred review'}]);
   const context=await service('revive_review_context',[tenant,lead,staff]);await service('review_revive_candidate',[tenant,lead,staff,0,context.snapshot,1,'accepted','QA reviewed relationship and fit',new Date(Date.now()+86400000).toISOString()]);contacts.push({lead,source});
  }
- return {tenant,contacts,brief};
+ return {tenant,contacts,brief,setupVersion:seeded.setup.version,strategy:seeded.strategy};
 }
-async function draft(f:Awaited<ReturnType<typeof setup>>){const contact=f.contacts[0],response=await http(f.tenant,{operation:'draft',body:{leadId:contact.lead,sourceId:contact.source,messageCount:1,senderName:'QA Owner'}});expect(response.status).toBe(200);const data=await response.json() as any;return {campaign:crypto.randomUUID(),body:{product:'revive',purpose:'reactivation',market:'AE',timezone:'UTC',steps:data.proposal.steps,draftContext:data.proposal.draftContext,audience:{leadIds:[contact.lead],confirmed:true}}};}
+async function draft(f:Awaited<ReturnType<typeof setup>>){const contact=f.contacts[0],response=await http(f.tenant,{operation:'draft',body:{leadId:contact.lead,sourceId:contact.source,messageCount:1,senderName:'QA Owner'}});expect(response.status).toBe(200);const data=await response.json() as any;return {campaign:crypto.randomUUID(),body:{product:'revive',purpose:'reactivation',market:'AE',timezone:'UTC',strategy:f.strategy,steps:data.proposal.steps,draftContext:data.proposal.draftContext,audience:{leadIds:[contact.lead],confirmed:true}}};}
 async function counts(tenant:string){return (await rows(`select (select count(*) from campaigns where tenant_id=$1)::int campaigns,(select count(*) from campaign_assets where tenant_id=$1)::int assets,(select count(*) from outbound_actions where tenant_id=$1)::int actions,(select count(*) from activity_log where tenant_id=$1)::int audit`,[tenant]))[0];}
 async function ignoredSource(f:Awaited<ReturnType<typeof setup>>){return (await rows(`insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,rights_reference,synthetic,assessment_facts,assessment_excerpt,assessment_reviewed_by) values($1,$2,'staff_import',$3,now()-interval '1 minute','review','QA reviewed unrelated rights',true,'{}','Unrelated administrative note',$4) returning id`,[f.tenant,f.contacts[0].lead,crypto.randomUUID(),staff]))[0].id;}
 it('Worker rejects swapping a generated source to an ignored same-contact note with zero save effects',async()=>{
@@ -56,22 +59,23 @@ it('SQL rejects the source substitution when a caller bypasses Worker validation
 });
 const approval=()=>({clientAuthority:'QA client authority',ownerAuthority:'QA owner authority',ctsProfile:'QA reviewed profile',maxActions:10,expiresAt:new Date(Date.now()+7*86400000).toISOString()});
 async function campaign(f:Awaited<ReturnType<typeof setup>>,memberIndex=0){
- const id=crypto.randomUUID(),body={product:'revive',purpose:'reactivation',market:'AE',timezone:'UTC',steps:[{offsetHours:0,subject:'Reviewed lead follow-up',body:'Is the reviewed need still relevant?',evidenceReference:'qa-business-brief'}],audience:{leadIds:[f.contacts[memberIndex].lead],confirmed:true}};
+ const id=crypto.randomUUID(),body={product:'revive',purpose:'reactivation',market:'AE',timezone:'UTC',strategy:strategyBody(f.setupVersion,f.brief.needs[0],f.brief.source.reference),steps:[{offsetHours:0,subject:'Reviewed lead follow-up',body:'Is the reviewed need still relevant?',evidenceReference:'qa-business-brief'}],audience:{leadIds:[f.contacts[memberIndex].lead],confirmed:true}};
  await service('manage_campaign_plan',[f.tenant,id,staff,'save',0,body]);await service('manage_campaign_plan',[f.tenant,id,staff,'approve',1,approval()]);for(const contact of f.contacts)await service('manage_campaign_plan',[f.tenant,id,staff,'rights',1,{leadId:contact.lead,sourceId:contact.source,noticeReference:'QA synthetic rights'}]);return {id,body};
 }
 it('rejects enrolment outside campaign audience despite global acceptance and scoped rights',async()=>{
  const f=await setup(),c=await campaign(f),before=await counts(f.tenant);await expect(service('manage_campaign_plan',[f.tenant,c.id,staff,'queue',1,{leadId:f.contacts[1].lead,startAt:new Date(Date.now()+1000).toISOString()}])).rejects.toThrow();expect(await counts(f.tenant)).toEqual(before);
 });
+async function dueAfter(id:string){return new Date(Date.parse((await rows('select due_at from outbound_actions where id=$1',[id]))[0].due_at)+1000).toISOString();}
 async function tamper(f:Awaited<ReturnType<typeof setup>>,id:string){const other=(await rows('select * from revive_reviews where tenant_id=$1 and lead_id=$2',[f.tenant,f.contacts[1].lead]))[0];await rows('update outbound_actions set lead_id=$1,revive_review_version=$2,revive_review_snapshot=$3 where id=$4',[other.lead_id,other.version,other.snapshot,id]);}
 it('rechecks campaign membership at claim for a tampered legacy row',async()=>{
  const f=await setup(),c=await campaign(f),at=new Date(Date.now()+3000).toISOString(),queued=await service('manage_campaign_plan',[f.tenant,c.id,staff,'queue',1,{leadId:f.contacts[0].lead,startAt:new Date(Date.now()+1000).toISOString()}]);
  try{await tamper(f,queued.actionIds[0]);}catch{expect((await rows('select lead_id from outbound_actions where id=$1',[queued.actionIds[0]]))[0].lead_id).toBe(f.contacts[0].lead);return;}
- expect(await service('claim_fenced_synthetic_action',[f.tenant,queued.actionIds[0],crypto.randomUUID(),at])).toBeNull();expect((await rows('select state from outbound_actions where id=$1',[queued.actionIds[0]]))[0].state).toBe('blocked');
+ expect(await service('claim_fenced_synthetic_action',[f.tenant,queued.actionIds[0],crypto.randomUUID(),await dueAfter(queued.actionIds[0])])).toBeNull();expect((await rows('select state from outbound_actions where id=$1',[queued.actionIds[0]]))[0].state).toBe('blocked');
 });
 it('rechecks campaign membership at completion after a successful claim',async()=>{
- const f=await setup(),c=await campaign(f),at=new Date(Date.now()+3000).toISOString(),token=crypto.randomUUID(),queued=await service('manage_campaign_plan',[f.tenant,c.id,staff,'queue',1,{leadId:f.contacts[0].lead,startAt:new Date(Date.now()+1000).toISOString()}]);expect(await service('claim_fenced_synthetic_action',[f.tenant,queued.actionIds[0],token,at])).toMatchObject({token});
+ const f=await setup(),c=await campaign(f),at=new Date(Date.now()+3000).toISOString(),token=crypto.randomUUID(),queued=await service('manage_campaign_plan',[f.tenant,c.id,staff,'queue',1,{leadId:f.contacts[0].lead,startAt:new Date(Date.now()+1000).toISOString()}]);expect(await service('claim_fenced_synthetic_action',[f.tenant,queued.actionIds[0],token,await dueAfter(queued.actionIds[0])])).toMatchObject({token});
  try{await tamper(f,queued.actionIds[0]);}catch{expect((await rows('select lead_id from outbound_actions where id=$1',[queued.actionIds[0]]))[0].lead_id).toBe(f.contacts[0].lead);return;}
- expect(await service('complete_fenced_synthetic_action',[f.tenant,queued.actionIds[0],token,1,1,at])).toBe(false);expect((await rows('select state from outbound_actions where id=$1',[queued.actionIds[0]]))[0].state).not.toBe('tested');
+ expect(await service('complete_fenced_synthetic_action',[f.tenant,queued.actionIds[0],token,1,1,await dueAfter(queued.actionIds[0])])).toBe(false);expect((await rows('select state from outbound_actions where id=$1',[queued.actionIds[0]]))[0].state).not.toBe('tested');
 });
 it('preserves positive edited draft save and replay without approval, rights or actions',async()=>{
  const f=await setup(),p=await draft(f);p.body.steps[0].body+='\nHuman-reviewed edit.';
@@ -81,7 +85,7 @@ it('preserves positive edited draft save and replay without approval, rights or 
 });
 it('requires a new version and approval when only the reviewed campaign audience changes',async()=>{
  const f=await setup(),c=await campaign(f),start=new Date(Date.now()+1000).toISOString();const queued=await service('manage_campaign_plan',[f.tenant,c.id,staff,'queue',1,{leadId:f.contacts[0].lead,startAt:start}]);
- const changed={...c.body,audience:{leadIds:[f.contacts[1].lead],confirmed:true}};
+ const changed={...c.body,audience:{leadIds:[f.contacts[1].lead],confirmed:true},strategy:{...c.body.strategy,canonicalNeed:f.brief.needs[0]}};
  expect(await service('manage_campaign_plan',[f.tenant,c.id,staff,'save',1,changed])).toMatchObject({id:c.id,status:'draft',version:2});
  expect((await rows('select state from outbound_actions where id=$1',[queued.actionIds[0]]))[0].state).toBe('cancelled');
  await expect(service('manage_campaign_plan',[f.tenant,c.id,staff,'queue',1,{leadId:f.contacts[0].lead,startAt:start}])).rejects.toThrow();
@@ -95,7 +99,7 @@ it('does not let review replacement or suppression revive an old audience enrolm
  await expect(service('manage_campaign_plan',[f.tenant,c.id,staff,'queue',1,{leadId:f.contacts[0].lead,startAt:start}])).rejects.toThrow();
  expect(await service('claim_fenced_synthetic_action',[f.tenant,queued.actionIds[0],crypto.randomUUID(),new Date(Date.now()+3000).toISOString()])).toBeNull();
  const other=await setup(),d=await campaign(other),due=new Date(Date.now()+1000).toISOString(),action=(await service('manage_campaign_plan',[other.tenant,d.id,staff,'queue',1,{leadId:other.contacts[0].lead,startAt:due}])).actionIds[0],token=crypto.randomUUID(),at=new Date(Date.now()+3000).toISOString();
- expect(await service('claim_fenced_synthetic_action',[other.tenant,action,token,at])).toMatchObject({token});await rows("insert into lead_suppression(tenant_id,lead_id,reason) values($1,$2,'QA opt-out')",[other.tenant,other.contacts[0].lead]);expect(await service('complete_fenced_synthetic_action',[other.tenant,action,token,1,1,at])).toBe(false);
+ expect(await service('claim_fenced_synthetic_action',[other.tenant,action,token,await dueAfter(action)])).toMatchObject({token});await rows("insert into lead_suppression(tenant_id,lead_id,reason) values($1,$2,'QA opt-out')",[other.tenant,other.contacts[0].lead]);expect(await service('complete_fenced_synthetic_action',[other.tenant,action,token,1,1,await dueAfter(action)])).toBe(false);
 });
 it('rejects foreign, duplicate and unconfirmed audience membership without partial saves',async()=>{
  const f=await setup(),foreign=await setup();

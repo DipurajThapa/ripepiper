@@ -1,6 +1,6 @@
 -- Independent QA: ONLY empty isolated staging wgomywhuzyboxlckopca.
 -- No DDL, provider request, Auth API or persistent fixture. Requires current source migrations.
--- Updated audience fixtures are not the packet covered by the historical 22-migration receipt.
+-- Updated setup/strategy/audience fixtures are not the historical hosted packet.
 BEGIN;
 DO $$
 DECLARE
@@ -13,12 +13,12 @@ DECLARE
  c uuid:='fa500000-0000-4000-8000-000000000041';
  d uuid:='fa500000-0000-4000-8000-000000000042';
  k uuid:='fa500000-0000-4000-8000-000000000061';
- action uuid; observation uuid; j jsonb; snap text; rejected boolean;
+ action uuid; observation uuid; j jsonb; snap text; rejected boolean; strategy_input jsonb;
 BEGIN
  IF EXISTS(SELECT 1 FROM public.tenants) OR EXISTS(SELECT 1 FROM auth.users) OR EXISTS(SELECT 1 FROM public.leads) OR EXISTS(SELECT 1 FROM public.sheet_outbox) THEN RAISE EXCEPTION 'QA requires empty isolated staging baseline'; END IF;
  INSERT INTO auth.users(id,email,email_confirmed_at,raw_user_meta_data) VALUES(a,'qa-revive-staff@example.invalid',now(),'{}');
  UPDATE public.profiles SET is_admin=true WHERE id=a;
- INSERT INTO public.tenants(id,name,slug,country,currency,status) VALUES(t,'QA Revive rollback','qa-revive-rollback','AE','AED','onboarding'),(x,'QA foreign rollback','qa-revive-foreign','AE','AED','onboarding');
+ INSERT INTO public.tenants(id,name,slug,country,currency,status,package) VALUES(t,'QA Revive rollback','qa-revive-rollback','AE','AED','onboarding','revive'),(x,'QA foreign rollback','qa-revive-foreign','AE','AED','onboarding','revive');
  INSERT INTO public.business_briefs(tenant_id,version,body,created_by) VALUES(t,1,jsonb_build_object('offer','Reviewed reactivation','industries',jsonb_build_array('construction'),'markets',jsonb_build_array('AE'),'roles',jsonb_build_array('owner'),'needs',jsonb_build_array('quote follow-up'),'excludedIndustries','[]'::jsonb,'maxAgeDays',90,'source',jsonb_build_object('reference','qa-brief','excerpt','Approved construction offer','observedAt',now()-interval '1 hour')),a);
  INSERT INTO public.leads(id,tenant_id,source,email) VALUES(l,t,'import','qa-revive-contact@example.invalid'),(f,x,'import','qa-revive-foreign@example.invalid');
  INSERT INTO public.lead_observations(id,tenant_id,lead_id,source,external_ref,observed_at,original_purpose,rights_reference,synthetic,assessment_facts,assessment_excerpt,assessment_reviewed_by,product_context)
@@ -31,6 +31,16 @@ BEGIN
  rejected:=false;BEGIN UPDATE public.revive_reviews SET state='accepted';EXCEPTION WHEN insufficient_privilege THEN rejected:=true;END;
  IF NOT rejected THEN RAISE EXCEPTION 'Direct admin cohort update permitted';END IF;
  EXECUTE 'RESET ROLE';EXECUTE 'SET LOCAL ROLE service_role';
+ j:=public.save_revive_setup(t,a,0,1,'reviewed',jsonb_build_object(
+  'website',null,'supportedClaims','[]'::jsonb,'sourceInventory',jsonb_build_array(jsonb_build_object('type','interview','reference','qa-brief','rightsReference','Synthetic fixture review only')),
+  'relationshipSummary',jsonb_build_object('text','Reviewed earlier enquiries whose project was deferred.','reference','qa-brief'),
+  'senderName','Fixture owner','senderEmail','staff@example.invalid','ownerId',a,'market','AE','language','en','timezone','UTC',
+  'salesCapacityPerWeek',10,'outcomeWindowDays',30,'workingDays',jsonb_build_array(1,2,3,4,5,6,7),'startMinute',0,'endMinute',1440,'dailyContactCap',25));
+ IF j->>'version'<>'1' OR j->>'state'<>'reviewed' OR j->'ready' IS DISTINCT FROM 'true'::jsonb THEN RAISE EXCEPTION 'Current reviewed client setup unavailable';END IF;
+ strategy_input:=jsonb_build_object('setupVersion',1,'canonicalNeed','quote follow-up','segment','Reviewed existing enquiries',
+  'relationshipRationale','The reviewed earlier enquiry was deferred; current need is assessed separately.',
+  'valueProposition','Discuss the reviewed offer where it remains relevant.','evidenceReference','qa-brief',
+  'cta',jsonb_build_object('kind','reply','prompt','Is this still relevant for your team?'),'goal','qualified_conversation','confirmed',true);
  j:=public.activate_tenant_execution(t,a,'onboarding',0,1,'Reviewed account readiness');
  IF j->>'status'<>'active' OR j->>'version'<>'1' THEN RAISE EXCEPTION 'Activation receipt mismatch';END IF;
  rejected:=false;BEGIN PERFORM public.activate_tenant_execution(t,a,'onboarding',0,1,'Stale activation retry');EXCEPTION WHEN serialization_failure THEN rejected:=true;END;
@@ -47,7 +57,7 @@ BEGIN
  IF public.revive_candidate_current(x,l,now()) OR public.revive_review_context(x,l,a) IS NOT NULL THEN RAISE EXCEPTION 'Cross-tenant review leaked';END IF;
  rejected:=false;BEGIN PERFORM public.review_revive_candidate(t,l,a,0,snap,1,'accepted','Stale review retry',now()+interval '3 days');EXCEPTION WHEN serialization_failure THEN rejected:=true;END;
  IF NOT rejected THEN RAISE EXCEPTION 'Stale cohort CAS accepted';END IF;
- j:=public.manage_campaign_plan(t,c,a,'save',1,jsonb_build_object('product','revive','purpose','reactivation','market','AE','timezone','UTC','steps','[{"offsetHours":0,"subject":"QA fixture","body":"Synthetic only","evidenceReference":"qa-revive-source"}]'::jsonb,'audience',jsonb_build_object('leadIds',jsonb_build_array(l),'confirmed',true)));
+ j:=public.manage_campaign_plan(t,c,a,'save',1,jsonb_build_object('product','revive','purpose','reactivation','market','AE','timezone','UTC','steps','[{"offsetHours":0,"subject":"QA fixture","body":"Synthetic only","evidenceReference":"qa-revive-source"}]'::jsonb,'audience',jsonb_build_object('leadIds',jsonb_build_array(l),'confirmed',true),'strategy',strategy_input));
  IF j->>'version'<>'2' OR j->>'status'<>'draft' THEN RAISE EXCEPTION 'Audience change did not create a new draft asset';END IF;
  PERFORM public.manage_campaign_plan(t,c,a,'approve',2,jsonb_build_object('clientAuthority','qa-client','ownerAuthority','qa-owner','ctsProfile','qa-profile','maxActions',3,'expiresAt',now()+interval '7 days'));
  PERFORM public.manage_campaign_plan(t,c,a,'rights',2,jsonb_build_object('leadId',l,'sourceId',s,'noticeReference','qa-notice'));

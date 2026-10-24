@@ -10,7 +10,7 @@ function mount(api){
  node('campaignPlansPanel');
  // Behave like the DOM: bindings to missing markup return null, never fabricate nodes.
  vm.runInNewContext(source,{crypto:{randomUUID:()=> '11111111-1111-4111-8111-111111111111'},window:{RP:{esc:s=>String(s??'').replaceAll('<','&lt;'),api},addEventListener:(name,fn)=>listeners[name]=fn},document:{getElementById:id=>nodes[id]||null}});
- return {nodes,select:id=>listeners['rp:tenant-selected']({detail:{id,name:id}})};
+ return {nodes,select:id=>listeners['rp:tenant-selected']({detail:{id,name:id}}),emit:(name,detail)=>listeners[name]({detail})};
 }
 const empty=()=>({campaigns:[],assets:[],actions:[]});
 test('Revive automation runs the selected tenant scope and reports only synthetic results',async()=>{
@@ -130,4 +130,71 @@ test('loaded audience and generated-source receipt survive editing while queue c
 test('unavailable prior audience contacts remain visible instead of being silently removed from the next version',async()=>{
  const fixture=audienceData();fixture.audienceCandidates=[];fixture.campaigns=[{id:'campaign-old',capability:'revive',purpose:'fixture',asset_version:1,status:'approved'}];fixture.assets=[{campaign_id:'campaign-old',version:1,steps:[],revive_audience:{members:[{leadId:contactA,reviewVersion:1,snapshot:'a'.repeat(32)}]}}];
  const ui=mount(async()=>fixture);ui.select('tenant-a');await tick();ui.nodes.campaignSelect.value='campaign-old';ui.nodes.campaignSelect.onchange();assert.match(ui.nodes.campaignAudience.innerHTML,/no current accepted review/);assert.deepEqual(ui.nodes.campaignAudience.selectedOptions.map(o=>o.value),[contactA]);
+});
+
+const strategySetup=()=>({tenantId:'tenant-a',setup:{version:4,state:'reviewed',body:{senderName:'Reviewed Sender',ownerId:'owner-one',market:'AE',timezone:'Asia/Dubai',dailyContactCap:5,language:'en-AE',sourceInventory:[{type:'interview',reference:'interview:reviewed',rightsReference:'rights:reviewed'}]}},ready:true,currentBriefVersion:3,brief:{version:3,body:{needs:['dormant leads'],source:{reference:'brief:reviewed'}}}});
+const strategyData=()=>({...audienceData(),setupContext:strategySetup()});
+const strategyValue=()=>({setupVersion:4,canonicalNeed:'dormant leads',segment:'Former quote enquiries',relationshipRationale:'Previously interested and timing deferred',valueProposition:'Review the current priority',evidenceReference:'interview:reviewed',cta:{kind:'reply',prompt:'Is this still a priority?'},goal:'qualified_conversation',confirmed:true});
+function chooseStrategy(n){const s=strategyValue();n.strategyNeed.value=s.canonicalNeed;n.strategySegment.value=s.segment;n.strategyRelationship.value=s.relationshipRationale;n.strategyValue.value=s.valueProposition;n.strategyEvidence.value=s.evidenceReference;n.strategyCtaKind.value='reply';n.strategyReplyPrompt.value=s.cta.prompt;n.strategyGoal.value=s.goal;n.strategyConfirmed.checked=true;}
+test('strategy uses existing brief needs and approved source inventory; reviewed sender comes from setup',async()=>{
+ const ui=mount(async()=>strategyData());ui.select('tenant-a');await tick();const n=ui.nodes;
+ assert.match(n.strategyNeed.innerHTML,/dormant leads/);assert.match(n.strategyEvidence.innerHTML,/brief:reviewed/);assert.match(n.strategyEvidence.innerHTML,/interview:reviewed/);assert.equal(n.campaignMarket.value,'AE');assert.equal(n.campaignTimezone.value,'Asia/Dubai');assert.equal(n.draftSender.value,'Reviewed Sender');assert.equal(n.draftSender.readOnly,true);assert.match(n.strategyBasis.textContent,/declarations/);
+});
+test('saving a strategy sends only explicit reviewed inputs, without resolved server owner/policy fields',async()=>{
+ const calls=[],ui=mount(async(path,body)=>{calls.push(body);return body.operation==='list'?strategyData():{id:body.campaign_id};});ui.select('tenant-a');await tick();const n=ui.nodes;
+ chooseAudience(n,[contactA]);n.campaignAudienceConfirmed.checked=true;chooseStrategy(n);n.campaignDraft.onsubmit({preventDefault(){}});await tick();
+ assert.deepEqual(JSON.parse(JSON.stringify(calls.find(c=>c.operation==='save').body.strategy)),strategyValue());
+ assert.equal(calls.some(c=>['approve','queue'].includes(c.operation)),false);
+});
+test('copy, scope and audience changes invalidate strategy confirmation; either confirmation checkbox remains usable',async()=>{
+ const ui=mount(async()=>strategyData());ui.select('tenant-a');await tick();const n=ui.nodes;
+ chooseStrategy(n);n.campaignAudienceConfirmed.checked=true;n.campaignDraft.oninput({target:{id:'strategyConfirmed'}});assert.equal(n.strategyConfirmed.checked,true);assert.equal(n.campaignAudienceConfirmed.checked,true);
+ n.campaignDraft.oninput({target:{id:'campaignAudienceConfirmed'}});assert.equal(n.strategyConfirmed.checked,true);
+ for(const id of ['messageBody0','strategyReplyPrompt','campaignPurpose']){n.strategyConfirmed.checked=true;n.campaignDraft.oninput({target:{id}});assert.equal(n.strategyConfirmed.checked,false);}
+ n.strategyConfirmed.checked=true;chooseAudience(n,[contactB]);assert.equal(n.strategyConfirmed.checked,false);
+});
+test('incomplete or stale setup cannot silently save a strategy, while message-only manual drafts remain allowed',async()=>{
+ const calls=[],data=strategyData();data.setupContext.ready=false;const ui=mount(async(path,body)=>{calls.push(body);return body.operation==='list'?data:{id:body.campaign_id};});ui.select('tenant-a');await tick();const n=ui.nodes;
+ assert.equal(n.strategyConfirmed.disabled,true);chooseStrategy(n);n.campaignDraft.onsubmit({preventDefault(){}});assert.equal(calls.some(c=>c.operation==='save'),false);assert.match(n.campaignError.textContent,/review this client/);
+ ['strategyNeed','strategySegment','strategyRelationship','strategyValue','strategyEvidence','strategyReplyPrompt'].forEach(id=>n[id].value='');n.campaignDraft.onsubmit({preventDefault(){}});await tick();assert.equal(calls.find(c=>c.operation==='save').body.strategy,undefined);
+});
+test('loaded resolved strategy keeps only known strategy fields and requires fresh copy/audience confirmation on edit',async()=>{
+ const data=strategyData(),stored={...strategyValue(),ownerId:'server-owner',policy:{dailyContactCap:5},stopRules:['reply_hold']};
+ data.campaigns=[{id:'strategy-campaign',capability:'revive',purpose:'reactivation',market:'AE',timezone:'Asia/Dubai',asset_version:2,status:'draft'}];data.assets=[{campaign_id:'strategy-campaign',version:2,steps:proposal().steps,revive_strategy:stored}];
+ const calls=[],ui=mount(async(path,body)=>{calls.push(body);return body.operation==='list'?data:{id:body.campaign_id};});ui.select('tenant-a');await tick();const n=ui.nodes;n.campaignSelect.value='strategy-campaign';n.campaignSelect.onchange();
+ assert.equal(n.strategySegment.value,stored.segment);assert.equal(n.strategyConfirmed.checked,false);n.campaignDraft.onsubmit({preventDefault(){}});assert.equal(calls.some(c=>c.operation==='save'),false);
+ n.strategyConfirmed.checked=true;n.campaignDraft.onsubmit({preventDefault(){}});await tick();assert.deepEqual(JSON.parse(JSON.stringify(calls.find(c=>c.operation==='save').body.strategy)),strategyValue());
+});
+function scheduledData(){const d=strategyData();d.campaigns=[{id:'scheduled-campaign',capability:'revive',purpose:'reactivation',market:'AE',timezone:'Asia/Dubai',asset_version:2,status:'approved'}];d.assets=[{campaign_id:'scheduled-campaign',version:2,steps:proposal().steps,revive_strategy:strategyValue(),revive_audience:{members:[{leadId:contactA,reviewVersion:1,snapshot:'a'.repeat(32)}]}}];return d;}
+function selectSchedule(ui){const n=ui.nodes;n.campaignSelect.value='scheduled-campaign';n.campaignSelect.onchange();n.campaignLead.value=contactA;n.campaignLead.onchange();n.campaignStart.value='2026-10-26T08:00';return n;}
+const scheduleReceipt=()=>({ok:true,campaignId:'scheduled-campaign',assetVersion:2,leadId:contactA,setupVersion:4,timezone:'Asia/Dubai',requestedStartAt:'2026-10-26T08:00:00.000Z',steps:[{step:0,dueAt:'2026-10-26T08:00:00Z',localDate:'2026-10-26',localTime:'12:00'}],approvalStatus:'approved',authorityStatus:'current',delivery:'not_sent'});
+test('schedule preview uses the selected saved asset/contact/start and makes no queue or send request',async()=>{
+ const calls=[],ui=mount(async(path,body)=>{calls.push(body);return body.operation==='schedule'?scheduleReceipt():scheduledData();});ui.select('tenant-a');await tick();const n=selectSchedule(ui);n.campaignSchedule.onclick();await tick();
+ const request=calls.find(c=>c.operation==='schedule');assert.equal(request.campaign_id,'scheduled-campaign');assert.equal(request.version,2);assert.deepEqual(JSON.parse(JSON.stringify(request.body)),{leadId:contactA,startAt:'2026-10-26T08:00:00.000Z'});assert.match(n.campaignScheduleStatus.textContent,/No time or capacity is reserved/);assert.match(n.campaignScheduleText.textContent,/local 2026-10-26 12:00/);assert.equal(calls.some(c=>['queue','approve'].includes(c.operation)),false);
+ n.campaignDraft.oninput({target:{id:'messageBody0'}});n.campaignSchedule.onclick();assert.equal(calls.filter(c=>c.operation==='schedule').length,1);assert.match(n.campaignError.textContent,/save the current message version/);
+});
+test('schedule preview ignores late prior tenant, contact, start or campaign responses',async()=>{
+ let finish;const ui=mount((path,body)=>body.operation==='schedule'?new Promise(r=>finish=r):Promise.resolve(scheduledData()));ui.select('tenant-a');await tick();let n=selectSchedule(ui);n.campaignSchedule.onclick();ui.select('tenant-b');await tick();finish({...scheduleReceipt(),timezone:'PRIVATE old tenant'});await tick();assert.doesNotMatch(ui.nodes.campaignScheduleStatus.textContent,/PRIVATE/);
+ n=selectSchedule(ui);n.campaignSchedule.onclick();n.campaignStart.value='2026-10-27T08:00';n.campaignStart.oninput();finish({...scheduleReceipt(),timezone:'PRIVATE old start'});await tick();assert.doesNotMatch(n.campaignScheduleStatus.textContent,/PRIVATE/);
+});
+test('schedule receipt accepts the same exact instant in PostgreSQL UTC-offset serialization',async()=>{
+ const ui=mount(async(path,body)=>body.operation==='schedule'?{...scheduleReceipt(),requestedStartAt:'2026-10-26T08:00:00+00:00',steps:[{step:0,dueAt:'2026-10-26T08:00:00+00:00',localDate:'2026-10-26',localTime:'12:00'}]}:scheduledData());ui.select('tenant-a');await tick();const n=selectSchedule(ui);n.campaignSchedule.onclick();await tick();assert.match(n.campaignScheduleStatus.textContent,/Approved-policy preview/);assert.match(n.campaignScheduleText.textContent,/local 2026-10-26 12:00/);
+});
+test('a draft schedule is planning only and clearly leaves outreach authority and contact rights pending',async()=>{
+ const calls=[],data=scheduledData();data.campaigns[0].status='draft';const ui=mount(async(path,body)=>{calls.push(body);return body.operation==='schedule'?{...scheduleReceipt(),approvalStatus:'draft',authorityStatus:'not_approved'}:data;});ui.select('tenant-a');await tick();const n=selectSchedule(ui);n.campaignSchedule.onclick();await tick();assert.match(n.campaignScheduleStatus.textContent,/Draft planning preview/);assert.match(n.campaignScheduleStatus.textContent,/contact rights are pending/);assert.equal(calls.some(c=>['approve','rights','queue'].includes(c.operation)),false);
+});
+test('malformed schedule receipts cannot be represented as a verified preview',async()=>{
+ for(const receipt of [{...scheduleReceipt(),requestedStartAt:['2026-10-26T08:00:00.000Z']},{...scheduleReceipt(),requestedStartAt:'2026-10-26T08:00:01+00:00'},{...scheduleReceipt(),requestedStartAt:'invalid'},{...scheduleReceipt(),setupVersion:3},{...scheduleReceipt(),timezone:'Europe/London'},{...scheduleReceipt(),approvalStatus:'draft',authorityStatus:'current'},{...scheduleReceipt(),assetVersion:1},{...scheduleReceipt(),leadId:contactB},{...scheduleReceipt(),steps:[{step:1,dueAt:'bad',localDate:'x',localTime:'y'}]}]){
+  const ui=mount(async(path,body)=>body.operation==='schedule'?receipt:scheduledData());ui.select('tenant-a');await tick();const n=selectSchedule(ui);n.campaignSchedule.onclick();await tick();assert.equal(n.campaignScheduleText.textContent,'');assert.match(n.campaignScheduleStatus.textContent,/could not be verified/);
+ }
+});
+test('setup change reloads campaigns, discards dirty previews and forces a new review without autosaving',async()=>{
+ const calls=[],ui=mount(async(path,body)=>{calls.push(body);return scheduledData();});ui.select('tenant-a');await tick();const n=selectSchedule(ui);n.messageBody0.value='Unsaved';n.campaignDraft.oninput();ui.emit('rp:revive-setup-changed',{tenantId:'tenant-a'});await tick();
+ assert.notEqual(n.messageBody0.value,'Unsaved');assert.equal(n.strategyConfirmed.checked,false);assert.match(n.campaignError.textContent,/Unsaved edits were discarded/);assert.equal(calls.some(c=>c.operation==='save'),false);
+});
+test('business brief changes reload strategy context and discard an in-flight proposal without autosaving',async()=>{
+ let finish;const calls=[],data={...draftData(),...strategyData()},ui=mount((path,body)=>{calls.push(body);return body.operation==='draft'?new Promise(resolve=>finish=resolve):Promise.resolve(data);});ui.select('tenant-a');await tick();chooseDraft(ui).prepareReviveDraft.onclick();data.setupContext.ready=false;data.setupContext.currentBriefVersion=4;ui.emit('rp:business-brief-changed',{tenantId:'tenant-a'});await tick();finish({proposal:proposal()});await tick();assert.equal(ui.nodes.messageBody0.value,'');assert.equal(ui.nodes.strategyConfirmed.checked,false);assert.equal(ui.nodes.strategyConfirmed.disabled,true);assert.doesNotMatch(ui.nodes.draftBasis.textContent,/PRIVATE/);assert.match(ui.nodes.campaignError.textContent,/business brief changed/);assert.equal(calls.some(c=>['save','approve','queue'].includes(c.operation)),false);
+});
+test('non-English reviewed setup permits manual copy but disables the English-only automatic proposal',async()=>{
+ const data=strategyData();data.setupContext.setup.body.language='hi-IN';const ui=mount(async()=>data);ui.select('tenant-a');await tick();assert.equal(ui.nodes.prepareReviveDraft.disabled,true);assert.match(ui.nodes.strategyBasis.textContent,/manual copy for other languages/);
 });

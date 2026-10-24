@@ -1,3 +1,4 @@
+import {seedReviveSetup} from './helpers/revive-setup';
 import {beforeAll,afterAll,it,expect,vi} from 'vitest';
 import {PGlite} from '@electric-sql/pglite';
 import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
@@ -14,7 +15,7 @@ function mockApi(){vi.stubGlobal('fetch',async(input:string,init:RequestInit={})
  const u=new URL(input);if(u.origin!==env.SUPABASE_URL)throw Error('External network forbidden');
  if(u.pathname==='/auth/v1/user')return Response.json({id:actor,email:'staff@example.invalid'});
  if(u.pathname==='/rest/v1/profiles')return Response.json([{is_admin:true}]);
- if(u.pathname.startsWith('/rest/v1/rpc/')){const name=u.pathname.split('/').at(-1)!;try{return Response.json(await rpc(name,Object.values(JSON.parse(String(init.body)))));}catch(e:any){return Response.json({code:e.code,message:e.message},{status:400});}}
+ if(u.pathname.startsWith('/rest/v1/rpc/')){const name=u.pathname.split('/').at(-1)!;try{return Response.json(await (async()=>{const b=JSON.parse(String(init.body));await db.exec('set role service_role');try{return (await q(`select public.${name}(${Object.keys(b).map((k,i)=>k+'=> $'+(i+1)).join(',')}) value`,Object.values(b)))[0].value;}finally{await db.exec('reset role');}})());}catch(e:any){return Response.json({code:e.code,message:e.message},{status:400});}}
  const table=u.pathname.replace('/rest/v1/','');
  if(['campaigns','tenants','outbound_actions','revive_reviews','leads','campaign_assets'].includes(table)&&(!init.method||init.method==='GET')){
   const values:any[]=[],where:string[]=[];
@@ -38,7 +39,8 @@ async function fixture(){
  await rpc('save_business_brief',[tenant,0,brief,actor]);
  await q(`insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,rights_reference,synthetic,assessment_facts,assessment_excerpt,assessment_reviewed_by) values($1,$2,'fixture','fit',$3,'review','permitted fixture source',true,$4,'construction AE owner lead follow-up',$5)`,[tenant,lead,date,{industry:'construction',market:'AE',role:'owner',need:'lead follow-up'},actor]);
  await rpc('record_product_event',[tenant,lead,actor,'history','fixture rights','Reviewed past interest',date,true,{product:'revive',kind:'history',lastContactAt:new Date(Date.now()-75*86400000).toISOString(),previousInterest:'yes',stalledReason:'Budget review deferred'}]);
- return {tenant,lead,brief};
+ const setup=await seedReviveSetup(db,tenant,actor);
+ return {tenant,lead,brief,strategy:setup.strategy};
 }
 async function accept(f:{tenant:string;lead:string}){
  mockApi();const preview=await (await call(f.tenant,{operation:'preview',lead_id:f.lead})).json() as any;
@@ -46,9 +48,9 @@ async function accept(f:{tenant:string;lead:string}){
  const response=await call(f.tenant,{operation:'accept',lead_id:f.lead,version:preview.version,snapshot:preview.snapshot,reason:'Reviewed current need and relationship evidence'});
  expect(response.status).toBe(200);return preview;
 }
-async function plan(f:{tenant:string;lead:string}){
+async function plan(f:{tenant:string;lead:string;strategy:any}){
  const campaign=crypto.randomUUID();
- await rpc('manage_campaign_plan',[f.tenant,campaign,actor,'save',0,{product:'revive',purpose:'reactivation',market:'AE',timezone:'UTC',audience:{leadIds:[f.lead],confirmed:true},steps:[{offsetHours:0,subject:'Reviewing your enquiry',body:'Is this still relevant?',evidenceReference:'fit'}]}]);
+ await rpc('manage_campaign_plan',[f.tenant,campaign,actor,'save',0,{product:'revive',purpose:'reactivation',market:'AE',timezone:'UTC',audience:{leadIds:[f.lead],confirmed:true},strategy:f.strategy,steps:[{offsetHours:0,subject:'Reviewing your enquiry',body:'Is this still relevant?',evidenceReference:'fit'}]}]);
  await rpc('manage_campaign_plan',[f.tenant,campaign,actor,'approve',1,{clientAuthority:'fixture-client',ownerAuthority:'fixture-owner',ctsProfile:'fixture-review',maxActions:3,expiresAt:new Date(Date.now()+7*86400000).toISOString()}]);
  const source=(await q(`select id from lead_observations where tenant_id=$1 and lead_id=$2 and external_ref='fit'`,[f.tenant,f.lead]))[0].id;
  await rpc('manage_campaign_plan',[f.tenant,campaign,actor,'rights',1,{leadId:f.lead,sourceId:source,noticeReference:'fixture-notice'}]);

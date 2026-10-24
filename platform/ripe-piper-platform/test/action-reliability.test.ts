@@ -4,6 +4,7 @@ import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
 import {readFileSync,readdirSync} from 'node:fs';
 import {dispatchSyntheticAction,inspectActionReceipt} from '../src/foundation/action-reliability';
 import type {Env} from '../src/env';
+import {seedReviveSetup} from './helpers/revive-setup';
 const admin='00000000-0000-4000-8000-000000000001';
 const now='2026-10-23T12:00:00.000Z';
 const later='2026-10-23T12:03:00.000Z';
@@ -28,11 +29,14 @@ async function fixture(){
  // Database-owner fixture clock: ensure acceptance precedes fixed claim time.
  await query(`update revive_reviews set reviewed_at='2026-10-23T11:00:00Z' where tenant_id=$1 and lead_id=$2`,[tenant,lead]);
  await query(`insert into contact_rights(tenant_id,lead_id,source_id,purpose,channel,market,decision,reviewer_id,notice_reference) values($1,$2,$3,'appointment','email','AE','permitted',$4,'fixture-only')`,[tenant,lead,source,admin]);
+ const setup=await seedReviveSetup(db,tenant,admin);
  const campaign=(await query(`insert into campaigns(tenant_id,capability,operator_id,purpose,channel,market,timezone,status,client_authority_ref,owner_authority_ref,cts_profile_ref,expires_at,max_actions) values($1,'revive',$2,'appointment','email','AE','UTC','approved','fixture-client','fixture-owner','fixture-cts','2026-11-20T00:00:00Z',10) returning id`,[tenant,admin]))[0].id;
  const audience=await rpc('build_revive_audience',[tenant,admin,{leadIds:[lead],confirmed:true}]);
  // Match the existing fixture clock; the server-built membership and snapshot stay intact.
+ const strategy=await rpc('build_revive_strategy',[tenant,admin,setup.strategy,audience]);
+ strategy.reviewedAt='2026-10-23T11:00:00Z';
  audience.reviewedAt='2026-10-23T11:00:00Z';
- await query(`insert into campaign_assets(tenant_id,campaign_id,version,brief_version,steps,created_by,approved_by,revive_audience) values($1,$2,1,1,'[{"subject":"Fixture","body":"Synthetic message","offsetHours":0,"evidenceReference":"fixture"}]',$3,$3,$4)`,[tenant,campaign,admin,audience]);
+ await query(`insert into campaign_assets(tenant_id,campaign_id,version,brief_version,steps,created_by,approved_by,revive_audience,revive_strategy) values($1,$2,1,1,'[{"subject":"Fixture","body":"Synthetic message","offsetHours":0,"evidenceReference":"fixture"}]',$3,$3,$4,$5)`,[tenant,campaign,admin,audience,strategy]);
  const id=(await query(`insert into outbound_actions(tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at) values($1,$2,$3,'fixture-action',1,1,$4) returning id`,[tenant,campaign,lead,now]))[0].id;
  return {tenant,lead,campaign,id,token:crypto.randomUUID()};
 }

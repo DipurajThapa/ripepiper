@@ -68,7 +68,9 @@ async function fakeSupabase(url: URL, init: RequestInit): Promise<Response> {
       return Response.json({version:1,disposition:"applied",paymentId:m.id,provider:b.p_provider,ref:b.p_ref,proposalId:b.p_proposal,quoteId:b.p_quote,amountMinor:b.p_amount_minor,currency:b.p_currency,status:"paid",tenantId:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",feeId:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",activityId:1,inviteId:null,settledAt:new Date().toISOString()});
     }
     if(url.pathname.endsWith("/record_product_event"))return Response.json(uuid());
+    if(url.pathname.endsWith("/save_business_brief")){const b=JSON.parse(String(init.body));return Response.json(b.p_expected_version+1);}
     if(url.pathname.endsWith("/revive_audience_candidates"))return Response.json([]);
+    if(url.pathname.endsWith("/revive_setup_context")){const b=JSON.parse(String(init.body));return Response.json({tenantId:b.p_tenant,setup:null,currentBriefVersion:null,ready:false,missing:["setup_required"],owners:[],brief:null});}
     if(url.pathname.endsWith("/import_review_lead"))return Response.json({state:'created',lead_id:uuid(),observation_id:uuid()});
     if(url.pathname.endsWith("/manage_campaign_plan") && b.p_operation==='save')return Response.json({id:b.p_campaign,version:b.p_version+1,status:'draft'});
     return Response.json(url.pathname.endsWith("/claim_fenced_synthetic_action") ? {token:b.p_token,approvalVersion:1,assetVersion:1} : true);

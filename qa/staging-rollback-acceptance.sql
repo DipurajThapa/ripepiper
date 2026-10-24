@@ -1,6 +1,6 @@
 -- Independent QA. Execute ONLY on isolated wgomywhuzyboxlckopca.
 -- All synthetic fixture writes and budget arming are rolled back. No provider APIs.
--- Current source includes reviewed Revive asset audiences; earlier hosted receipts
+-- Current source includes reviewed client setup, asset strategy and audiences; earlier hosted receipts
 -- apply to their original packet hashes, not this amended fixture.
 BEGIN;
 DO $$
@@ -18,7 +18,7 @@ DECLARE
  k uuid:='fa100000-0000-4000-8000-000000000061';
  r uuid:='fa100000-0000-4000-8000-000000000071';
  b uuid:='fa100000-0000-4000-8000-000000000081';
- response jsonb; audience jsonb; snap text; n integer; rejected boolean;
+ response jsonb; audience jsonb; strategy_input jsonb; strategy jsonb; snap text; n integer; rejected boolean;
 BEGIN
  IF current_database()<>'postgres' THEN RAISE EXCEPTION 'Unexpected database'; END IF;
  IF EXISTS(SELECT 1 FROM public.tenants) OR EXISTS(SELECT 1 FROM auth.users) THEN RAISE EXCEPTION 'QA requires empty isolated staging baseline'; END IF;
@@ -42,14 +42,26 @@ BEGIN
   '{"industry":"construction","market":"AE","role":"owner","need":"dormant leads"}','construction AE owner dormant leads',
   jsonb_build_object('product','revive','kind','history','lastContactAt',now()-interval '60 days','previousInterest','yes','stalledReason','Project deferred to next quarter'));
  EXECUTE 'SET LOCAL ROLE service_role';
+ response:=public.save_revive_setup(t,a,0,1,'reviewed',jsonb_build_object(
+  'website',null,'supportedClaims','[]'::jsonb,'sourceInventory',jsonb_build_array(jsonb_build_object('type','interview','reference','qa-brief','rightsReference','Synthetic fixture review only')),
+  'relationshipSummary',jsonb_build_object('text','Reviewed earlier enquiries whose project was deferred.','reference','qa-brief'),
+  'senderName','Fixture owner','senderEmail','staff@example.invalid','ownerId',a,'market','AE','language','en','timezone','UTC',
+  'salesCapacityPerWeek',10,'outcomeWindowDays',30,'workingDays',jsonb_build_array(1,2,3,4,5,6,7),'startMinute',0,'endMinute',1440,'dailyContactCap',25));
+ IF response->>'version'<>'1' OR response->>'state'<>'reviewed' OR response->'ready' IS DISTINCT FROM 'true'::jsonb THEN RAISE EXCEPTION 'Current reviewed client setup unavailable';END IF;
+ strategy_input:=jsonb_build_object('setupVersion',1,'canonicalNeed','dormant leads','segment','Reviewed existing enquiries',
+  'relationshipRationale','The reviewed earlier enquiry was deferred; current need is assessed separately.',
+  'valueProposition','Discuss the reviewed offer where it remains relevant.','evidenceReference','qa-brief',
+  'cta',jsonb_build_object('kind','reply','prompt','Is this still relevant for your team?'),'goal','qualified_conversation','confirmed',true);
  response:=public.review_revive_candidate(t,l,a,0,public.revive_input_snapshot(t,l),1,'accepted','Reviewed evidence supports reactivation cohort',now()+interval '1 day');
  IF response->>'state' IS DISTINCT FROM 'accepted' THEN RAISE EXCEPTION 'Revive cohort review failed'; END IF;
  audience:=public.build_revive_audience(t,a,jsonb_build_object('leadIds',jsonb_build_array(l),'confirmed',true));
+ strategy:=public.build_revive_strategy(t,a,strategy_input,audience);
  EXECUTE 'RESET ROLE';
  INSERT INTO public.contact_rights(tenant_id,lead_id,source_id,purpose,channel,market,decision,reviewer_id,notice_reference) VALUES(t,l,s,'qa appointment','email','AE','permitted',a,'qa synthetic rights');
  INSERT INTO public.campaigns(id,tenant_id,capability,operator_id,purpose,channel,market,timezone,status,client_authority_ref,owner_authority_ref,cts_profile_ref,expires_at,max_actions) VALUES(c,t,'revive',a,'qa appointment','email','AE','UTC','approved','qa-client','qa-owner','qa-profile',now()+interval '1 day',5);
- INSERT INTO public.campaign_assets(tenant_id,campaign_id,version,brief_version,steps,created_by,approved_by,revive_audience) VALUES(t,c,1,1,'[{"subject":"QA fixture","body":"Synthetic only","offsetHours":0,"evidenceReference":"qa-source"}]',a,a,audience);
- INSERT INTO public.outbound_actions(id,tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at) VALUES(q,t,c,l,'qa-rollback-action',1,1,now()-interval '1 minute');
+ INSERT INTO public.campaign_assets(tenant_id,campaign_id,version,brief_version,steps,created_by,approved_by,revive_audience,revive_strategy) VALUES(t,c,1,1,'[{"subject":"QA fixture","body":"Synthetic only","offsetHours":0,"evidenceReference":"qa-source"}]',a,a,audience,strategy);
+ -- The due action cannot predate the setup/strategy authority recorded above.
+ INSERT INTO public.outbound_actions(id,tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at) VALUES(q,t,c,l,'qa-rollback-action',1,1,now());
  EXECUTE 'SET LOCAL ROLE authenticated';
  PERFORM set_config('request.jwt.claim.sub',u::text,true);
  SELECT count(*) INTO n FROM public.leads;

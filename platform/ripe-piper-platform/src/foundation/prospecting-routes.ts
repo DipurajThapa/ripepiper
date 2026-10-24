@@ -14,6 +14,8 @@ export async function saveBrief(req: Request, env: Env, tenantId: string) {
   if (!await db.one("tenants", `id=eq.${tenantId}&select=id`)) return bad("Client not found.",404);
   try {
     const version = await db.rpc<number>("save_business_brief", {p_tenant_id:tenantId,p_expected_version:b.expected_version,p_body:b.brief,p_actor:user.id});
+    if (!Number.isInteger(version) || version < 1 || (version !== b.expected_version + 1 && version !== b.expected_version))
+      return bad("The brief acknowledgement is uncertain. Reload the current brief before continuing.",503);
     return json({ok:true,version});
   } catch (e) {
     if (e instanceof DbError && e.body.includes("40001")) return bad("The brief changed. Reload before saving.",409);

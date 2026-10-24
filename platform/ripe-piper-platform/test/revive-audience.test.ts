@@ -2,6 +2,7 @@ import {beforeAll,afterAll,it,expect} from 'vitest';
 import {PGlite} from '@electric-sql/pglite';
 import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
 import {readFileSync,readdirSync} from 'node:fs';
+import {seedReviveSetup,strategyBody} from './helpers/revive-setup';
 const actor='11111111-1111-4111-8111-111111111111';
 let db:PGlite;
 const q=async(sql:string,args:any[]=[])=> (await db.query<any>(sql,args)).rows;
@@ -21,6 +22,7 @@ async function contact(tenant?:string){
  if(!tenant){
   tenant=(await q(`insert into tenants(name,slug,country,currency,status)values('Audience fixture',$1,'AE','AED','active')returning id`,['audience-'+crypto.randomUUID()]))[0].id;
   await rpc('save_business_brief',[tenant,0,{offer:'Recover dormant enquiries',industries:['construction'],markets:['AE'],roles:['owner'],needs:['lead follow-up'],excludedIndustries:[],maxAgeDays:30,source:{reference:'audience-brief',excerpt:'Reviewed construction offer',observedAt:new Date(Date.now()-3600000).toISOString()}},actor]);
+  await seedReviveSetup(db,tenant,actor);
  }
  const lead=(await q(`insert into leads(tenant_id,source,email,company)values($1,'import',$2,'Reviewed construction business')returning id`,[tenant,crypto.randomUUID()+'@audience.invalid']))[0].id;
  const source=(await q(`insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,rights_reference,synthetic,assessment_facts,assessment_excerpt,assessment_reviewed_by,product_context)
@@ -30,7 +32,7 @@ async function contact(tenant?:string){
  await rpc('review_revive_candidate',[tenant,lead,actor,0,snapshot,1,'accepted','Reviewed relevant dormant business contact',new Date(Date.now()+7*86400000).toISOString()]);
  return {tenant:tenant!,lead,source};
 }
-function body(ids?:string[]){return{product:'revive',purpose:'reactivation',market:'AE',timezone:'UTC',steps:[{offsetHours:0,subject:'Reviewed enquiry',body:'Is this still relevant?',evidenceReference:'audience-brief'}],...(ids?{audience:{leadIds:ids,confirmed:true}}:{})};}
+function body(ids?:string[]){return{product:'revive',purpose:'reactivation',market:'AE',timezone:'UTC',steps:[{offsetHours:0,subject:'Reviewed enquiry',body:'Is this still relevant?',evidenceReference:'audience-brief'}],...(ids?{audience:{leadIds:ids,confirmed:true},strategy:strategyBody(1,'lead follow-up','audience-brief')}:{})};}
 const save=(f:{tenant:string},id:string,version:number,b:any)=>rpc('manage_campaign_plan',[f.tenant,id,actor,'save',version,b]);
 const approval=()=>({clientAuthority:'client reviewed',ownerAuthority:'owner reviewed',ctsProfile:'fixture compliance review',maxActions:10,expiresAt:new Date(Date.now()+86400000).toISOString()});
 const approve=(f:{tenant:string},id:string,version=1,b=approval())=>rpc('manage_campaign_plan',[f.tenant,id,actor,'approve',version,b]);

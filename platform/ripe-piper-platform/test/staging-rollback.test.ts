@@ -24,7 +24,7 @@ it('rehearses the current shared staging rollback packet with the accepted Reviv
   const localPacket=packet.replace("current_database()<>'postgres'","current_database()<>'template1'");
   expect(localPacket).not.toBe(packet);
   expect(JSON.stringify(await db.exec(localPacket))).toContain('PASS: hosted SQL role/RLS/FK/fence/replay/response-CAS/global-budget');
-  for(const table of ['tenants','leads','auth.users','revive_reviews','campaign_assets','outbound_actions','activity_log','build_usage'])
+  for(const table of ['tenants','leads','auth.users','revive_reviews','revive_setups','campaign_assets','outbound_actions','activity_log','build_usage'])
    expect((await db.query('select * from '+table)).rows).toHaveLength(0);
  }finally{await db.close();}
 });

@@ -114,7 +114,7 @@
     b.aliases={};
     try { ['industry','market','role','need'].forEach(function(f){var groups={};el('alias_'+f).value.split(';').filter(function(v){return v.trim();}).forEach(function(pair){var parts=pair.split('=');if(parts.length!==2 || !parts[0].trim() || !parts[1].trim())throw Error('Use target = alias, separated by semicolons.');var key=parts[0].trim();if(['__proto__','constructor','prototype'].includes(key))throw Error('Invalid alias target.');(groups[key] ||= []).push(parts[1].trim());});b.aliases[f]=groups;}); } catch(e){error(e.message);return;}
     ready=false;
-    RP.api(path('brief',id),{brief:b,expected_version:version}).then(function(){if(ticket===generation) return load();}).catch(function(e){if(ticket===generation){ready=true;error(e.message);}});
+    RP.api(path('brief',id),{brief:b,expected_version:version}).then(function(){if(ticket===generation){window.dispatchEvent(new CustomEvent('rp:business-brief-changed',{detail:{tenantId:id}}));return load();}}).catch(function(e){if(ticket===generation){ready=true;error(e.message);}});
   }
   function saveEvidence(event) {
     event.preventDefault(); if(!ready){error('Load this client account before saving.');return;}
