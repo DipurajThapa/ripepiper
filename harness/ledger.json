@@ -2,7 +2,7 @@
   "version": 1,
   "project": "Ripe Piper",
   "pm_owner": "PM agent",
-  "updated_at": "2026-10-23",
+  "updated_at": "2026-10-24",
   "stages": {
     "baseline": {
       "status": "verified",
@@ -110,16 +110,18 @@
         "prior_safety_baseline_candidate_sha": "eef85fdaaa0b398364de223fd5a44c00b96da19d",
         "prior_safety_baseline_tree_sha": "55795cfe5d75a0f854edfe37d9082eea700cb3e0",
         "prior_safety_baseline_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39997711665",
-        "current_published_candidate_sha": "a1ab30cb7504d073dbac48a7c155d2bad3023bc9",
-        "current_published_tree_sha": "b9ee0d6c5313c98400e12b3900624bb4c29a159d",
-        "current_published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/40089001810",
-        "runner_correction_qa": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md"
+        "current_published_candidate_sha": "a0cbdcf4bcada6c30759d9a76624f4b51fefc9d7",
+        "current_published_tree_sha": "fd0396d3d5c39b3bb1947cbb370120b8c3a25678",
+        "current_published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/40112884540",
+        "runner_correction_qa": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md",
+        "current_admin_ui_scope": "docs/DELIVERY.md",
+        "current_admin_ui_qa": "docs/evidence/QA_CRM_DASHBOARD_2026-10-24.md"
       },
-      "blocker": "Current setup/strategy has independent local component acceptance and frozen full927-backend/61-file,157-Node regression. New exact published source/Chromium CI remains pending. Local schema has27 migrations; historical hosted schema remains23. Actual tenant-sandbox/Worker/Auth/PostgREST, provider/inbox/calendar and operational outcome proof remain unaccepted.",
+      "blocker": "Setup/strategy source has independent local and published CI acceptance; new admin UI has bounded independent local acceptance, with its immutable publication/official CI pending. Local schema remains 27 migrations; historical hosted schema remains 23. Actual Worker/Auth/PostgREST, provider/calendar, recovery, independent-connection and client-outcome proof remain outside these receipts.",
       "qa_run_ref": "docs/evidence/QA_REVIVE_SETUP_STRATEGY_2026-10-24.md",
       "historical_qa_source_sha": "464904674ace1b8d326c97636b0150c40f0fced8",
-      "current_candidate_scope": "a1ab30c baseline plus frozen existing-client setup, immutable asset strategy, schedule/daily distinct-contact capacity and strict tenant/brief receipt corrections. QA file records source hashes; full927 backend/61 files and157 Node passed locally. New exact source publication/CI pending; baseline779/130 CI is historical.",
-      "partial_acceptance_scope": "PM accepts independent local setup/strategy CAS/replay/readiness/owner/brief/source/audience/expiry invalidation, DST/windows/spacing/capacity, strict receipts, UI and three amended rollback packets. Actual Worker-to-local-SQL journey ends in one fenced synthetic receipt. Root full927/61,157 Node,type/syntax/audit0/build/dry-run are local integration evidence. Meeting capacity and goal/window are declared configuration; analytics remains cumulative. Local27 does not extend hosted23 proof. Full-stage flags remain false."
+      "current_candidate_scope": "Published a0cbdcf / tree fd0396d CI40112884540 is the 927/61 + 157 baseline. Current frontend-only admin navigation/overview/grouped-client increment has independent local acceptance: ten actual Chromium 153 shell scenarios, 14 dashboard checks, mobile overlap RED/GREEN and visual review. Root full927 backend / 61 files, 171 Node, audit0 and product/CRM/Signal renders pass. New immutable publication and official Chromium 151 CI are pending.",
+      "partial_acceptance_scope": "PM accepts independent local setup/strategy CAS/replay/readiness/owner/brief/source/audience/expiry invalidation, DST/windows/spacing/capacity, strict receipts, UI and three amended rollback packets. Actual Worker-to-local-SQL journey ends in one fenced synthetic receipt. Root full927/61,157 Node,type/syntax/audit0/build/dry-run are local integration evidence. Meeting capacity and goal/window are declared configuration; analytics remains cumulative. Local27 does not extend hosted23 proof. Full-stage flags remain false. CRM UI receipt separately accepts synthetic local shell/model/desktop/mobile behaviour only; it does not replace actual Auth/API or operational acceptance. Full-stage flags remain false."
     },
     "revive-qa": {
       "status": "in_progress",
@@ -143,16 +145,18 @@
         "prior_safety_baseline_candidate_sha": "eef85fdaaa0b398364de223fd5a44c00b96da19d",
         "prior_safety_baseline_tree_sha": "55795cfe5d75a0f854edfe37d9082eea700cb3e0",
         "prior_safety_baseline_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39997711665",
-        "current_published_candidate_sha": "a1ab30cb7504d073dbac48a7c155d2bad3023bc9",
-        "current_published_tree_sha": "b9ee0d6c5313c98400e12b3900624bb4c29a159d",
-        "current_published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/40089001810",
-        "runner_correction_qa": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md"
+        "current_published_candidate_sha": "a0cbdcf4bcada6c30759d9a76624f4b51fefc9d7",
+        "current_published_tree_sha": "fd0396d3d5c39b3bb1947cbb370120b8c3a25678",
+        "current_published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/40112884540",
+        "runner_correction_qa": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md",
+        "current_admin_ui_scope": "docs/DELIVERY.md",
+        "current_admin_ui_qa": "docs/evidence/QA_CRM_DASHBOARD_2026-10-24.md"
       },
-      "blocker": "Current setup/strategy has bounded independent local acceptance; full927/61 and157 Node passed. Exact new published source/Chromium CI, hosted27-migration rehearsal, full revive-sandbox, actual Worker/Auth/PostgREST, provider/tenant meetings, restoration and independent-connection races remain outside the receipt.",
+      "blocker": "Setup/strategy source has independent local and published CI acceptance; new admin UI has bounded independent local acceptance, with its immutable publication/official CI pending. Local schema remains 27 migrations; historical hosted schema remains 23. Actual Worker/Auth/PostgREST, provider/calendar, recovery, independent-connection and client-outcome proof remain outside these receipts.",
       "qa_run_ref": "docs/evidence/QA_REVIVE_SETUP_STRATEGY_2026-10-24.md",
       "historical_qa_source_sha": "464904674ace1b8d326c97636b0150c40f0fced8",
-      "current_candidate_scope": "Published a1ab30c/treeb9ee0d6 CI40089001810 is the historical baseline. Current frozen setup/strategy source hashes and independent receipts are in QA_REVIVE_SETUP_STRATEGY_2026-10-24.md; final immutable source/CI pending.",
-      "partial_acceptance_scope": "Independent ten-case baseline malformed tenant/brief receipt RED retained and passed after fixes; actual local SQL/Worker setup-to-strategy-to-preview/enrolment/fenced acknowledgement, calendar/capacity/rights/suppression/authority guards, private Auth trigger metadata,52 UI-logic and three local rollback packets PASS. Full927 backend/61 files,157 Node are integration evidence. No hosted migration/Auth session/provider/meeting/conversion or independent-connection claim."
+      "current_candidate_scope": "Published a0cbdcf / tree fd0396d CI40112884540 is the 927/61 + 157 baseline. Current frontend-only admin navigation/overview/grouped-client increment has independent local acceptance: ten actual Chromium 153 shell scenarios, 14 dashboard checks, mobile overlap RED/GREEN and visual review. Root full927 backend / 61 files, 171 Node, audit0 and product/CRM/Signal renders pass. New immutable publication and official Chromium 151 CI are pending.",
+      "partial_acceptance_scope": "Independent ten-case baseline malformed tenant/brief receipt RED retained and passed after fixes; actual local SQL/Worker setup-to-strategy-to-preview/enrolment/fenced acknowledgement, calendar/capacity/rights/suppression/authority guards, private Auth trigger metadata,52 UI-logic and three local rollback packets PASS. Full927 backend/61 files,157 Node are integration evidence. No hosted migration/Auth session/provider/meeting/conversion or independent-connection claim. CRM UI receipt separately accepts synthetic local shell/model/desktop/mobile behaviour only; it does not replace actual Auth/API or operational acceptance. Full-stage flags remain false."
     },
     "operational-release": {
       "status": "not_started",

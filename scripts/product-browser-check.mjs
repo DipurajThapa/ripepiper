@@ -292,3 +292,6 @@ try {
  assert.deepEqual(failures,[]);
  console.log('PASS: four rendered product forms, Revive draft/reviewed client setup with explicit unknowns and no activation, strategy bound to existing brief/setup and reviewed audience, non-reserving draft schedule preview with pending rights, cohort snapshot/decision, bounded test-cycle report, paired action outcome, real-mode account activation, import/report, campaign draft and dirty-approval guard, desktop/mobile overflow, inbox preview/review/import, human owner/resolution review, synthetic event configuration/registration/cancellation, meeting reconciliation/sample/error/recovery, staff attendance evidence and held reminder display, read-only held payment review, no page errors; synthetic API only.');
 }finally{await browser.close();}
+
+// Extend the same rendered acceptance stage with the complete CRM shell.
+await import("./crm-browser-check.mjs");
