@@ -185,7 +185,7 @@
         "current_scope": "docs/DELIVERY.md#rp-030--signal-trigger-review-and-safe-handoff-2026-10-25",
         "current_local_qa": "docs/evidence/QA_SIGNAL_REVIEW_2026-10-25.md"
       },
-      "blocker": "RP-030 local review/attribution and execution safety repair has independent QA/PM acceptance; publication and official CI pending. Trigger-bound strategy, live source entitlement/egress, hosted Auth/API/provider and measured customer outcomes remain unaccepted."
+      "blocker": "RP-030 has bounded local QA/PM acceptance. First published CI40123876235 failed a historical SQL rollback timeout; corrected two-worker full local regression passed957/64. New official CI pending. Trigger-bound strategy, live source entitlement/egress, hosted Auth/API/provider and measured customer outcomes remain unaccepted."
     },
     "response-qa": {
       "status": "not_started",
@@ -360,11 +360,18 @@
         "acceptance": "docs/DELIVERY.md#rp-030--signal-trigger-review-and-safe-handoff-2026-10-25",
         "verified": true,
         "limitations": "No hosted migration, live source/DNS/Auth/provider, strategy-based Signal execution or measured commercial acceptance. Historical offline source identity above is retained; this local increment is bound by QA source hashes.",
-        "verification_scope": "Bounded local application/schema/browser acceptance only; immutable publication and official CI pending.",
+        "verification_scope": "Bounded local application/schema/browser acceptance. First published CI40123876235 failed a historical rollback fixture timeout; corrective two-worker full local regression passed957/64 with unchanged assertions/timeouts. New official CI pending.",
         "qa_evidence": "docs/evidence/QA_SIGNAL_REVIEW_2026-10-25.md",
         "local_regression": "957 backend / 64 files; 193 Node; type/syntax/build/audit0 and all product/CRM/Signal browser programs PASS. Local Chromium153; official151 pending.",
         "local_schema_migrations": 28,
-        "historical_hosted_schema_migrations": 23
+        "historical_hosted_schema_migrations": 23,
+        "published_attempt": {
+          "sha": "98f0702c6bf3a7c91e197cc9369f801525cd7460",
+          "tree": "1e23c284b776c0f2146715b9abb4863de69c55c8",
+          "ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/40123876235",
+          "result": "failed: staging-rollback default5000ms timeout;956passed;laterstages skipped",
+          "correction": "maxWorkers2; no assertion or timeout changes; local full957/64 passed in62.45s; newCI pending"
+        }
       }
     },
     "offline-signal-qa": {
@@ -392,11 +399,18 @@
         "acceptance": "docs/DELIVERY.md#rp-030--signal-trigger-review-and-safe-handoff-2026-10-25",
         "verified": true,
         "limitations": "No hosted migration, live source/DNS/Auth/provider, strategy-based Signal execution or measured commercial acceptance. Historical offline source identity above is retained; this local increment is bound by QA source hashes.",
-        "verification_scope": "Bounded local application/schema/browser acceptance only; immutable publication and official CI pending.",
+        "verification_scope": "Bounded local application/schema/browser acceptance. First published CI40123876235 failed a historical rollback fixture timeout; corrective two-worker full local regression passed957/64 with unchanged assertions/timeouts. New official CI pending.",
         "qa_evidence": "docs/evidence/QA_SIGNAL_REVIEW_2026-10-25.md",
         "local_regression": "957 backend / 64 files; 193 Node; type/syntax/build/audit0 and all product/CRM/Signal browser programs PASS. Local Chromium153; official151 pending.",
         "local_schema_migrations": 28,
-        "historical_hosted_schema_migrations": 23
+        "historical_hosted_schema_migrations": 23,
+        "published_attempt": {
+          "sha": "98f0702c6bf3a7c91e197cc9369f801525cd7460",
+          "tree": "1e23c284b776c0f2146715b9abb4863de69c55c8",
+          "ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/40123876235",
+          "result": "failed: staging-rollback default5000ms timeout;956passed;laterstages skipped",
+          "correction": "maxWorkers2; no assertion or timeout changes; local full957/64 passed in62.45s; newCI pending"
+        }
       }
     },
     "offline-events-lifecycle": {

@@ -71,6 +71,14 @@ Root's final integrated run passed **957 tests across 64 backend files** in 36.1
 
 QA also inspected the final root logs: **193/193 Node checks**, the existing four-product/whole-CRM rendered workflows, the combined Signal/source-to-outcome rendered workflow, and dependency audit **zero vulnerabilities**. These results complement the independently executed 41 backend and 13 UI checks above. Chromium 153 was used locally; official pinned-browser CI and hosted verification remain separate requirements. No production mutation or delivery claim follows from these local results.
 
+## Published CI resource correction
+
+PR #9 first published head `98f0702c6bf3a7c91e197cc9369f801525cd7460`, local tested commit `82a7341f28b3426e51e7b799544436741de2619e` and GitHub test merge `d786849ff631c0f32509c07ad9ad4d1d746d85b4` all have tree `1e23c284b776c0f2146715b9abb4863de69c55c8`. QA independently checked the remote merge metadata and CI checkout log.
+
+[CI 40123876235](https://github.com/DipurajThapa/ripepiper/actions/runs/40123876235), verify job `120961035180`, failed with **956/957 tests passing**. The sole failure was the historical `staging-rollback.test.ts` whole-database rehearsal exceeding its existing five-second test timeout (5.322 seconds). Later Node, build, audit and browser stages were skipped; staging was skipped. This failed receipt is retained, not treated as CI acceptance.
+
+Development reduced `maxWorkers` from four to two for the smaller CI runner. QA inspected the exact configuration diff and verified that the five-second timeout, isolation, network guard and test assertions remain unchanged. QA independently reran `npx --no-install vitest run test/staging-rollback.test.ts` with that configuration: **1/1 passed**, 2.56 seconds total. The test still applies all migrations, rejects the wrong hosted database identity, executes the real rollback acceptance SQL with only the local database name adapted, and checks that all fixture tables remain empty. QA inspected the subsequent complete two-worker run (`/tmp/ripepiper-signal-backend-two-workers.log`): **957/957 tests across 64 files passed**, 62.45 seconds. New published CI remains pending; the product-source hashes below are unchanged.
+
 ## Limits and rollback
 
 The local application/schema boundary passes. Hosted migration rollout, real Auth/PostgREST, public-source/DNS verification, provider delivery, trigger-bound approved outreach, automated monitoring, independent database-connection races and measured precision/meeting results remain open. A recorded business change is not buying intent; a linked outcome is not proof of causality. Evidence-based qualification remains a separate reviewed activity.
