@@ -87,6 +87,12 @@ export async function recordProductEvent(req: Request, env: Env, tenantId: strin
   const lead=await db.one<any>("leads",`tenant_id=eq.${tenantId}&id=eq.${b.lead_id}&select=id,email`);
   if(!lead) return bad("Lead not found in this client account.",404);
   if(b.synthetic !== lead.email.toLowerCase().endsWith(".invalid")) return bad("Evidence mode must match the contact.");
+  if(b.context.kind==='outcome' && b.context.product==='signal') {
+    const signalId=b.context.signalId.toLowerCase();
+    const source=await db.one<{id:string}>("lead_observations",`id=eq.${signalId}&tenant_id=eq.${tenantId}&lead_id=eq.${lead.id}&synthetic=eq.${b.synthetic}&assessment_reviewed_by=not.is.null&product_context->>product=eq.signal&product_context->>kind=eq.trigger&observed_at=lte.${encodeURIComponent(b.observed_at)}&select=id`);
+    if(!source || source.id!==signalId)return bad("Choose a reviewed Signal trigger for this contact, account, evidence mode and outcome time.",409);
+    b.context.signalId=signalId;
+  }
   if(b.context.kind==='outcome' && ['response','events'].includes(b.context.product)) {
     const field=b.context.product==='response'?'threadRef':'eventRef';
     const kinds=b.context.product==='response'?'enquiry,reply':'registration,attendance';

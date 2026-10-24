@@ -14,7 +14,7 @@ const cases:any[]=[
 function request(c:any){return new Request('https://fixture.invalid',{method:'POST',headers:{Authorization:'Bearer fixture'},body:JSON.stringify({...c,campaign_id:campaign})});}
 beforeEach(()=>{
  vi.spyOn(Db.prototype,'userFromToken').mockResolvedValue({id:crypto.randomUUID(),email:'fixture@example.invalid',is_admin:true});
- vi.spyOn(Db.prototype,'one').mockResolvedValue({id:tenant,name:'Ripe Piper'});
+ vi.spyOn(Db.prototype,'one').mockImplementation(async table=>table==='campaigns'?{id:campaign,capability:'revive'} as any:{id:tenant,name:'Ripe Piper'} as any);
 });afterEach(()=>vi.restoreAllMocks());
 describe('strict existing campaign mutation receipts',()=>{
  for(const c of cases) {
@@ -39,4 +39,9 @@ describe('strict existing campaign mutation receipts',()=>{
  it('treats a lost writer response as uncertain without automatic retry or leaking database text',async()=>{
   const rpc=vi.spyOn(Db.prototype,'rpc').mockRejectedValue(Error('PRIVATE DB result lost'));const response=await campaignPlans(request(cases[0]),env,tenant);expect(response.status).toBe(503);expect(await response.text()).not.toContain('PRIVATE');expect(rpc).toHaveBeenCalledTimes(1);
  });
+});
+
+it('refuses Signal enrolment before invoking the database writer even when the sink is enabled',async()=>{
+ vi.spyOn(Db.prototype,'one').mockImplementation(async table=>table==='campaigns'?{id:campaign,capability:'signal'} as any:{id:tenant,name:'Ripe Piper'} as any);
+ const rpc=vi.spyOn(Db.prototype,'rpc');const response=await campaignPlans(request(cases[4]),env,tenant);expect(response.status).toBe(409);expect(await response.text()).toContain('trigger-bound strategy');expect(rpc).not.toHaveBeenCalled();
 });

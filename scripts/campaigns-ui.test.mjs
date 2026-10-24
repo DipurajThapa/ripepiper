@@ -198,3 +198,9 @@ test('business brief changes reload strategy context and discard an in-flight pr
 test('non-English reviewed setup permits manual copy but disables the English-only automatic proposal',async()=>{
  const data=strategyData();data.setupContext.setup.body.language='hi-IN';const ui=mount(async()=>data);ui.select('tenant-a');await tick();assert.equal(ui.nodes.prepareReviveDraft.disabled,true);assert.match(ui.nodes.strategyBasis.textContent,/manual copy for other languages/);
 });
+test('Signal execution is visibly held and cannot enqueue or expose historical run controls',async()=>{
+ const calls=[],fixture={campaigns:[{id:'signal-plan',capability:'signal',purpose:'reviewed changes',status:'approved',asset_version:1}],assets:[],actions:[{id:'old-signal-action',campaign_id:'signal-plan',state:'queued',due_at:'2026-10-24',message_step:0}]};
+ const ui=mount(async(path,body)=>{calls.push(body);return fixture;});ui.select('tenant-a');await tick();const n=ui.nodes;n.campaignSelect.value='signal-plan';n.campaignSelect.onchange();
+ assert.equal(n.campaignQueueSubmit.disabled,true);assert.match(n.campaignExecutionStatus.textContent,/Signal execution is unavailable/);assert.doesNotMatch(n.campaignActions.innerHTML,/data-test-action/);
+ n.campaignQueue.onsubmit({preventDefault(){}});assert.equal(calls.some(c=>c.operation==='queue'),false);assert.match(n.campaignError.textContent,/trigger-bound strategy/);
+});

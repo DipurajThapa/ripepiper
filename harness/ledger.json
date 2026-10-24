@@ -2,7 +2,7 @@
   "version": 1,
   "project": "Ripe Piper",
   "pm_owner": "PM agent",
-  "updated_at": "2026-10-24",
+  "updated_at": "2026-10-25",
   "stages": {
     "baseline": {
       "status": "verified",
@@ -110,17 +110,18 @@
         "prior_safety_baseline_candidate_sha": "eef85fdaaa0b398364de223fd5a44c00b96da19d",
         "prior_safety_baseline_tree_sha": "55795cfe5d75a0f854edfe37d9082eea700cb3e0",
         "prior_safety_baseline_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39997711665",
-        "current_published_candidate_sha": "a0cbdcf4bcada6c30759d9a76624f4b51fefc9d7",
-        "current_published_tree_sha": "fd0396d3d5c39b3bb1947cbb370120b8c3a25678",
-        "current_published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/40112884540",
+        "current_published_candidate_sha": "7d431f570898b2293950ec5e07e2d13fc22b72e3",
+        "current_published_tree_sha": "4fcc07af5eb030cbc1cfd845ac95c10c1a10299d",
+        "current_published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/40119542689",
         "runner_correction_qa": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md",
         "current_admin_ui_scope": "docs/DELIVERY.md",
-        "current_admin_ui_qa": "docs/evidence/QA_CRM_DASHBOARD_2026-10-24.md"
+        "current_admin_ui_qa": "docs/evidence/QA_CRM_DASHBOARD_2026-10-24.md",
+        "current_source_merge_sha": "d5a7988f32eb4fce6e0124c1b8eb9cd39d15f375"
       },
-      "blocker": "Setup/strategy source has independent local and published CI acceptance; new admin UI has bounded independent local acceptance, with its immutable publication/official CI pending. Local schema remains 27 migrations; historical hosted schema remains 23. Actual Worker/Auth/PostgREST, provider/calendar, recovery, independent-connection and client-outcome proof remain outside these receipts.",
+      "blocker": "Revive setup/strategy and CRM source have independent bounded local and published CI acceptance and PR #8 is merged. Hosted staging remains at its historical 23-migration checkpoint. Actual Worker/Auth/PostgREST, provider/calendar, recovery, independent-connection and client-outcome proof remain outside these receipts.",
       "qa_run_ref": "docs/evidence/QA_REVIVE_SETUP_STRATEGY_2026-10-24.md",
       "historical_qa_source_sha": "464904674ace1b8d326c97636b0150c40f0fced8",
-      "current_candidate_scope": "Published a0cbdcf / tree fd0396d CI40112884540 is the 927/61 + 157 baseline. Current frontend-only admin navigation/overview/grouped-client increment has independent local acceptance: ten actual Chromium 153 shell scenarios, 14 dashboard checks, mobile overlap RED/GREEN and visual review. Root full927 backend / 61 files, 171 Node, audit0 and product/CRM/Signal renders pass. New immutable publication and official Chromium 151 CI are pending.",
+      "current_candidate_scope": "Published 7d431f5 and protected main merge d5a7988 share tree4fcc07a. CI40119542689 passed927 backend/61files,171Node,audit0 and product/CRM/Signal Chromium151 programs; staging skipped. Independent QA and PM accepted the bounded source handoff. Current RP-030 Signal changes require their own current-candidate verification; no operational promotion.",
       "partial_acceptance_scope": "PM accepts independent local setup/strategy CAS/replay/readiness/owner/brief/source/audience/expiry invalidation, DST/windows/spacing/capacity, strict receipts, UI and three amended rollback packets. Actual Worker-to-local-SQL journey ends in one fenced synthetic receipt. Root full927/61,157 Node,type/syntax/audit0/build/dry-run are local integration evidence. Meeting capacity and goal/window are declared configuration; analytics remains cumulative. Local27 does not extend hosted23 proof. Full-stage flags remain false. CRM UI receipt separately accepts synthetic local shell/model/desktop/mobile behaviour only; it does not replace actual Auth/API or operational acceptance. Full-stage flags remain false."
     },
     "revive-qa": {
@@ -145,17 +146,18 @@
         "prior_safety_baseline_candidate_sha": "eef85fdaaa0b398364de223fd5a44c00b96da19d",
         "prior_safety_baseline_tree_sha": "55795cfe5d75a0f854edfe37d9082eea700cb3e0",
         "prior_safety_baseline_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39997711665",
-        "current_published_candidate_sha": "a0cbdcf4bcada6c30759d9a76624f4b51fefc9d7",
-        "current_published_tree_sha": "fd0396d3d5c39b3bb1947cbb370120b8c3a25678",
-        "current_published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/40112884540",
+        "current_published_candidate_sha": "7d431f570898b2293950ec5e07e2d13fc22b72e3",
+        "current_published_tree_sha": "4fcc07af5eb030cbc1cfd845ac95c10c1a10299d",
+        "current_published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/40119542689",
         "runner_correction_qa": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md",
         "current_admin_ui_scope": "docs/DELIVERY.md",
-        "current_admin_ui_qa": "docs/evidence/QA_CRM_DASHBOARD_2026-10-24.md"
+        "current_admin_ui_qa": "docs/evidence/QA_CRM_DASHBOARD_2026-10-24.md",
+        "current_source_merge_sha": "d5a7988f32eb4fce6e0124c1b8eb9cd39d15f375"
       },
-      "blocker": "Setup/strategy source has independent local and published CI acceptance; new admin UI has bounded independent local acceptance, with its immutable publication/official CI pending. Local schema remains 27 migrations; historical hosted schema remains 23. Actual Worker/Auth/PostgREST, provider/calendar, recovery, independent-connection and client-outcome proof remain outside these receipts.",
+      "blocker": "Revive setup/strategy and CRM source have independent bounded local and published CI acceptance and PR #8 is merged. Hosted staging remains at its historical 23-migration checkpoint. Actual Worker/Auth/PostgREST, provider/calendar, recovery, independent-connection and client-outcome proof remain outside these receipts.",
       "qa_run_ref": "docs/evidence/QA_REVIVE_SETUP_STRATEGY_2026-10-24.md",
       "historical_qa_source_sha": "464904674ace1b8d326c97636b0150c40f0fced8",
-      "current_candidate_scope": "Published a0cbdcf / tree fd0396d CI40112884540 is the 927/61 + 157 baseline. Current frontend-only admin navigation/overview/grouped-client increment has independent local acceptance: ten actual Chromium 153 shell scenarios, 14 dashboard checks, mobile overlap RED/GREEN and visual review. Root full927 backend / 61 files, 171 Node, audit0 and product/CRM/Signal renders pass. New immutable publication and official Chromium 151 CI are pending.",
+      "current_candidate_scope": "Published 7d431f5 and protected main merge d5a7988 share tree4fcc07a. CI40119542689 passed927 backend/61files,171Node,audit0 and product/CRM/Signal Chromium151 programs; staging skipped. Independent QA and PM accepted the bounded source handoff. Current RP-030 Signal changes require their own current-candidate verification; no operational promotion.",
       "partial_acceptance_scope": "Independent ten-case baseline malformed tenant/brief receipt RED retained and passed after fixes; actual local SQL/Worker setup-to-strategy-to-preview/enrolment/fenced acknowledgement, calendar/capacity/rights/suppression/authority guards, private Auth trigger metadata,52 UI-logic and three local rollback packets PASS. Full927 backend/61 files,157 Node are integration evidence. No hosted migration/Auth session/provider/meeting/conversion or independent-connection claim. CRM UI receipt separately accepts synthetic local shell/model/desktop/mobile behaviour only; it does not replace actual Auth/API or operational acceptance. Full-stage flags remain false."
     },
     "operational-release": {
@@ -175,12 +177,15 @@
       "blocker": "Evidence and dependency gates not yet met"
     },
     "signal-qa": {
-      "status": "not_started",
+      "status": "in_progress",
       "owner": "qa",
       "pm_reviewed": false,
       "qa_reviewed": false,
-      "evidence": {},
-      "blocker": "Evidence and dependency gates not yet met"
+      "evidence": {
+        "current_scope": "docs/DELIVERY.md#rp-030--signal-trigger-review-and-safe-handoff-2026-10-25",
+        "current_local_qa": "docs/evidence/QA_SIGNAL_REVIEW_2026-10-25.md"
+      },
+      "blocker": "RP-030 local review/attribution and execution safety repair has independent QA/PM acceptance; publication and official CI pending. Trigger-bound strategy, live source entitlement/egress, hosted Auth/API/provider and measured customer outcomes remain unaccepted."
     },
     "response-qa": {
       "status": "not_started",
@@ -345,7 +350,22 @@
       "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
       "qa_source_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
       "tested_tree_sha": "ae0ea95a435237414c4062811fe1fef0e034255b",
-      "acceptance_scope": "Operator-configured bounded JSON feed, human preview/review, cited idempotent import with no contact rights. Not web-wide autonomous discovery, live source entitlement or DNS-egress proof."
+      "acceptance_scope": "Operator-configured bounded JSON feed, human preview/review, cited idempotent import with no contact rights. Not web-wide autonomous discovery, live source entitlement or DNS-egress proof.",
+      "current_increment": {
+        "status": "verified",
+        "scope": "RP-030 per-trigger review, same-trigger outcome attribution, strict acquisition receipts, guided qualification and Signal execution held until trigger-bound strategy is accepted",
+        "source_baseline": "d5a7988f32eb4fce6e0124c1b8eb9cd39d15f375",
+        "baseline_tree": "4fcc07af5eb030cbc1cfd845ac95c10c1a10299d",
+        "baseline_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/40119542689",
+        "acceptance": "docs/DELIVERY.md#rp-030--signal-trigger-review-and-safe-handoff-2026-10-25",
+        "verified": true,
+        "limitations": "No hosted migration, live source/DNS/Auth/provider, strategy-based Signal execution or measured commercial acceptance. Historical offline source identity above is retained; this local increment is bound by QA source hashes.",
+        "verification_scope": "Bounded local application/schema/browser acceptance only; immutable publication and official CI pending.",
+        "qa_evidence": "docs/evidence/QA_SIGNAL_REVIEW_2026-10-25.md",
+        "local_regression": "957 backend / 64 files; 193 Node; type/syntax/build/audit0 and all product/CRM/Signal browser programs PASS. Local Chromium153; official151 pending.",
+        "local_schema_migrations": 28,
+        "historical_hosted_schema_migrations": 23
+      }
     },
     "offline-signal-qa": {
       "status": "verified",
@@ -362,7 +382,22 @@
       "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
       "qa_source_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
       "tested_tree_sha": "ae0ea95a435237414c4062811fe1fef0e034255b",
-      "acceptance_scope": "Independent source boundary/digest/tenant/injection/replay/API/database/UI checks and rendered source workflow at exact tested tree; live egress/final configuration race remain release concerns."
+      "acceptance_scope": "Independent source boundary/digest/tenant/injection/replay/API/database/UI checks and rendered source workflow at exact tested tree; live egress/final configuration race remain release concerns.",
+      "current_increment": {
+        "status": "verified",
+        "scope": "RP-030 per-trigger review, same-trigger outcome attribution, strict acquisition receipts, guided qualification and Signal execution held until trigger-bound strategy is accepted",
+        "source_baseline": "d5a7988f32eb4fce6e0124c1b8eb9cd39d15f375",
+        "baseline_tree": "4fcc07af5eb030cbc1cfd845ac95c10c1a10299d",
+        "baseline_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/40119542689",
+        "acceptance": "docs/DELIVERY.md#rp-030--signal-trigger-review-and-safe-handoff-2026-10-25",
+        "verified": true,
+        "limitations": "No hosted migration, live source/DNS/Auth/provider, strategy-based Signal execution or measured commercial acceptance. Historical offline source identity above is retained; this local increment is bound by QA source hashes.",
+        "verification_scope": "Bounded local application/schema/browser acceptance only; immutable publication and official CI pending.",
+        "qa_evidence": "docs/evidence/QA_SIGNAL_REVIEW_2026-10-25.md",
+        "local_regression": "957 backend / 64 files; 193 Node; type/syntax/build/audit0 and all product/CRM/Signal browser programs PASS. Local Chromium153; official151 pending.",
+        "local_schema_migrations": 28,
+        "historical_hosted_schema_migrations": 23
+      }
     },
     "offline-events-lifecycle": {
       "status": "verified",

@@ -12,6 +12,7 @@ let db:PGlite,tenant:string,foreign:string;
 type Fixture={lead:string;campaign:string;action:string;synthetic:boolean};
 const strategies=new Map<string,ReturnType<typeof strategyBody>>();
 const historicalBusiness=new Map<string,Fixture>();
+let historicalSignal:Fixture;
 const env={SUPABASE_URL:'https://fixture.example.invalid',SUPABASE_SERVICE_ROLE_KEY:'fixture-service',SUPABASE_ANON_KEY:'fixture-public'} as Env;
 beforeAll(async()=>{
  db=new PGlite({extensions:{btree_gist}});
@@ -38,7 +39,10 @@ beforeAll(async()=>{
  // disabled. The new migration must preserve their outcome history while blocking
  // any future execution of legacy assets without a reviewed strategy.
  for(const state of ['delivered','tested'])historicalBusiness.set(state,await buildFixture({synthetic:false,state},true));
- for(const file of migrations.slice(strategyIndex))await db.exec(readFileSync(new URL(file,dir),'utf8'));
+ for(const file of migrations.slice(strategyIndex)){
+  if(file.endsWith('_signal_trigger_review.sql'))historicalSignal=await buildFixture({capability:'signal'});
+  await db.exec(readFileSync(new URL(file,dir),'utf8'));
+ }
 });
 afterAll(async()=>db.close());
 async function service<T>(fn:()=>Promise<T>){await db.exec('set role service_role');try{return await fn();}finally{await db.exec('reset role');}}
@@ -92,7 +96,7 @@ describe('exact acknowledged Revive action attribution',()=>{
   await expect(record(f,{...context(f),outcome:'won'},{reference,at})).rejects.toThrow('Reference reused');
  });
  it('rejects foreign tenant, contact, product and mismatched same-lead campaign',async()=>{
-  const f=await fixture(),other=await fixture(),signal=await fixture({capability:'signal'});
+  const f=await fixture(),other=await fixture(),signal=historicalSignal; // Historical foreign-product receipt predates the Signal execution fence.
   await expect(record(f,context(f),{tenant:foreign})).rejects.toThrow('scope mismatch');
   await expect(record(f,context(f),{lead:other.lead})).rejects.toThrow('exact acknowledged action');
   await expect(record(f,{...context(f),campaignId:other.campaign})).rejects.toThrow('exact acknowledged action');

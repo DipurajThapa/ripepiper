@@ -81,6 +81,9 @@ it('blocks historical Revive action rows that have no cohort fence, while preser
  await q('update outbound_actions set revive_review_version=null,revive_review_snapshot=null where id=$1',[id]);
  const at=await afterDue(id);expect(await rpc('synthetic_action_allowed',[id,at])).toBe(false);
  await q(`update campaigns set capability='signal' where id=$1`,[c]);
+ expect(await rpc('synthetic_action_allowed',[id,at])).toBe(false);
+ // Signal now has its own qualification hold; Events remains the non-Revive control.
+ await q(`update campaigns set capability='events' where id=$1`,[c]);
  expect(await rpc('synthetic_action_allowed',[id,at])).toBe(true);
 });
 it('rejects cross-tenant cohort RPC identity rather than borrowing the other tenant review',async()=>{

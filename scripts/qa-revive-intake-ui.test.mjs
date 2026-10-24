@@ -10,7 +10,7 @@ function mount(importer=async body=>({results:body.rows.map((_,i)=>({row:i+1,sta
  const nodes={},listeners={},calls=[];
  const node=id=>nodes[id]??={value:'',checked:false,disabled:true,textContent:'',files:[],_html:'',set innerHTML(value){this._html=value;for(const match of value.matchAll(/id="([^"]+)"/g))node(match[1]);},get innerHTML(){return this._html;}};
  const RP={esc:v=>String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'),api:async(path,body)=>{calls.push({path,body});return path.endsWith('/shortlist')?{brief:null,leads:[],results:[]}:importer(body);}};
- const context={window:{RP,addEventListener:(event,fn)=>listeners[event]=fn},document:{getElementById:node},TextDecoder};
+ const context={window:{RP,dispatchEvent:()=>{},addEventListener:(event,fn)=>listeners[event]=fn},CustomEvent:function(type,init){this.type=type;this.detail=init.detail;},document:{getElementById:node},TextDecoder};
  vm.runInNewContext(parser,context);vm.runInNewContext(source,context);
  return{nodes,calls,select:id=>{listeners['rp:tenant-selected']({detail:{id,name:'QA tenant '+id}});node('prospectMode').value='synthetic';},preview(){node('prospectImportRows').value=csv;node('prospectImportFormat').value='csv';node('prospectImportHeader').checked=true;node('prospectImportPreview').onclick();},submit(){node('prospectImportForm').onsubmit({preventDefault(){}});}};
 }

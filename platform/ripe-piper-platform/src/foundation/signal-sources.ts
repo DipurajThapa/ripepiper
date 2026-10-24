@@ -88,14 +88,14 @@ export async function signalSource(req:Request,env:Env,tenantId:string){
   const selected=snapshot.items.find(i=>i.id===b.item_id);
   if(!selected||selected.digest!==b.digest)return bad('The selected source changed or expired. Review it again.',409);
   const reference=`signal:${c.id}:${selected.id}`;
-  const result=await db.rpc<{lead_id:string;state:string}>('import_review_lead',{p_tenant:tenantId,p_actor:user.id,p_email:selected.email,p_company:selected.company,p_reference:reference+':contact',p_rights:c.purposeReference,p_observed:selected.observedAt,p_synthetic:c.synthetic});
-  if(!result||typeof result.lead_id!=='string'||!uuid.test(result.lead_id)||!['created','linked','duplicate'].includes(result.state))throw Error('Uncertain contact import.');
+  const result=await db.rpc<{lead_id:string;observation_id:string;state:string}>('import_review_lead',{p_tenant:tenantId,p_actor:user.id,p_email:selected.email,p_company:selected.company,p_reference:reference+':contact',p_rights:c.purposeReference,p_observed:selected.observedAt,p_synthetic:c.synthetic});
+  if(!result||typeof result.lead_id!=='string'||!uuid.test(result.lead_id)||typeof result.observation_id!=='string'||!uuid.test(result.observation_id)||!['created','linked','duplicate'].includes(result.state))throw Error('Uncertain contact import.');
   await current();
   const observation=await db.rpc<string>('record_product_event',{p_tenant:tenantId,p_lead:result.lead_id,p_actor:user.id,p_reference:reference+':trigger',p_rights:c.purposeReference,
    p_excerpt:`Company: ${selected.company}\nSource: ${selected.sourceUrl}\n${selected.summary}`,p_observed:selected.observedAt,p_synthetic:c.synthetic,
    p_context:{product:'signal',kind:'trigger',relevance:selected.relevance,expiresAt:selected.expiresAt}});
   if(typeof observation!=='string'||!uuid.test(observation))throw Error('Uncertain Signal observation import.');
-  return json({ok:true,lead_id:result.lead_id,observation_id:observation,state:result.state,contactAllowed:false,delivery:'not_sent'});
+  return json({ok:true,tenantId,sourceId:c.id,itemId:selected.id,digest:selected.digest,synthetic:c.synthetic,lead_id:result.lead_id,observation_id:observation,state:result.state,contactAllowed:false,delivery:'not_sent'});
  }catch(e){
   if(e instanceof DbError&&e.isConflict)return bad('This source reference conflicts with stored evidence. Review the source before retrying.',409);
   return bad('Signal acquisition could not be confirmed. No outreach was started. Retry the same reviewed item and reference after checking the connection.',503);

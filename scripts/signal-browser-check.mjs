@@ -9,9 +9,9 @@ try{
  await page.evaluate(()=>{
   const panel=document.getElementById('signalSourcesPanel');document.body.replaceChildren(panel);panel.style.display='block';window.signalCalls=[];
   window.RP={esc:s=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'),api:async(path,body)=>{
-   window.signalCalls.push({path,body});if(body.operation==='status')return {state:'configured_unverified'};
-   if(body.operation==='preview')return {items:[{id:'change-1',company:'FixtureSource'.repeat(16),email:'fixture@example.invalid',sourceUrl:'https://company.example.com/'+('long-source-reference'.repeat(18)),observedAt:'2026-10-22T00:00:00Z',expiresAt:'2026-11-15T00:00:00Z',summary:'<script>window.untrustedExecuted=true</script>',relevance:'Possible enquiry routing need; unverified',digest:'reviewed-signal-digest'}],excluded:1};
-   return {ok:true,lead_id:'fixture-lead',delivery:'not_sent',contactAllowed:false};
+   window.signalCalls.push({path,body});if(body.operation==='status')return {ok:true,state:'configured_unverified',sourceId:'66666666-6666-4666-8666-666666666666',synthetic:true,contactAllowed:false};
+   if(body.operation==='preview')return {ok:true,sourceId:'66666666-6666-4666-8666-666666666666',synthetic:true,contactAllowed:false,items:[{id:'change-1',company:'FixtureSource'.repeat(16),email:'fixture@example.invalid',sourceUrl:'https://company.example.com/'+('long-source-reference'.repeat(18)),observedAt:'2026-10-22T00:00:00Z',expiresAt:'2026-11-15T00:00:00Z',summary:'<script>window.untrustedExecuted=true</script>',relevance:'Possible enquiry routing need; unverified',digest:'a'.repeat(64)}],excluded:1};
+   return {tenantId:'tenant-fixture',sourceId:'66666666-6666-4666-8666-666666666666',itemId:'change-1',digest:'a'.repeat(64),synthetic:true,ok:true,lead_id:'33333333-3333-4333-8333-333333333333',observation_id:'55555555-5555-4555-8555-555555555555',state:'created',delivery:'not_sent',contactAllowed:false};
   }};
  });
  await page.addScriptTag({content:await readFile(new URL('site/assets/signal-admin.js',root),'utf8')});await page.evaluate(()=>window.dispatchEvent(new CustomEvent('rp:tenant-selected',{detail:{id:'tenant-fixture',name:'Synthetic Ripe Piper'}})));
@@ -20,7 +20,10 @@ try{
  assert.equal(await page.locator('#signalSourceExcerpt script').count(),0);assert.equal(await page.evaluate(()=>window.untrustedExecuted),undefined);
  await page.getByRole('button',{name:'Import reviewed Signal',exact:true}).click();assert.equal(await page.evaluate(()=>window.signalCalls.some(c=>c.body.operation==='import')),false);
  await page.locator('#signalSourceReviewed').check();await page.getByRole('button',{name:'Import reviewed Signal',exact:true}).click();await page.waitForFunction(()=>document.getElementById('signalSourceStatus').textContent.includes('No contact permission'));
- const request=await page.evaluate(()=>window.signalCalls.find(c=>c.body.operation==='import'));assert.equal(request.path,'/api/admin/tenants/tenant-fixture/signal-source');assert.equal(request.body.digest,'reviewed-signal-digest');assert.equal(request.body.reviewed,true);
+ const request=await page.evaluate(()=>window.signalCalls.find(c=>c.body.operation==='import'));assert.equal(request.path,'/api/admin/tenants/tenant-fixture/signal-source');assert.equal(request.body.digest,'a'.repeat(64));assert.equal(request.body.reviewed,true);
  for(const width of [1280,390]){await page.setViewportSize({width,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2),false,`Signal card overflow at ${width}`);}
  assert.deepEqual(errors,[]);console.log('PASS: approved Signal source preview, inert excerpt, required human review, digest-bound import, desktop/mobile; synthetic API only.');
 }finally{await browser.close();}
+
+// Continue the existing CI stage with the real CRM Signal-to-outcome journey.
+await import('./qa-signal-workflow-browser.mjs');

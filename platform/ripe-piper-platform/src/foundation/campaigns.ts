@@ -114,6 +114,10 @@ export async function campaignPlans(req:Request,env:Env,tenantId:string){
  else if(b.operation==='queue'){
   if(env.SYNTHETIC_SINK_ENABLED!=='true')return bad('Synthetic sequence testing is disabled.',403);
   if(!uuid.test(b.body?.leadId??'')||!validInstant(b.body?.startAt))return bad('Select a test lead and a timezone-aware start time.');
+  const target=await db.one<{id:string;capability:string}>('campaigns',`tenant_id=eq.${tenantId}&id=eq.${b.campaign_id}&select=id,capability`);
+  if(!target)return bad('Campaign not found in this account.',404);
+  if(target.id!==b.campaign_id||!PRODUCTS.includes(target.capability as any))return bad('The campaign identity could not be verified. Reload before enrolment.',503);
+  if(target.capability==='signal')return bad('Signal execution is unavailable until a trigger-bound strategy and contact authority are verified.',409);
  }
  else if(b.operation!=='pause')return bad('Unknown campaign operation.');
  try{
