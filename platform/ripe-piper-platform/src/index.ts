@@ -8,7 +8,10 @@ import { processMeeting, reconcileBooking, draftProposal, sendProposal, createQu
 import { json, html, HttpError } from "./routes/http";
 import { runScheduled } from "./jobs";
 import { recordSubjectRequest } from "./foundation/requests";
-import { prepareTenant, pauseTenant } from "./foundation/tenants";
+import { prepareTenant, pauseTenant, activateTenant } from "./foundation/tenants";
+import { reviveReview } from "./foundation/revive";
+import { runReviveAutomationAdmin } from "./foundation/revive-automation";
+import { reviveReport } from "./foundation/revive-report";
 import { testAction } from "./foundation/actions";
 import { inspectActionReceipt } from "./foundation/action-reliability";
 import { acceptInvites } from "./foundation/invites";
@@ -22,6 +25,10 @@ import { signalSource } from "./foundation/signal-sources";
 
 type Handler = (req: Request, env: Env, ctx: ExecutionContext, p: string[]) => Promise<Response>;
 const routes: [string, RegExp, Handler][] = [
+  ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/activate$/, (r,e,_c,p)=>activateTenant(r,e,p[0])],
+  ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/revive-review$/, (r,e,_c,p)=>reviveReview(r,e,p[0])],
+  ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/revive-run$/, (r,e,_c,p)=>runReviveAutomationAdmin(r,e,p[0])],
+  ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/revive-report$/, (r,e,_c,p)=>reviveReport(r,e,p[0])],
   ["POST", /^\/api\/admin\/payments\/([0-9a-f-]{36})\/receipt$/, (r,e,_c,p)=>inspectPayment(r,e,p[0])],
   ["POST", /^\/api\/admin\/meetings\/([0-9a-f-]{36})\/attendance$/, (r,e,_c,p)=>reviewConsultation(r,e,p[0])],
   ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/signal-source$/, (r,e,_c,p)=>signalSource(r,e,p[0])],

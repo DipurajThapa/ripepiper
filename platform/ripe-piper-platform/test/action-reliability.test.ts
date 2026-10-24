@@ -14,10 +14,25 @@ async function rpc(name:string,args:any[]){await db.exec('set role service_role'
 async function fixture(){
  const tenant=(await query(`insert into tenants(name,slug,country,currency,status) values('Fixture',$1,'AE','AED','active') returning id`,[crypto.randomUUID()]))[0].id;
  const lead=(await query(`insert into leads(tenant_id,source,email) values($1,'import',$2) returning id`,[tenant,crypto.randomUUID()+'@example.invalid']))[0].id;
- const source=(await query(`insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,synthetic) values($1,$2,'fixture','fixture',now(),'appointment',true) returning id`,[tenant,lead]))[0].id;
+ // This is an accepted Revive cohort, not a bypass of the new cohort fence.
+ // Evidence predates the fixed claim clock and remains current at test setup.
+ const observed='2026-10-23T00:00:00.000Z';
+ const brief={offer:'Reviewed reactivation service',industries:['construction'],markets:['AE'],roles:['owner'],needs:['dormant leads'],excludedIndustries:[],maxAgeDays:30,
+  source:{reference:'fixture-brief',excerpt:'Reviewed construction offer for AE owner with dormant leads',observedAt:observed}};
+ await query(`insert into business_briefs(tenant_id,version,body,created_by)values($1,1,$2,$3)`,[tenant,JSON.stringify(brief),admin]);
+ const source=(await query(`insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,synthetic,rights_reference,assessment_facts,assessment_excerpt,assessment_reviewed_by,product_context)
+  values($1,$2,'fixture','fixture',$3,'appointment',true,'fixture reviewed source rights',$4,'construction AE owner dormant leads',$5,$6) returning id`,[tenant,lead,observed,
+  JSON.stringify({industry:'construction',market:'AE',role:'owner',need:'dormant leads'}),admin,
+  JSON.stringify({product:'revive',kind:'history',lastContactAt:'2026-08-01T00:00:00Z',previousInterest:'yes',stalledReason:'Project deferred until autumn'})]))[0].id;
+ await rpc('review_revive_candidate',[tenant,lead,admin,0,(await query('select revive_input_snapshot($1,$2) value',[tenant,lead]))[0].value,1,'accepted','Reviewed evidence supports the reactivation cohort','2026-10-25T00:00:00Z']);
+ // Database-owner fixture clock: ensure acceptance precedes fixed claim time.
+ await query(`update revive_reviews set reviewed_at='2026-10-23T11:00:00Z' where tenant_id=$1 and lead_id=$2`,[tenant,lead]);
  await query(`insert into contact_rights(tenant_id,lead_id,source_id,purpose,channel,market,decision,reviewer_id,notice_reference) values($1,$2,$3,'appointment','email','AE','permitted',$4,'fixture-only')`,[tenant,lead,source,admin]);
  const campaign=(await query(`insert into campaigns(tenant_id,capability,operator_id,purpose,channel,market,timezone,status,client_authority_ref,owner_authority_ref,cts_profile_ref,expires_at,max_actions) values($1,'revive',$2,'appointment','email','AE','UTC','approved','fixture-client','fixture-owner','fixture-cts','2026-11-20T00:00:00Z',10) returning id`,[tenant,admin]))[0].id;
- await query(`insert into campaign_assets(tenant_id,campaign_id,version,steps,created_by,approved_by) values($1,$2,1,'[{"subject":"Fixture","body":"Synthetic message","offsetHours":0,"evidenceReference":"fixture"}]',$3,$3)`,[tenant,campaign,admin]);
+ const audience=await rpc('build_revive_audience',[tenant,admin,{leadIds:[lead],confirmed:true}]);
+ // Match the existing fixture clock; the server-built membership and snapshot stay intact.
+ audience.reviewedAt='2026-10-23T11:00:00Z';
+ await query(`insert into campaign_assets(tenant_id,campaign_id,version,brief_version,steps,created_by,approved_by,revive_audience) values($1,$2,1,1,'[{"subject":"Fixture","body":"Synthetic message","offsetHours":0,"evidenceReference":"fixture"}]',$3,$3,$4)`,[tenant,campaign,admin,audience]);
  const id=(await query(`insert into outbound_actions(tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at) values($1,$2,$3,'fixture-action',1,1,$4) returning id`,[tenant,campaign,lead,now]))[0].id;
  return {tenant,lead,campaign,id,token:crypto.randomUUID()};
 }

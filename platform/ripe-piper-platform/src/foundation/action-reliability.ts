@@ -23,10 +23,13 @@ export async function inspectActionReceipt(req:Request,env:Env,tenant:string,id:
 /** Existing test-only API. Database transactions acknowledge exact claims; no provider is called. */
 export async function dispatchSyntheticAction(req:Request,env:Env,id:string){
  await requireUser(req,env,true);
+ return executeSyntheticAction(new Db(env,15000),env,id);
+}
+/** Internal worker boundary shared by staff tests and the bounded Revive scheduler. */
+export async function executeSyntheticAction(db:Db,env:Env,id:string,tenantId?:string){
  if(env.SYNTHETIC_SINK_ENABLED!=='true')return bad('The synthetic action sink is disabled.',403);
- if(!uuid.test(id))return bad('Invalid action ID.');
- const db=new Db(env,15000);
- const found=await db.one<Action>('outbound_actions',`id=eq.${id}&select=${fields}`);
+ if(!uuid.test(id)||(tenantId!==undefined&&!uuid.test(tenantId)))return bad('Invalid action ID.');
+ const found=tenantId?await action(db,tenantId,id):await db.one<Action>('outbound_actions',`id=eq.${id}&select=${fields}`);
  if(!found)return bad('Action not found.',404);
  // Lost HTTP responses can be retried safely: report the persisted acknowledgement.
  if(receipt(found))return json({ok:true,state:'tested',action_id:id});

@@ -87,20 +87,62 @@
       "blocker": "Evidence and dependency gates not yet met"
     },
     "revive-sandbox": {
-      "status": "not_started",
+      "status": "in_progress",
       "owner": "development",
       "pm_reviewed": false,
       "qa_reviewed": false,
-      "evidence": {},
-      "blocker": "Evidence and dependency gates not yet met"
+      "evidence": {
+        "bounded_local_and_hosted_qa": "docs/evidence/QA_REVIVE_2026-10-23.md",
+        "selected_hosted_rollback_packet": "qa/staging-revive-rollback-acceptance.sql",
+        "historical_published_candidate_sha": "574c2461495099f2ae666f1502c389472b7c43a2",
+        "historical_published_tree_sha": "5f2f7cd4e9164bb9ebb4f14779bcb62dd0fb8c08",
+        "historical_published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39991745199",
+        "historical_continuation_qa": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md",
+        "historical_draft_staging_manifest": "docs/evidence/REVIVE_DRAFT_STAGING_2026-10-23.json",
+        "current_local_draft_rollback_packet": "qa/staging-revive-draft-rollback-acceptance.sql",
+        "current_safety_qa": "docs/evidence/QA_REVIVE_BINDINGS_2026-10-24.md",
+        "current_local_audience_rollback_packet": "qa/staging-revive-rollback-acceptance.sql",
+        "prior_draft_report_candidate_sha": "0310fa62f6024248ea180bb71427a7cc90188864",
+        "prior_draft_report_tree_sha": "64451394b071d9acc48809a118a825de0cc50262",
+        "prior_draft_report_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39996753214",
+        "current_published_candidate_sha": "eef85fdaaa0b398364de223fd5a44c00b96da19d",
+        "current_published_tree_sha": "55795cfe5d75a0f854edfe37d9082eea700cb3e0",
+        "current_published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39997711665",
+        "runner_correction_qa": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md"
+      },
+      "blocker": "Current proposal/asset provenance and campaign audience repairs pass bounded independent local QA and full779-backend/53-file,130-Node regression. New exact published source/Chromium CI remains pending. Local schema has25 migrations; historical hosted schema remains23. Actual tenant-sandbox/Worker/Auth/PostgREST, provider/inbox/calendar and operational outcome proof remain unaccepted.",
+      "qa_run_ref": "docs/evidence/QA_REVIVE_BINDINGS_2026-10-24.md",
+      "historical_qa_source_sha": "464904674ace1b8d326c97636b0150c40f0fced8",
+      "current_candidate_scope": "eef85fd baseline plus frozen24 October proposal/asset provenance, explicit campaign audience and scoped Undici dependency correction. QA source hashes are in QA_REVIVE_BINDINGS_2026-10-24.md; full779/53 and130 Node passed locally. Exact new published source/CI pending; baseline686/122 CI is historical.",
+      "partial_acceptance_scope": "PM accepts bounded independent baseline five-case RED and corrected source/actor/need/provenance/audience/version/enrolment/claim/completion/UI and two local rollback packet checks. CTO full779 backend/53 files,130 Node and zero-finding audit/build/dry-run passed. Local25-migration tests do not extend the older23-migration hosted receipts. Full-stage acceptance flags remain false; no actual Auth/runtime/provider/calendar, restoration or independent-connection proof."
     },
     "revive-qa": {
-      "status": "not_started",
+      "status": "in_progress",
       "owner": "qa",
       "pm_reviewed": false,
       "qa_reviewed": false,
-      "evidence": {},
-      "blocker": "Evidence and dependency gates not yet met"
+      "evidence": {
+        "bounded_independent_test_run": "docs/evidence/QA_REVIVE_2026-10-23.md",
+        "selected_hosted_rollback_packet": "qa/staging-revive-rollback-acceptance.sql",
+        "historical_published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39991745199",
+        "historical_continuation_qa": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md",
+        "historical_draft_staging_manifest": "docs/evidence/REVIVE_DRAFT_STAGING_2026-10-23.json",
+        "current_local_draft_rollback_packet": "qa/staging-revive-draft-rollback-acceptance.sql",
+        "current_safety_qa": "docs/evidence/QA_REVIVE_BINDINGS_2026-10-24.md",
+        "current_local_audience_rollback_packet": "qa/staging-revive-rollback-acceptance.sql",
+        "prior_draft_report_candidate_sha": "0310fa62f6024248ea180bb71427a7cc90188864",
+        "prior_draft_report_tree_sha": "64451394b071d9acc48809a118a825de0cc50262",
+        "prior_draft_report_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39996753214",
+        "current_published_candidate_sha": "eef85fdaaa0b398364de223fd5a44c00b96da19d",
+        "current_published_tree_sha": "55795cfe5d75a0f854edfe37d9082eea700cb3e0",
+        "current_published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39997711665",
+        "runner_correction_qa": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md"
+      },
+      "blocker": "Current source binding and audience repairs have independent local acceptance; frozen full779-backend/53-file and130-Node regression passed. Exact new published source/Chromium CI pending. Full revive-sandbox, hosted25-migration proof, actual Worker/Auth/PostgREST, provider/tenant meetings, restoration and independent-connection races remain outside the receipt.",
+      "qa_run_ref": "docs/evidence/QA_REVIVE_BINDINGS_2026-10-24.md",
+      "historical_qa_source_sha": "464904674ace1b8d326c97636b0150c40f0fced8",
+      "current_candidate_scope": "Historical eef85fd baseline plus frozen24 October source-binding/audience diff; independent local source-hash receipt recorded, new immutable commit/CI pending.",
+      "partial_acceptance_scope": "Independent five-case baseline RED; corrected provenance/source/need/actor/receipt/asset retention and explicit audience enrolment/claim/completion boundaries, reviewer/version changes, existing stops, six UI-logic checks and two amended local rollback packets PASS. Full779/53 and130 Node are integration evidence, not hosted/runtime proof. Historical Q-RI001/002/003 and Q-RV001 receipts remain dated. No operational or commercial conversion claim."
     },
     "operational-release": {
       "status": "not_started",

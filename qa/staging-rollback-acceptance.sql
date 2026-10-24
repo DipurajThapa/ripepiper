@@ -1,5 +1,7 @@
 -- Independent QA. Execute ONLY on isolated wgomywhuzyboxlckopca.
 -- All synthetic fixture writes and budget arming are rolled back. No provider APIs.
+-- Current source includes reviewed Revive asset audiences; earlier hosted receipts
+-- apply to their original packet hashes, not this amended fixture.
 BEGIN;
 DO $$
 DECLARE
@@ -16,7 +18,7 @@ DECLARE
  k uuid:='fa100000-0000-4000-8000-000000000061';
  r uuid:='fa100000-0000-4000-8000-000000000071';
  b uuid:='fa100000-0000-4000-8000-000000000081';
- response jsonb; snap text; n integer; rejected boolean;
+ response jsonb; audience jsonb; snap text; n integer; rejected boolean;
 BEGIN
  IF current_database()<>'postgres' THEN RAISE EXCEPTION 'Unexpected database'; END IF;
  IF EXISTS(SELECT 1 FROM public.tenants) OR EXISTS(SELECT 1 FROM auth.users) THEN RAISE EXCEPTION 'QA requires empty isolated staging baseline'; END IF;
@@ -31,10 +33,22 @@ BEGIN
   INSERT INTO public.meetings(tenant_id,lead_id,start_at,end_at,attendee_email) VALUES(t,f,now()+interval '2 days',now()+interval '2 days 15 minutes','qa-contact-two@example.invalid');
  EXCEPTION WHEN foreign_key_violation THEN rejected:=true; END;
  IF NOT rejected THEN RAISE EXCEPTION 'Cross-tenant meeting FK did not reject'; END IF;
- INSERT INTO public.lead_observations(id,tenant_id,lead_id,source,external_ref,observed_at,original_purpose,synthetic,assessment_reviewed_by) VALUES(s,t,l,'qa_fixture','qa-source',now(),'qa appointment',true,a);
+ INSERT INTO public.business_briefs(tenant_id,version,body,created_by) VALUES(t,1,jsonb_build_object(
+  'offer','Reviewed reactivation service','industries',jsonb_build_array('construction'),'markets',jsonb_build_array('AE'),
+  'roles',jsonb_build_array('owner'),'needs',jsonb_build_array('dormant leads'),'excludedIndustries','[]'::jsonb,'maxAgeDays',30,
+  'source',jsonb_build_object('reference','qa-brief','excerpt','Reviewed construction offer for AE owner with dormant leads','observedAt',now()-interval '1 hour')),a);
+ INSERT INTO public.lead_observations(id,tenant_id,lead_id,source,external_ref,observed_at,original_purpose,synthetic,assessment_reviewed_by,rights_reference,assessment_facts,assessment_excerpt,product_context)
+ VALUES(s,t,l,'qa_fixture','qa-source',now()-interval '1 hour','qa appointment',true,a,'qa reviewed source rights',
+  '{"industry":"construction","market":"AE","role":"owner","need":"dormant leads"}','construction AE owner dormant leads',
+  jsonb_build_object('product','revive','kind','history','lastContactAt',now()-interval '60 days','previousInterest','yes','stalledReason','Project deferred to next quarter'));
+ EXECUTE 'SET LOCAL ROLE service_role';
+ response:=public.review_revive_candidate(t,l,a,0,public.revive_input_snapshot(t,l),1,'accepted','Reviewed evidence supports reactivation cohort',now()+interval '1 day');
+ IF response->>'state' IS DISTINCT FROM 'accepted' THEN RAISE EXCEPTION 'Revive cohort review failed'; END IF;
+ audience:=public.build_revive_audience(t,a,jsonb_build_object('leadIds',jsonb_build_array(l),'confirmed',true));
+ EXECUTE 'RESET ROLE';
  INSERT INTO public.contact_rights(tenant_id,lead_id,source_id,purpose,channel,market,decision,reviewer_id,notice_reference) VALUES(t,l,s,'qa appointment','email','AE','permitted',a,'qa synthetic rights');
  INSERT INTO public.campaigns(id,tenant_id,capability,operator_id,purpose,channel,market,timezone,status,client_authority_ref,owner_authority_ref,cts_profile_ref,expires_at,max_actions) VALUES(c,t,'revive',a,'qa appointment','email','AE','UTC','approved','qa-client','qa-owner','qa-profile',now()+interval '1 day',5);
- INSERT INTO public.campaign_assets(tenant_id,campaign_id,version,steps,created_by,approved_by) VALUES(t,c,1,'[{"subject":"QA fixture","body":"Synthetic only","offsetHours":0,"evidenceReference":"qa-source"}]',a,a);
+ INSERT INTO public.campaign_assets(tenant_id,campaign_id,version,brief_version,steps,created_by,approved_by,revive_audience) VALUES(t,c,1,1,'[{"subject":"QA fixture","body":"Synthetic only","offsetHours":0,"evidenceReference":"qa-source"}]',a,a,audience);
  INSERT INTO public.outbound_actions(id,tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at) VALUES(q,t,c,l,'qa-rollback-action',1,1,now()-interval '1 minute');
  EXECUTE 'SET LOCAL ROLE authenticated';
  PERFORM set_config('request.jwt.claim.sub',u::text,true);

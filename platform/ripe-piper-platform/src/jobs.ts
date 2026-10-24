@@ -8,6 +8,7 @@ import { dueReminder } from "./lib/slots";
 import { syncSheet } from "./lib/sheets";
 import { analyseMeeting, minutesMarkdown } from "./lib/ai";
 import { googleAdsRows, metaRows, linkedinRows, toTenantCurrency, type AdRow } from "./lib/ads";
+import { runReviveAutomation } from "./foundation/revive-automation";
 
 /** Default-off consultation reminders. A claim is not delivery; uncertain attempts never retry automatically. */
 export async function sendReminders(env: Env, now = new Date()) {
@@ -121,6 +122,9 @@ async function linkedinCurrency(env: Env, accountId: string): Promise<string> {
 
 export async function runScheduled(cron: string, env: Env) {
   if (cron === "0 22 * * *") return { ads: await syncAds(env) };      // 02:00 Gulf Standard Time
+  // Revive reuses the existing tick only after explicit isolated-environment activation.
+  // Its dedicated staff route and direct tests do not execute the founder's other jobs.
+  const revive = env.REVIVE_AUTOMATION_ENABLED === "true" ? await runReviveAutomation(env) : undefined;
   const [reminders, meetings, sheet] = await Promise.all([sendReminders(env), processFinishedMeetings(env), syncSheet(env)]);
-  return { reminders, meetings, sheet };
+  return { reminders, meetings, sheet, ...(revive ? { revive } : {}) };
 }

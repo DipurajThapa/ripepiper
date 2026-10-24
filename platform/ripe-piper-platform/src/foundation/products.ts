@@ -10,15 +10,17 @@ export type ProductContext =
  | {product:'response';kind:'enquiry'|'reply';threadRef:string;disposition:typeof DISPOSITIONS[number];need:string;authority:string;timing:string;nextContactAt?:string}
  | {product:'response';kind:'conversation_review';threadRef:string;ownerId:string;ownerLabel:string;version:number;inboundSnapshot:string;state:'open'|'resolved';reason:string}
  | {product:'events';kind:'registration'|'attendance';eventRef:string;endsAt:string;timezone:string;attendance:'unknown'|'attended'|'verified_no_show';rosterComplete:boolean}
- | {product:Product;kind:'outcome';outcome:typeof OUTCOMES[number];reason:string;threadRef?:string;eventRef?:string};
+ | {product:Product;kind:'outcome';outcome:typeof OUTCOMES[number];reason:string;threadRef?:string;eventRef?:string;campaignId?:string;actionId?:string};
 const text=(v:unknown,n=500):v is string=>typeof v==='string' && !!v.trim() && v.length<=n;
 const answer=(v:unknown):v is string=>typeof v==='string' && v.length<=500;
+const uuid=(v:unknown):v is string=>typeof v==='string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 export function productError(v:any,observedAt:string,now:number,requireOutcomeScope=false):string|null {
  if(!v || !PRODUCTS.includes(v.product) || !validDate(observedAt,now)) return 'Choose a product and a valid observation time.';
  if(v.kind==='outcome') {
    if(!OUTCOMES.includes(v.outcome) || !text(v.reason)) return 'Choose an outcome and record its evidence-based reason.';
    if(v.threadRef!==undefined && (v.product!=='response' || !text(v.threadRef,240))) return 'Use a valid conversation reference only for Response.';
    if(v.eventRef!==undefined && (v.product!=='events' || !text(v.eventRef,240))) return 'Use a valid event reference only for Events.';
+   if((v.campaignId!==undefined || v.actionId!==undefined) && (v.product!=='revive' || !uuid(v.campaignId) || !uuid(v.actionId))) return 'Link a Revive outcome using both its campaign and action IDs, or leave both blank for an unattributed decision.';
    if(requireOutcomeScope && ((v.product==='response' && !text(v.threadRef,240)) || (v.product==='events' && !text(v.eventRef,240)))) return 'Link this outcome to its existing conversation or event reference.';
    return null;
  }
@@ -111,8 +113,13 @@ export function reviewProducts(observations:Observation[],now:number,suppressed:
    }
    if(product!=='response' && replies.length) {state='reply_hold';nextAction='A reply or enquiry exists. Review the conversation before any further prospecting.';question=null;}
    if(stopped) {state='suppressed';nextAction='No marketing follow-up. Route any service request to staff.';question=null;dueAt=null;}
+   const outcomes=history.filter(o=>o.product_context?.kind==='outcome').map(o=>{
+     const c=o.product_context as Extract<ProductContext,{kind:'outcome'}>;
+     return {at:o.observed_at,...c,...(product==='revive'?{attributionScope:c.campaignId&&c.actionId?(o.synthetic?'synthetic_action':'action_reference'):'unattributed',synthetic:o.synthetic,deliveryEstablished:false}:{} )};
+   });
+   const reviveScopes=[...new Set(outcomes.map(o=>('attributionScope' in o?o.attributionScope:null)))];
    return {product,reference:key || null,conversation,state,nextAction,question,missing,dueAt,overdue:dueAt!==null && Date.parse(dueAt)<now,
-     contactAllowed:false,bookingAvailable:false,outcomeScope:(product==='response'||product==='events') && !key?(history.some(o=>o.product_context?.kind==='outcome')?'unattributed':null):'product_reference',history:history.map(o=>({id:o.id,reference:o.external_ref,observedAt:o.observed_at,excerpt:o.assessment_excerpt,context:o.product_context,briefVersion:o.brief_version ?? null})),
-     outcomes:history.filter(o=>o.product_context?.kind==='outcome').map(o=>({at:o.observed_at,...o.product_context as Extract<ProductContext,{kind:'outcome'}>}))};
+     contactAllowed:false,bookingAvailable:false,outcomeScope:product==='revive'?(reviveScopes.length>1?'mixed':reviveScopes[0]??null):(product==='response'||product==='events') && !key?(outcomes.length?'unattributed':null):'product_reference',history:history.map(o=>({id:o.id,reference:o.external_ref,observedAt:o.observed_at,excerpt:o.assessment_excerpt,context:o.product_context,briefVersion:o.brief_version ?? null})),
+     outcomes};
  });
 }
