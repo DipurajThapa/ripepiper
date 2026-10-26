@@ -14,13 +14,29 @@ try{
    return {tenantId:'tenant-fixture',sourceId:'66666666-6666-4666-8666-666666666666',itemId:'change-1',digest:'a'.repeat(64),synthetic:true,ok:true,lead_id:'33333333-3333-4333-8333-333333333333',observation_id:'55555555-5555-4555-8555-555555555555',state:'created',delivery:'not_sent',contactAllowed:false};
   }};
  });
- await page.addScriptTag({content:await readFile(new URL('site/assets/signal-admin.js',root),'utf8')});await page.evaluate(()=>window.dispatchEvent(new CustomEvent('rp:tenant-selected',{detail:{id:'tenant-fixture',name:'Synthetic Ripe Piper'}})));
+ await page.addScriptTag({content:await readFile(new URL('site/assets/signal-admin.js',root),'utf8')});await page.addScriptTag({content:await readFile(new URL('site/assets/signal-discovery-admin.js',root),'utf8')});await page.evaluate(()=>window.dispatchEvent(new CustomEvent('rp:tenant-selected',{detail:{id:'tenant-fixture',name:'Synthetic Ripe Piper'}})));
  await page.waitForFunction(()=>document.getElementById('signalSourceStatus').textContent.includes('configured'));
  await page.getByRole('button',{name:'Preview approved source',exact:true}).click();await page.waitForFunction(()=>document.getElementById('signalSourceExcerpt').textContent.includes('<script>'));
  assert.equal(await page.locator('#signalSourceExcerpt script').count(),0);assert.equal(await page.evaluate(()=>window.untrustedExecuted),undefined);
  await page.getByRole('button',{name:'Import reviewed Signal',exact:true}).click();assert.equal(await page.evaluate(()=>window.signalCalls.some(c=>c.body.operation==='import')),false);
  await page.locator('#signalSourceReviewed').check();await page.getByRole('button',{name:'Import reviewed Signal',exact:true}).click();await page.waitForFunction(()=>document.getElementById('signalSourceStatus').textContent.includes('No contact permission'));
  const request=await page.evaluate(()=>window.signalCalls.find(c=>c.body.operation==='import'));assert.equal(request.path,'/api/admin/tenants/tenant-fixture/signal-source');assert.equal(request.body.digest,'a'.repeat(64));assert.equal(request.body.reviewed,true);
+ // Extend the original import assertions with read-only discovery, never replacing them.
+ assert.equal(await page.evaluate(()=>window.signalCalls.some(c=>['discover','discovery-status','analyse-posts'].includes(c.body.operation))),false);
+ await page.evaluate(()=>{
+  const legacy=window.RP.api;window.RP.api=async(path,body)=>{
+   if(!['discover','discovery-status'].includes(body.operation))return legacy(path,body);
+   window.signalCalls.push({path,body});const sourceId='77777777-7777-4777-8777-777777777777',safety={ok:true,tenantId:'tenant-fixture',synthetic:true,contactAllowed:false,delivery:'not_sent',persisted:false};
+   if(body.operation==='discovery-status')return {...safety,sources:[{id:sourceId,company:'Discovery company',kind:'business_feed',expiresAt:new Date(Date.now()+86400000).toISOString()}]};
+   return {...safety,candidates:[{id:sourceId+':fixture',sourceId,company:'Discovery company',companyDomain:'discovery.co.uk',sourceUrl:'https://discovery.co.uk/news?category=sales',title:'Pipeline update',excerpt:'<script>window.discoveryExecuted=true</script> pipeline evidence',location:'London',indicator:'expansion',deadline:null,sourceDate:new Date(Date.now()-1000).toISOString(),dateKind:'published',observedAt:new Date().toISOString(),matchedKeywords:['pipeline'],targetRoles:['Sales director'],priority:'research',contactState:'unknown',intent:'unverified',industryBasis:'operator_declared',synthetic:true}],sourceResults:[{sourceId,state:'ok',count:1,invalid:0,filtered:0,excluded:0,reason:'complete'}],complete:true,searchQueries:['pipeline London']};
+  };
+ });
+ await page.locator('#signalDiscoveryKeywords').fill('pipeline');await page.locator('#signalDiscoveryGeographies').fill('London');await page.locator('#signalDiscoveryTargetRoles').fill('Sales director');
+ await page.locator('#signalDiscoveryCheck').click();await page.waitForFunction(()=>document.getElementById('signalDiscoverySources').textContent.includes('business_feed'));
+ await page.locator('#signalDiscoveryRun').click();await page.waitForFunction(()=>document.getElementById('signalDiscoveryResults').textContent.includes('Discovery company'));
+ assert.equal(await page.locator('#signalDiscoveryResults script').count(),0);assert.equal(await page.evaluate(()=>window.discoveryExecuted),undefined);assert.equal(await page.locator('#signalDiscoveryDownload').isDisabled(),false);
+ const discoveryRequest=await page.evaluate(()=>window.signalCalls.find(c=>c.body.operation==='discover'));assert.equal(discoveryRequest.body.body.parameters.keywords[0],'pipeline');assert.equal(discoveryRequest.body.body.synthetic,true);
+ await page.locator('#signalDiscoveryKeywords').fill('changed');assert.equal(await page.locator('#signalDiscoveryResults').textContent(),'');assert.equal(await page.locator('#signalDiscoveryDownload').isDisabled(),true);
  for(const width of [1280,390]){await page.setViewportSize({width,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2),false,`Signal card overflow at ${width}`);}
  assert.deepEqual(errors,[]);console.log('PASS: approved Signal source preview, inert excerpt, required human review, digest-bound import, desktop/mobile; synthetic API only.');
 }finally{await browser.close();}

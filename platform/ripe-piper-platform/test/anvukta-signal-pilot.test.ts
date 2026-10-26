@@ -11,6 +11,8 @@ import type {Env} from '../src/env';
 import {busyTimes,calendarEventId,createMeetEvent,reconcileMeetEvent,sendEmail} from '../src/lib/google';
 import {assessProspect,type Observation,type BusinessBrief} from '../src/foundation/prospecting';
 import {reviewProducts} from '../src/foundation/products';
+import {seedReviveSetup} from './helpers/revive-setup';
+import {tenantGoogleConnection} from '../src/foundation/connections';
 
 const actor='00000000-0000-4000-8000-000000000081';
 const contact='coo@cedar.example.invalid';
@@ -23,7 +25,7 @@ const calendarPath='/calendar/v3/calendars/anvukta-pilot%40example.invalid/event
 const event=()=>({id:calendarEventId(meeting.id),status:'confirmed',extendedProperties:{private:{ripe_meeting_id:meeting.id}},start:{dateTime:meeting.start},end:{dateTime:meeting.end},attendees:[{email:contact}],hangoutLink:'https://meet.google.com/abc-defg-hij'});
 afterEach(()=>vi.unstubAllGlobals());
 
-it('rehearses Anvukta brief → source discovery → reviewed import → qualification → draft/outcome while Signal execution remains held',async()=>{
+it('rehearses two configured clients through isolated Signal discovery, qualification, drafts and outcomes while execution remains held',async()=>{
  const db=new PGlite({extensions:{btree_gist}}),q=async(sql:string,args:any[]=[]) => (await db.query<any>(sql,args)).rows;
  try {
   await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;create schema auth;create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,raw_user_meta_data jsonb default '{}');create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.sub',true),'')::uuid$$;grant usage on schema auth to anon,authenticated;grant execute on function auth.uid() to anon,authenticated;`);
@@ -32,24 +34,27 @@ it('rehearses Anvukta brief → source discovery → reviewed import → qualifi
   await q(`insert into auth.users(id,email,email_confirmed_at) values($1,'pilot-staff@example.invalid',now())`,[actor]);
   await q('update profiles set is_admin=true where id=$1',[actor]);
   const tenant=(await q(`insert into tenants(name,slug,country,currency,status) values('Anvukta — synthetic pilot','anvukta-synthetic-pilot','AE','AED','active') returning id`))[0].id;
+  const otherTenant=(await q(`insert into tenants(name,slug,country,currency,status) values('Northstar Safety — fictional client','northstar-synthetic-pilot','AE','AED','active') returning id`))[0].id;
   const observedAt=new Date(Date.now()-3600000).toISOString(),expiresAt=new Date(Date.now()+7*86400000).toISOString();
   const source={id:crypto.randomUUID(),tenantId:tenant,url:'https://signals.example.com/anvukta-pilot.json',purposeReference:'synthetic-fixture-source-review-only',expiresAt,enabled:true,synthetic:true};
   const items=[
    {id:'cedar-project-expansion',company:'Cedar Works (fictional)',email:contact,sourceUrl:'https://cedar.example.com/news',observedAt,expiresAt,summary:'Fictional construction company added a second project team in AE.',relevance:'Assess project handoffs and workflow ownership; expansion alone does not prove need.'},
    {id:'dune-new-office',company:'Dune Build (fictional)',email:'owner@dune.example.invalid',sourceUrl:'https://dune.example.com/news',observedAt,expiresAt,summary:'Fictional company announced an office opening.',relevance:'Review current fit; office opening alone does not prove a buying need.'},
   ];
-  const env={SUPABASE_URL:'https://anvukta-pilot-db.invalid',SUPABASE_SERVICE_ROLE_KEY:'fixture-service',SUPABASE_ANON_KEY:'fixture-anon',SYNTHETIC_SINK_ENABLED:'true',SIGNAL_SOURCE_CONNECTIONS:JSON.stringify([source])} as Env;
+  const otherSource={...source,id:crypto.randomUUID(),tenantId:otherTenant,url:'https://signals.example.com/northstar-pilot.json',purposeReference:'northstar-synthetic-source-review-only'};
+  const otherItems=[{...items[0],summary:'Fictional Cedar Works announced a new site induction programme.',relevance:'Review site safety onboarding fit; the announcement alone is insufficient.'}];
+  const env={SUPABASE_URL:'https://anvukta-pilot-db.invalid',SUPABASE_SERVICE_ROLE_KEY:'fixture-service',SUPABASE_ANON_KEY:'fixture-anon',SYNTHETIC_SINK_ENABLED:'true',SIGNAL_SOURCE_CONNECTIONS:JSON.stringify([source,otherSource])} as Env;
   const requests:{url:string;method:string}[]=[],rpcNames:string[]=[];
   let sourceItems=items;
   // Small PostgREST transport bridge: actual SQL, predicates and RPCs, never canned app results.
   vi.stubGlobal('fetch',async(input:string,init:RequestInit={})=>{
    const u=new URL(input),method=init.method??'GET';requests.push({url:u.href,method});
-   if(u.href===source.url){expect(method).toBe('GET');expect(init.redirect).toBe('error');return Response.json({items:sourceItems});}
+   if(u.href===source.url||u.href===otherSource.url){expect(method).toBe('GET');expect(init.redirect).toBe('error');return Response.json({items:u.href===source.url?sourceItems:otherItems});}
    if(u.origin!==env.SUPABASE_URL)throw Error('Unexpected external request in isolated Signal pilot');
    if(u.pathname==='/auth/v1/user'){expect(method).toBe('GET');return Response.json({id:actor,email:'pilot-staff@example.invalid'});}
    if(u.pathname.startsWith('/rest/v1/rpc/')){
     expect(method).toBe('POST');const name=u.pathname.split('/').at(-1)!;
-    if(!['save_business_brief','import_review_lead','record_product_event','manage_campaign_plan'].includes(name))throw Error('Unexpected RPC');
+    if(!['save_business_brief','import_review_lead','record_product_event','manage_campaign_plan','revive_setup_context'].includes(name))throw Error('Unexpected RPC');
     rpcNames.push(name);const b=JSON.parse(String(init.body));
     if(Object.keys(b).some(k=>!/^p_[a-z_]+$/.test(k)))throw Error('Unexpected RPC argument');
     await db.exec('set role service_role');
@@ -81,8 +86,8 @@ it('rehearses Anvukta brief → source discovery → reviewed import → qualifi
    const limit=Number(u.searchParams.get('limit')||1001);if(!Number.isInteger(limit)||limit<1||limit>1001)throw Error('Unexpected limit');
    return Response.json(await q(`select * from ${table}${where.length?' where '+where.join(' and '):''}${order.length?' order by '+order.join(','):''} limit ${limit}`,values));
   });
-  const call=(action:string,body:any)=>worker.fetch(new Request(`https://anvukta-pilot.invalid/api/admin/tenants/${tenant}/${action}`,{method:'POST',headers:{Authorization:'Bearer fixture','Content-Type':'application/json'},body:JSON.stringify(body)}),env,{} as ExecutionContext);
-  const read=async(action:string,body:any,status=200)=>{const r=await call(action,body);expect(r.status).toBe(status);return await r.json() as any;};
+  const call=(action:string,body:any,client=tenant)=>worker.fetch(new Request(`https://anvukta-pilot.invalid/api/admin/tenants/${client}/${action}`,{method:'POST',headers:{Authorization:'Bearer fixture','Content-Type':'application/json'},body:JSON.stringify(body)}),env,{} as ExecutionContext);
+  const read=async(action:string,body:any,status=200,client=tenant)=>{const r=await call(action,body,client);expect(r.status).toBe(status);return await r.json() as any;};
   const brief={offer:'Map and improve workflow ownership across UAE construction project and office teams.',industries:['construction'],markets:['AE'],roles:['COO','owner'],needs:['workflow ownership'],excludedIndustries:['retail'],maxAgeDays:30,source:{reference:'anvukta-pilot-strategy-v1',excerpt:'Synthetic pilot hypothesis based on Anvukta business operations services; this target segment is unvalidated.',observedAt}};
   expect(await read('brief',{expected_version:0,brief})).toMatchObject({ok:true,version:1});
   const preview=await read('signal-source',{operation:'preview'});expect(preview.items).toHaveLength(2);expect(preview.sourceId).toBe(source.id);
@@ -116,12 +121,108 @@ it('rehearses Anvukta brief → source discovery → reviewed import → qualifi
   const receipt=await read('product-event',outcome,201);expect(await read('product-event',outcome,201)).toMatchObject({id:receipt.id,delivery:'not_sent'});
   const final=await read('shortlist',{synthetic:true}),group=final.results.find((r:any)=>r.leadId===imported.lead_id).products.find((p:any)=>p.product==='signal');
   expect(group).toMatchObject({outcomeScope:'signal_reference',reference:imported.observation_id,contactAllowed:false});expect(group.outcomes).toHaveLength(1);expect(group.outcomes[0]).toMatchObject({outcome:'accepted',signalId:imported.observation_id,deliveryEstablished:false});
-  expect(await q('select id from contact_rights where tenant_id=$1',[tenant])).toHaveLength(0);
-  expect(await q('select id from outbound_actions where tenant_id=$1',[tenant])).toHaveLength(0);
-  expect(await q('select id from meetings where tenant_id=$1',[tenant])).toHaveLength(0);
-  expect(requests.every(r=>new URL(r.url).origin===env.SUPABASE_URL||r.url===source.url)).toBe(true);
+  // A second client uses the same handlers and SQL through configuration only.
+  // The same contact can belong to distinct client lead records; no evidence is shared.
+  const otherBrief={...brief,offer:'Site safety onboarding for construction teams.',needs:['site safety onboarding'],source:{...brief.source,reference:'northstar-pilot-strategy-v1',excerpt:'Fictional Northstar client-approved pilot hypothesis; no Anvukta business configuration.'}};
+  expect(await read('brief',{expected_version:0,brief:otherBrief},200,otherTenant)).toMatchObject({ok:true,version:1});
+  const otherPreview=await read('signal-source',{operation:'preview'},200,otherTenant);
+  expect(otherPreview).toMatchObject({sourceId:otherSource.id,synthetic:true,contactAllowed:false});expect(otherPreview.items).toHaveLength(1);
+  expect(otherPreview.items[0].id).toBe(items[0].id);expect(otherPreview.items[0].digest).not.toBe(preview.items[0].digest);
+  await read('signal-source',request,409,otherTenant); // Same item ID, wrong client's reviewed digest.
+  expect(await q('select id from leads where tenant_id=$1',[otherTenant])).toHaveLength(0);
+  const otherImport=await read('signal-source',{...request,digest:otherPreview.items[0].digest},200,otherTenant);
+  expect(otherImport).toMatchObject({tenantId:otherTenant,sourceId:otherSource.id,state:'created',delivery:'not_sent'});
+  expect(otherImport.lead_id).not.toBe(imported.lead_id);expect(otherImport.observation_id).not.toBe(imported.observation_id);
+  expect((await q('select email from leads where id=$1',[otherImport.lead_id]))[0].email).toBe(contact);
+  const otherBefore=await read('shortlist',{synthetic:true},200,otherTenant);
+  expect(otherBefore.results).toHaveLength(1);expect(otherBefore.results[0]).toMatchObject({leadId:otherImport.lead_id,state:'unknown',contactAllowed:false});
+  expect(otherBefore.brief.body.offer).toBe(otherBrief.offer);
+  expect(JSON.stringify(otherBefore)).not.toContain(tenant);expect(JSON.stringify(otherBefore)).not.toContain('workflow ownership');
+  await read('prospect-evidence',{...evidence,reference:'foreign-client-evidence'},404,otherTenant);
+  const otherEvidence={...evidence,lead_id:otherImport.lead_id,reference:'cedar-safety-needs-v1',rights_reference:'northstar-synthetic-interview-only',facts:{...evidence.facts,need:'site safety onboarding'},excerpt:'Cedar operates in construction in AE. The COO confirmed a site safety onboarding need.'};
+  const otherFact=await read('prospect-evidence',otherEvidence,201,otherTenant);
+  const otherQualified=await read('shortlist',{synthetic:true},200,otherTenant);
+  expect(otherQualified.results[0]).toMatchObject({leadId:otherImport.lead_id,state:'candidate',fitPoints:90,score:null,contactAllowed:false});
+  expect(otherQualified.results[0].fields.find((f:any)=>f.field==='need')).toMatchObject({values:['site safety onboarding'],evidence:[{id:otherFact.id}]});
+  // The same Worker handler prepares both clients from actual SQL, without save authority.
+  const proposalRequest=(leadId:string,signalId:string)=>({operation:'signal-proposal',body:{leadId,signalId,synthetic:true}});
+  await read('campaigns',proposalRequest(imported.lead_id,imported.observation_id),409);
+  await seedReviveSetup(db,tenant,actor,{senderName:'Anvukta reviewer',relationshipSummary:{text:'No prior relationship is known.',reference:'cold-pilot'}});
+  await seedReviveSetup(db,otherTenant,actor,{senderName:'Northstar reviewer',relationshipSummary:{text:'No prior relationship is known.',reference:'cold-pilot'}});
+  const effectCounts=()=>q('select (select count(*) from campaigns) campaigns,(select count(*) from campaign_assets) assets,(select count(*) from outbound_actions) actions,(select count(*) from contact_rights) rights,(select count(*) from meetings) meetings');
+  const beforePreparation=await effectCounts();
+  const prepared=await read('campaigns',proposalRequest(imported.lead_id,imported.observation_id));
+  const otherPrepared=await read('campaigns',proposalRequest(otherImport.lead_id,otherImport.observation_id),200,otherTenant);
+  expect(prepared).toMatchObject({delivery:'not_sent',contactAllowed:false,proposal:{tenantId:tenant,leadId:imported.lead_id,recipient:contact,reviewRequired:true,persisted:false,strategy:{canonicalNeed:'workflow ownership'},sender:{name:'Anvukta reviewer'}}});
+  expect(otherPrepared).toMatchObject({delivery:'not_sent',contactAllowed:false,proposal:{tenantId:otherTenant,leadId:otherImport.lead_id,recipient:contact,strategy:{canonicalNeed:'site safety onboarding'},sender:{name:'Northstar reviewer'}}});
+  expect(JSON.stringify(prepared)).not.toContain('Northstar');expect(JSON.stringify(otherPrepared)).not.toContain('workflow ownership');
+  expect(prepared.proposal.claimSources.canonicalNeed).toEqual([fact.id]);expect(otherPrepared.proposal.claimSources.canonicalNeed).toEqual([otherFact.id]);
+  await read('campaigns',proposalRequest(imported.lead_id,imported.observation_id),404,otherTenant);
+  await read('campaigns',proposalRequest(otherImport.lead_id,imported.observation_id),409,otherTenant);
+  await read('campaigns',{operation:'signal-proposal',body:{leadId:imported.lead_id,signalId:imported.observation_id,synthetic:false}},409);
+  expect(await effectCounts()).toEqual(beforePreparation);
+  const otherCampaign=crypto.randomUUID(),otherBody={...body,steps:[{offsetHours:0,subject:'Cedar: site safety onboarding',body:'Northstar Safety proposes a review of the site safety onboarding need in the reviewed interview. Fictional draft only.',evidenceReference:otherEvidence.reference}]};
+  expect(await read('campaigns',{operation:'save',campaign_id:otherCampaign,version:0,body:otherBody},200,otherTenant)).toMatchObject({ok:true,id:otherCampaign,status:'draft',delivery:'not_sent'});
+  const firstAsset=(await q('select steps from campaign_assets where tenant_id=$1 and campaign_id=$2',[tenant,campaign]))[0];
+  await read('campaigns',{operation:'save',campaign_id:campaign,version:1,body:otherBody},400,otherTenant); // SQL rejects a foreign existing campaign as invalid scope.
+  expect((await q('select steps from campaign_assets where tenant_id=$1 and campaign_id=$2',[tenant,campaign]))[0]).toEqual(firstAsset);
+  await read('campaigns',{operation:'queue',campaign_id:campaign,version:1,body:{leadId:otherImport.lead_id,startAt:new Date(Date.now()+3600000).toISOString()}},404,otherTenant);
+  await read('campaigns',{operation:'queue',campaign_id:otherCampaign,version:1,body:{leadId:otherImport.lead_id,startAt:new Date(Date.now()+3600000).toISOString()}},409,otherTenant);
+  await read('product-event',{...outcome,lead_id:otherImport.lead_id},409,otherTenant);
+  const otherOutcome={...outcome,lead_id:otherImport.lead_id,reference:'northstar-signal-review-v1',rights_reference:'northstar-synthetic-review',context:{...outcome.context,reason:'Northstar reviewed its own site safety onboarding evidence.',signalId:otherImport.observation_id}};
+  const otherReceipt=await read('product-event',otherOutcome,201,otherTenant);
+  expect(await read('product-event',otherOutcome,201,otherTenant)).toMatchObject({id:otherReceipt.id,delivery:'not_sent'});
+  const otherFinal=await read('shortlist',{synthetic:true},200,otherTenant),otherGroup=otherFinal.results[0].products.find((p:any)=>p.product==='signal');
+  expect(otherGroup.outcomes).toHaveLength(1);expect(otherGroup.outcomes[0]).toMatchObject({signalId:otherImport.observation_id,deliveryEstablished:false});
+  const unchanged=await read('shortlist',{synthetic:true});
+  expect(unchanged.brief.body).toEqual(brief);expect(unchanged.results).toHaveLength(2);
+  expect(JSON.stringify(unchanged)).not.toContain(otherTenant);expect(JSON.stringify(unchanged)).not.toContain('site safety onboarding');
+  expect(unchanged.results.find((r:any)=>r.leadId===imported.lead_id).products.find((p:any)=>p.product==='signal').outcomes).toEqual(group.outcomes);
+  // Ordinary replies hold only this tenant. Existing objections additionally create a
+  // conservative platform email stop; preserve that safety policy without sharing history.
+  const reply={...otherOutcome,reference:'northstar-reply-v1',excerpt:'Fictional prospect asks a question about the onboarding review.',context:{product:'response',kind:'reply',threadRef:'northstar-thread',disposition:'human',need:'site safety onboarding',authority:'',timing:''}};
+  await read('product-event',reply,201,otherTenant);
+  await read('campaigns',proposalRequest(otherImport.lead_id,otherImport.observation_id),409,otherTenant);
+  const replied=await read('shortlist',{synthetic:true},200,otherTenant);
+  expect(replied.results[0].products.find((p:any)=>p.product==='signal').state).toBe('reply_hold');
+  expect((await read('shortlist',{synthetic:true})).results.find((r:any)=>r.leadId===imported.lead_id).products.find((p:any)=>p.product==='signal').state).toBe('prioritise_review');
+  await read('product-event',{...reply,reference:'northstar-unsubscribe-v1',excerpt:'Fictional prospect requests no further contact from Northstar.',context:{...reply.context,disposition:'opt_out'}},201,otherTenant);
+  const stopped=await read('shortlist',{synthetic:true},200,otherTenant);
+  expect(stopped.results[0]).toMatchObject({state:'excluded',contactAllowed:false});expect(stopped.results[0].reasons).toContain('suppressed');
+  await read('campaigns',proposalRequest(imported.lead_id,imported.observation_id),409);
+  const globallyStopped=await read('shortlist',{synthetic:true});
+  expect(globallyStopped.results.find((r:any)=>r.leadId===imported.lead_id)).toMatchObject({state:'excluded',contactAllowed:false});
+  expect(globallyStopped.results.find((r:any)=>r.leadId===imported.lead_id).reasons).toContain('suppressed');
+  expect(JSON.stringify(globallyStopped)).not.toContain(otherTenant);expect(JSON.stringify(globallyStopped)).not.toContain('northstar-thread');
+  expect(JSON.stringify(globallyStopped)).not.toContain('site safety onboarding');
+  expect(await q('select lead_id from lead_suppression where tenant_id=$1',[tenant])).toHaveLength(0);
+  expect(await q('select lead_id from lead_suppression where tenant_id=$1',[otherTenant])).toEqual([{lead_id:otherImport.lead_id}]);
+  expect(await q('select email from suppression where email=$1',[contact])).toEqual([{email:contact}]);
+  for(const client of [tenant,otherTenant]){
+   expect(await q('select id from contact_rights where tenant_id=$1',[client])).toHaveLength(0);
+   expect(await q('select id from outbound_actions where tenant_id=$1',[client])).toHaveLength(0);
+   expect(await q('select id from meetings where tenant_id=$1',[client])).toHaveLength(0);
+  }
+  expect(requests.every(r=>new URL(r.url).origin===env.SUPABASE_URL||[source.url,otherSource.url].includes(r.url))).toBe(true);
  }finally{await db.close();}
 },20000);
+
+it('isolates two clients read-only Google bindings and never falls back to platform credentials',()=>{
+ const expiresAt=new Date(Date.now()+86400000).toISOString();
+ const a={id:'00000000-0000-4000-8000-000000000101',tenantId:'00000000-0000-4000-8000-000000000102',mailbox:'anvukta@example.invalid',calendarId:'anvukta-calendar@example.invalid',purposeReference:'anvukta-read-only-fixture',expiresAt,enabled:true,clientId:'a-client',clientSecret:'a-secret',refreshToken:'a-refresh'};
+ const b={...a,id:'00000000-0000-4000-8000-000000000103',tenantId:'00000000-0000-4000-8000-000000000104',mailbox:'northstar@example.invalid',calendarId:'northstar-calendar@example.invalid',purposeReference:'northstar-read-only-fixture',clientId:'b-client',clientSecret:'b-secret',refreshToken:'b-refresh'};
+ const env={...providerEnv(),GOOGLE_TENANT_CONNECTIONS:JSON.stringify([a,b])} as Env;
+ const first=tenantGoogleConnection(env,a.tenantId)!,second=tenantGoogleConnection(env,b.tenantId)!;
+ expect(first.connection).toEqual(a);expect(second.connection).toEqual(b);expect(first.provider).not.toBe(second.provider);
+ expect(first.provider).toMatchObject({GOOGLE_CLIENT_ID:a.clientId,GOOGLE_CLIENT_SECRET:a.clientSecret,GOOGLE_REFRESH_TOKEN:a.refreshToken,GOOGLE_CALENDAR_ID:a.calendarId});
+ expect(second.provider).toMatchObject({GOOGLE_CLIENT_ID:b.clientId,GOOGLE_CLIENT_SECRET:b.clientSecret,GOOGLE_REFRESH_TOKEN:b.refreshToken,GOOGLE_CALENDAR_ID:b.calendarId});
+ expect(tenantGoogleConnection(env,'00000000-0000-4000-8000-000000000105')).toBeNull();
+ env.GOOGLE_TENANT_CONNECTIONS=JSON.stringify([a,{...b,enabled:false}]);
+ expect(tenantGoogleConnection(env,b.tenantId)).toBeNull();expect(tenantGoogleConnection(env,a.tenantId)!.connection).toEqual(a);
+ env.GOOGLE_TENANT_CONNECTIONS=JSON.stringify([a,{...b,expiresAt:new Date(Date.now()-1000).toISOString()}]);
+ expect(tenantGoogleConnection(env,b.tenantId)).toBeNull();
+ expect(()=>tenantGoogleConnection({...env,GOOGLE_TENANT_CONNECTIONS:JSON.stringify([a,{...b,calendarId:a.calendarId}])},b.tenantId)).toThrow('Invalid tenant connection configuration');
+});
 
 /** Exact provider allowlist. A request escaping these intercepted paths fails the test. */
 function providers(handler:(u:URL,init:RequestInit)=>Response|Promise<Response>,tokenStatus=200){

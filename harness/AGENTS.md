@@ -43,3 +43,14 @@ node harness/evaluate.mjs --require-ready
 node --test scripts/harness.test.mjs
 ```
 The first produces a truthful stage report; `--require-ready` exits nonzero while any stage is unaccepted. It is intentionally impossible for an empty ledger to pass.
+
+## Elephant-Goldfish design review (26 October 2026)
+
+Apply the owner's requested [Elephant-Goldfish method](https://github.com/google/elephant-goldfish-model) within these roles, not as another delivery workflow or tracker.
+
+- CTO acts as the context-rich Elephant for design: preserve decisions in the existing specification, including exact interfaces, files, non-goals, failure states and acceptance. Keep design separate from implementation.
+- Use fresh reviewers with no inherited conversation (`fork_turns: none` where supported). Give the comprehension reviewer only the written specification; give adversarial/readiness reviewers that specification and relevant source. Repository safety instructions always apply. Fresh context reduces shared assumptions; it does not guarantee independent reasoning.
+- Comprehension checks whether intent can be reconstructed from the document. Adversarial review identifies concrete incompatibilities, unsafe transitions and hidden dependencies. Readiness checks whether an engineer can implement the bounded increment without inventing material contracts.
+- Resolve material findings in that same specification before handing off to Development. Routine reversible technical decisions stay with CTO under existing owner authority. Do not add repetitive owner approvals; escalate only uncovered business, cost, access or production decisions.
+- Development implements the reviewed scope. QA independently checks actual behavior and spec drift; PM records findings, corrections, exact test evidence and remaining gaps in DELIVERY. No synthetic evidence promotes live-operation stages.
+- Start with one comprehension and one combined adversarial/readiness review for a bounded feature. After two unsuccessful correction cycles, reassess scope rather than spawning an unbounded review loop. Do not install external plugins or spend money merely to apply this method.

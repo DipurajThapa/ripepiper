@@ -7,6 +7,7 @@ import {proposeReviveDraft,reviveDraftInputError,validDraftSave,validRevivePropo
 import type {ReviveContext} from './revive';
 import {validSetupContext} from './revive-setup';
 import {reviveStrategyError} from './revive-strategy';
+import {prepareSignalProposal} from './signal-strategy';
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const bounded=(v:unknown,n:number):v is string=>typeof v==='string' && !!v.trim() && v.length<=n;
 function scheduleLocalTimeMatches(step:any,timezone:string):boolean {
@@ -42,6 +43,7 @@ export function planError(b:any):string|null {
 }
 export async function campaignPlans(req:Request,env:Env,tenantId:string){
  const user=await requireUser(req,env,true),b=await readJson(req),db=new Db(env);
+ if(b.operation==='signal-proposal')return prepareSignalProposal(db,tenantId,user.id,b.body);
  const tenant=await db.one<{id:string;name:string}>('tenants',`id=eq.${tenantId}&select=id,name`);
  if(!tenant)return bad('Client not found.',404);
  if(b.operation==='list'){
