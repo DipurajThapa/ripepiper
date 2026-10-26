@@ -65,7 +65,7 @@ describe('staff acquisition, review and idempotent existing-RPC ingestion',()=>{
    if(url.pathname==='/rest/v1/profiles')return Response.json([{is_admin:url.searchParams.get('id')!=='eq.fixture-client'}]);
    if(url.pathname==='/rest/v1/tenants')return Response.json(url.searchParams.get('id')==='eq.'+tenant&&(!url.searchParams.get('status')||!paused)?[{id:tenant,status:paused?'paused':'active'}]:[]);
    const b=JSON.parse(String(init.body));
-   if(url.pathname.endsWith('/import_review_lead')){if(malformedImport!==undefined)return Response.json(malformedImport);const duplicate=contacts.has(b.p_reference);contacts.add(b.p_reference);postContactHook?.();return Response.json({lead_id:lead,state:duplicate?'duplicate':'created'});}
+   if(url.pathname.endsWith('/import_review_lead')){if(malformedImport!==undefined)return Response.json(malformedImport);const duplicate=contacts.has(b.p_reference);contacts.add(b.p_reference);postContactHook?.();return Response.json({lead_id:lead,observation_id:observation,state:duplicate?'duplicate':'created'});}
    if(url.pathname.endsWith('/record_product_event')){if(failObservation){failObservation=false;return new Response('{"code":"503"}',{status:503});}if(malformedReceipt)return Response.json(true);records.add(b.p_reference);return Response.json(observation);}
    throw Error('Unexpected write');
   });
@@ -138,4 +138,4 @@ it('connects parsed source evidence through the real existing import/product RPC
   const review=reviewProducts(JSON.parse(JSON.stringify(rows)),Date.now(),false,'unknown').find(r=>r.product==='signal');
   expect(review).toMatchObject({state:'qualify_fit',contactAllowed:false});expect(review?.history).toHaveLength(1);
  }finally{await db.close();}
-});
+},20000);

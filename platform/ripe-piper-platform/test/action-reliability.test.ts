@@ -16,29 +16,33 @@ async function fixture(){
  const tenant=(await query(`insert into tenants(name,slug,country,currency,status) values('Fixture',$1,'AE','AED','active') returning id`,[crypto.randomUUID()]))[0].id;
  const lead=(await query(`insert into leads(tenant_id,source,email) values($1,'import',$2) returning id`,[tenant,crypto.randomUUID()+'@example.invalid']))[0].id;
  // This is an accepted Revive cohort, not a bypass of the new cohort fence.
- // Evidence predates the fixed claim clock and remains current at test setup.
- const observed='2026-10-23T00:00:00.000Z';
+ // Derive dates from the local database clock; calendar dates must not expire this fixture.
+ const epoch=Date.parse((await query('select now() value'))[0].value);
+ const at=(offset:number)=>new Date(epoch+offset).toISOString();
+ const observed=at(-86400000),reviewed=at(-60000),expiry=at(7*86400000);
  const brief={offer:'Reviewed reactivation service',industries:['construction'],markets:['AE'],roles:['owner'],needs:['dormant leads'],excludedIndustries:[],maxAgeDays:30,
   source:{reference:'fixture-brief',excerpt:'Reviewed construction offer for AE owner with dormant leads',observedAt:observed}};
  await query(`insert into business_briefs(tenant_id,version,body,created_by)values($1,1,$2,$3)`,[tenant,JSON.stringify(brief),admin]);
  const source=(await query(`insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,synthetic,rights_reference,assessment_facts,assessment_excerpt,assessment_reviewed_by,product_context)
   values($1,$2,'fixture','fixture',$3,'appointment',true,'fixture reviewed source rights',$4,'construction AE owner dormant leads',$5,$6) returning id`,[tenant,lead,observed,
   JSON.stringify({industry:'construction',market:'AE',role:'owner',need:'dormant leads'}),admin,
-  JSON.stringify({product:'revive',kind:'history',lastContactAt:'2026-08-01T00:00:00Z',previousInterest:'yes',stalledReason:'Project deferred until autumn'})]))[0].id;
- await rpc('review_revive_candidate',[tenant,lead,admin,0,(await query('select revive_input_snapshot($1,$2) value',[tenant,lead]))[0].value,1,'accepted','Reviewed evidence supports the reactivation cohort','2026-10-25T00:00:00Z']);
- // Database-owner fixture clock: ensure acceptance precedes fixed claim time.
- await query(`update revive_reviews set reviewed_at='2026-10-23T11:00:00Z' where tenant_id=$1 and lead_id=$2`,[tenant,lead]);
+  JSON.stringify({product:'revive',kind:'history',lastContactAt:at(-60*86400000),previousInterest:'yes',stalledReason:'Project deferred until autumn'})]))[0].id;
+ await rpc('review_revive_candidate',[tenant,lead,admin,0,(await query('select revive_input_snapshot($1,$2) value',[tenant,lead]))[0].value,1,'accepted','Reviewed evidence supports the reactivation cohort',expiry]);
+ // Backdate this fixture's review while preserving its server-built scope and snapshot.
+ await query(`update revive_reviews set reviewed_at=$3 where tenant_id=$1 and lead_id=$2`,[tenant,lead,reviewed]);
  await query(`insert into contact_rights(tenant_id,lead_id,source_id,purpose,channel,market,decision,reviewer_id,notice_reference) values($1,$2,$3,'appointment','email','AE','permitted',$4,'fixture-only')`,[tenant,lead,source,admin]);
  const setup=await seedReviveSetup(db,tenant,admin);
- const campaign=(await query(`insert into campaigns(tenant_id,capability,operator_id,purpose,channel,market,timezone,status,client_authority_ref,owner_authority_ref,cts_profile_ref,expires_at,max_actions) values($1,'revive',$2,'appointment','email','AE','UTC','approved','fixture-client','fixture-owner','fixture-cts','2026-11-20T00:00:00Z',10) returning id`,[tenant,admin]))[0].id;
+ const campaign=(await query(`insert into campaigns(tenant_id,capability,operator_id,purpose,channel,market,timezone,status,client_authority_ref,owner_authority_ref,cts_profile_ref,expires_at,max_actions) values($1,'revive',$2,'appointment','email','AE','UTC','approved','fixture-client','fixture-owner','fixture-cts',$3,10) returning id`,[tenant,admin,expiry]))[0].id;
  const audience=await rpc('build_revive_audience',[tenant,admin,{leadIds:[lead],confirmed:true}]);
- // Match the existing fixture clock; the server-built membership and snapshot stay intact.
+ // Keep the server-built membership and snapshot intact.
  const strategy=await rpc('build_revive_strategy',[tenant,admin,setup.strategy,audience]);
- strategy.reviewedAt='2026-10-23T11:00:00Z';
- audience.reviewedAt='2026-10-23T11:00:00Z';
+ strategy.reviewedAt=reviewed;
+ audience.reviewedAt=reviewed;
  await query(`insert into campaign_assets(tenant_id,campaign_id,version,brief_version,steps,created_by,approved_by,revive_audience,revive_strategy) values($1,$2,1,1,'[{"subject":"Fixture","body":"Synthetic message","offsetHours":0,"evidenceReference":"fixture"}]',$3,$3,$4,$5)`,[tenant,campaign,admin,audience,strategy]);
+ const now=new Date(Date.parse((await query('select now() value'))[0].value)+1000).toISOString();
+ const later=new Date(Date.parse(now)+180000).toISOString();
  const id=(await query(`insert into outbound_actions(tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at) values($1,$2,$3,'fixture-action',1,1,$4) returning id`,[tenant,campaign,lead,now]))[0].id;
- return {tenant,lead,campaign,id,token:crypto.randomUUID()};
+ return {tenant,lead,campaign,id,token:crypto.randomUUID(),now,later};
 }
 beforeAll(async()=>{
  db=new PGlite({extensions:{btree_gist}});
@@ -50,7 +54,7 @@ beforeAll(async()=>{
 afterAll(async()=>{await db.close();});
 describe('existing ledger fenced sink acknowledgement',()=>{
  it('claims once, fences old callers/wrong tokens/versions/tenants, and persists one replayable sink receipt',async()=>{
-  const f=await fixture();
+  const f=await fixture(),{now,later}=f;
   expect(await rpc('claim_fenced_synthetic_action',[f.tenant,f.id,f.token,now])).toMatchObject({token:f.token,approvalVersion:1,assetVersion:1});
   expect(await rpc('claim_fenced_synthetic_action',[f.tenant,f.id,crypto.randomUUID(),now])).toBeNull();
   expect(await rpc('complete_synthetic_action',[f.id,now])).toBe(false);
@@ -64,17 +68,17 @@ describe('existing ledger fenced sink acknowledgement',()=>{
   expect(await rpc('expire_fenced_synthetic_action',[f.tenant,f.id,f.token,later])).toBe(false);
  });
  it.each(['pause','suppression','approval','rights','reply'])('rechecks %s immediately before acknowledging',async change=>{
-  const f=await fixture();await rpc('claim_fenced_synthetic_action',[f.tenant,f.id,f.token,now]);
+  const f=await fixture(),{now,later}=f;await rpc('claim_fenced_synthetic_action',[f.tenant,f.id,f.token,now]);
   if(change==='pause')await query("update tenants set status='paused' where id=$1",[f.tenant]);
   if(change==='suppression')await query("insert into lead_suppression(tenant_id,lead_id,reason) values($1,$2,'fixture')",[f.tenant,f.lead]);
   if(change==='approval')await query('update campaigns set approval_version=2 where id=$1',[f.campaign]);
   if(change==='rights')await query('update contact_rights set withdrawn_at=now() where lead_id=$1',[f.lead]);
-  if(change==='reply')await rpc('record_product_event',[f.tenant,f.lead,admin,'reply-fixture','fixture-rights','Fixture reply','2026-10-22T00:00:00Z',true,{product:'response',kind:'reply',threadRef:'fixture',disposition:'human',need:'',authority:'',timing:''}]);
+  if(change==='reply')await rpc('record_product_event',[f.tenant,f.lead,admin,'reply-fixture','fixture-rights','Fixture reply',new Date(Date.parse(now)-86400000).toISOString(),true,{product:'response',kind:'reply',threadRef:'fixture',disposition:'human',need:'',authority:'',timing:''}]);
   expect(await rpc('complete_fenced_synthetic_action',[f.tenant,f.id,f.token,1,1,now])).toBe(false);
   expect((await query('select acknowledged_at from outbound_actions where id=$1',[f.id]))[0].acknowledged_at).toBeNull();
  });
  it('routes ambiguous or expired results to review, pauses campaign and never requeues',async()=>{
-  const f=await fixture();await rpc('claim_fenced_synthetic_action',[f.tenant,f.id,f.token,now]);
+  const f=await fixture(),{now,later}=f;await rpc('claim_fenced_synthetic_action',[f.tenant,f.id,f.token,now]);
   expect(await rpc('complete_fenced_synthetic_action',[f.tenant,f.id,f.token,1,1,later])).toBe(false);
   expect(await rpc('expire_fenced_synthetic_action',[crypto.randomUUID(),f.id,f.token,later])).toBe(false);
   expect(await rpc('expire_fenced_synthetic_action',[f.tenant,f.id,crypto.randomUUID(),later])).toBe(false);
@@ -85,7 +89,7 @@ describe('existing ledger fenced sink acknowledgement',()=>{
   expect((await query('select status from campaigns where id=$1',[f.campaign]))[0].status).toBe('paused');
  });
  it('serializes simultaneous claims and denies non-service direct execution',async()=>{
-  const f=await fixture();await db.exec('set role service_role');
+  const f=await fixture(),{now,later}=f;await db.exec('set role service_role');
   try{const replies=await Promise.all([crypto.randomUUID(),crypto.randomUUID()].map(token=>query('select claim_fenced_synthetic_action($1,$2,$3,$4) value',[f.tenant,f.id,token,now])));expect(replies.filter(r=>r[0].value)).toHaveLength(1);}finally{await db.exec('reset role');}
   await db.exec('set role authenticated');
   try{await expect(query('select complete_fenced_synthetic_action($1,$2,$3,1,1,$4)',[f.tenant,f.id,f.token,now])).rejects.toThrow();}finally{await db.exec('reset role');}

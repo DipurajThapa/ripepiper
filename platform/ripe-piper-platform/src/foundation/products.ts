@@ -10,7 +10,7 @@ export type ProductContext =
  | {product:'response';kind:'enquiry'|'reply';threadRef:string;disposition:typeof DISPOSITIONS[number];need:string;authority:string;timing:string;nextContactAt?:string}
  | {product:'response';kind:'conversation_review';threadRef:string;ownerId:string;ownerLabel:string;version:number;inboundSnapshot:string;state:'open'|'resolved';reason:string}
  | {product:'events';kind:'registration'|'attendance';eventRef:string;endsAt:string;timezone:string;attendance:'unknown'|'attended'|'verified_no_show';rosterComplete:boolean}
- | {product:Product;kind:'outcome';outcome:typeof OUTCOMES[number];reason:string;threadRef?:string;eventRef?:string;campaignId?:string;actionId?:string};
+ | {product:Product;kind:'outcome';outcome:typeof OUTCOMES[number];reason:string;threadRef?:string;eventRef?:string;campaignId?:string;actionId?:string;signalId?:string};
 const text=(v:unknown,n=500):v is string=>typeof v==='string' && !!v.trim() && v.length<=n;
 const answer=(v:unknown):v is string=>typeof v==='string' && v.length<=500;
 const uuid=(v:unknown):v is string=>typeof v==='string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
@@ -18,6 +18,8 @@ export function productError(v:any,observedAt:string,now:number,requireOutcomeSc
  if(!v || !PRODUCTS.includes(v.product) || !validDate(observedAt,now)) return 'Choose a product and a valid observation time.';
  if(v.kind==='outcome') {
    if(!OUTCOMES.includes(v.outcome) || !text(v.reason)) return 'Choose an outcome and record its evidence-based reason.';
+   if(v.signalId!==undefined && (v.product!=='signal' || !uuid(v.signalId))) return 'Link a Signal outcome to its reviewed trigger ID.';
+   if(requireOutcomeScope && v.product==='signal' && !uuid(v.signalId)) return 'Choose the existing Signal trigger for this outcome.';
    if(v.threadRef!==undefined && (v.product!=='response' || !text(v.threadRef,240))) return 'Use a valid conversation reference only for Response.';
    if(v.eventRef!==undefined && (v.product!=='events' || !text(v.eventRef,240))) return 'Use a valid event reference only for Events.';
    if((v.campaignId!==undefined || v.actionId!==undefined) && (v.product!=='revive' || !uuid(v.campaignId) || !uuid(v.actionId))) return 'Link a Revive outcome using both its campaign and action IDs, or leave both blank for an unattributed decision.';
@@ -50,16 +52,33 @@ export function reviewProducts(observations:Observation[],now:number,suppressed:
   .sort((a,b)=>Date.parse(b.observed_at)-Date.parse(a.observed_at) || a.id.localeCompare(b.id));
  const replies=source.filter(o=>o.product_context?.product==='response' && ['reply','enquiry'].includes(o.product_context.kind));
  const stopped=suppressed || replies.some(o=>(o.product_context as any).disposition==='opt_out');
+ const triggers=new Map(source.filter(o=>o.product_context?.product==='signal' && o.product_context.kind==='trigger').map(o=>[o.id.toLowerCase(),o]));
+ const keys=new Map<Observation,string>();
+ for(const o of source){
+   keys.set(o,(()=>{
+   const c=o.product_context!;
+   if(c.product==='signal'){
+     if(c.kind==='trigger')return o.id.toLowerCase();
+     if(c.kind==='outcome' && c.signalId){
+       const trigger=triggers.get(c.signalId.toLowerCase());
+       return trigger && trigger.tenant_id===o.tenant_id && trigger.lead_id===o.lead_id && trigger.synthetic===o.synthetic && Date.parse(trigger.observed_at)<=Date.parse(o.observed_at)?trigger.id.toLowerCase():'';
+     }
+     return '';
+   }
+   return ('threadRef' in c?c.threadRef:'eventRef' in c?c.eventRef:'')??'';
+   })());
+ }
+ const keyOf=(o:Observation)=>keys.get(o)??'';
  const work = PRODUCTS.flatMap(product=>{
-   const keys=[...new Set(source.filter(o=>o.product_context!.product===product).map(o=>{const c=o.product_context!;return 'threadRef' in c?c.threadRef:'eventRef' in c?c.eventRef:'';}))];
+   const keys=[...new Set(source.filter(o=>o.product_context!.product===product).map(keyOf))];
    return (keys.length?keys:['']).map(key=>({product,key}));
  });
  return work.map(({product,key})=>{
-   const history=source.filter(o=>{const c=o.product_context!;return c.product===product && (('threadRef' in c?c.threadRef:'eventRef' in c?c.eventRef:'')===key);});
+   const history=source.filter(o=>{const c=o.product_context!;return c.product===product && keyOf(o)===key;});
    const latest=history.find(o=>!['outcome','conversation_review'].includes(o.product_context!.kind));
    const context=latest?.product_context;
    let state='needs_evidence', nextAction='Record reviewed source evidence.', dueAt:string|null=null;
-   let question:string|null=null;
+   let question:string|null=null,validUntil:string|null=null;
    const missing:string[]=[];
    if(context?.kind==='history') {
      const age=(now-Date.parse(context.lastContactAt))/86400000;
@@ -68,9 +87,10 @@ export function reviewProducts(observations:Observation[],now:number,suppressed:
      question='Is this still a priority, or should we close the loop?';
    }
    if(context?.kind==='trigger') {
-     state=Date.parse(context.expiresAt)<=now?'stale':fitState==='candidate'?'prioritise_review':'qualify_fit';
-     nextAction=state==='stale'?'Refresh the source before using this signal.':'Validate whether the observed change creates a relevant need; intent remains unknown.';
-     question='Does this change create a problem your team is currently trying to solve?';
+     validUntil=new Date(Math.min(Date.parse(context.expiresAt),Date.parse(latest!.observed_at)+30*86400000)).toISOString();
+     state=Date.parse(validUntil)<=now?'stale':fitState==='excluded'?'excluded':fitState==='candidate'?'prioritise_review':'qualify_fit';
+     nextAction=state==='stale'?'Refresh the source before using this signal.':state==='excluded'?'This contact is outside the current business brief. Review the exclusion before proceeding.':'Validate whether the observed change creates a relevant need; intent remains unknown.';
+     question=state==='stale'||state==='excluded'?null:'Does this change create a problem your team is currently trying to solve?';
    }
    if(context && (context.kind==='reply'||context.kind==='enquiry')) {
      state=context.disposition;
@@ -115,11 +135,11 @@ export function reviewProducts(observations:Observation[],now:number,suppressed:
    if(stopped) {state='suppressed';nextAction='No marketing follow-up. Route any service request to staff.';question=null;dueAt=null;}
    const outcomes=history.filter(o=>o.product_context?.kind==='outcome').map(o=>{
      const c=o.product_context as Extract<ProductContext,{kind:'outcome'}>;
-     return {at:o.observed_at,...c,...(product==='revive'?{attributionScope:c.campaignId&&c.actionId?(o.synthetic?'synthetic_action':'action_reference'):'unattributed',synthetic:o.synthetic,deliveryEstablished:false}:{} )};
+     return {at:o.observed_at,...c,...(product==='signal'?{attributionScope:key?'signal_reference':'unattributed',synthetic:o.synthetic,deliveryEstablished:false}:{}),...(product==='revive'?{attributionScope:c.campaignId&&c.actionId?(o.synthetic?'synthetic_action':'action_reference'):'unattributed',synthetic:o.synthetic,deliveryEstablished:false}:{} )};
    });
    const reviveScopes=[...new Set(outcomes.map(o=>('attributionScope' in o?o.attributionScope:null)))];
-   return {product,reference:key || null,conversation,state,nextAction,question,missing,dueAt,overdue:dueAt!==null && Date.parse(dueAt)<now,
-     contactAllowed:false,bookingAvailable:false,outcomeScope:product==='revive'?(reviveScopes.length>1?'mixed':reviveScopes[0]??null):(product==='response'||product==='events') && !key?(outcomes.length?'unattributed':null):'product_reference',history:history.map(o=>({id:o.id,reference:o.external_ref,observedAt:o.observed_at,excerpt:o.assessment_excerpt,context:o.product_context,briefVersion:o.brief_version ?? null})),
+   return {product,reference:key || null,validUntil,conversation,state,nextAction,question,missing,dueAt,overdue:dueAt!==null && Date.parse(dueAt)<now,
+     contactAllowed:false,bookingAvailable:false,outcomeScope:product==='signal'?(key?'signal_reference':outcomes.length?'unattributed':null):product==='revive'?(reviveScopes.length>1?'mixed':reviveScopes[0]??null):(product==='response'||product==='events') && !key?(outcomes.length?'unattributed':null):'product_reference',history:history.map(o=>({id:o.id,reference:o.external_ref,observedAt:o.observed_at,excerpt:o.assessment_excerpt,context:o.product_context,briefVersion:o.brief_version ?? null})),
      outcomes};
  });
 }

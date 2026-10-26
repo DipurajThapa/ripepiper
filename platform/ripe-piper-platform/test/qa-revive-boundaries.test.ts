@@ -12,14 +12,15 @@ const env={SUPABASE_URL:'https://qa-revive.invalid',SUPABASE_SERVICE_ROLE_KEY:'s
 let db:PGlite;
 const q=async(sql:string,args:any[]=[]) => (await db.query<any>(sql,args)).rows;
 async function rpc(name:string,args:any[]){await db.exec('set role service_role');try{return (await q(`select public.${name}(${args.map((_,i)=>'$'+(i+1)).join(',')}) value`,args))[0].value;}finally{await db.exec('reset role');}}
-beforeAll(async()=>{
+async function initializeDatabase(includeEgm=true){
  db=new PGlite({extensions:{btree_gist}});
  await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;create schema auth;create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,raw_user_meta_data jsonb default '{}');create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.sub',true),'')::uuid$$;grant usage on schema auth to anon,authenticated;grant execute on function auth.uid() to anon,authenticated;`);
  const directory=new URL('../supabase/migrations/',import.meta.url);
- for(const file of readdirSync(directory).filter(f=>f.endsWith('.sql')).sort())await db.exec(readFileSync(new URL(file,directory),'utf8'));
+ for(const file of readdirSync(directory).filter(f=>f.endsWith('.sql')&&(includeEgm||f!=='20261026041450_revive_egm_execution_guards.sql')).sort())await db.exec(readFileSync(new URL(file,directory),'utf8'));
  await q(`insert into auth.users(id,email,email_confirmed_at) values($1,'qa-staff@example.invalid',now()),($2,'qa-viewer@example.invalid',now())`,[actor,viewer]);
  await q('update profiles set is_admin=true where id=$1',[actor]);
-},30000);
+}
+beforeAll(async()=>initializeDatabase(),30000);
 afterAll(async()=>db?.close());afterEach(()=>vi.restoreAllMocks());
 
 async function fixture(){
@@ -77,12 +78,21 @@ it('rejects a cohort expiry exactly at claim time and never grants contact permi
  expect(await rpc('claim_fenced_synthetic_action',[f.tenant,id,crypto.randomUUID(),at])).toBeNull();
 });
 it('blocks historical Revive action rows that have no cohort fence, while preserving another product',async()=>{
+ // Seed genuine pre-migration history, then apply the current guard without disabling it.
+ const currentDb=db;
+ try{
+ await initializeDatabase(false);
  const f=await fixture();await accept(f);const c=await campaign(f);const id=(await queue(f,c)).actionIds[0];
  await q('update outbound_actions set revive_review_version=null,revive_review_snapshot=null where id=$1',[id]);
+ await db.exec(readFileSync(new URL('../supabase/migrations/20261026041450_revive_egm_execution_guards.sql',import.meta.url),'utf8'));
  const at=await afterDue(id);expect(await rpc('synthetic_action_allowed',[id,at])).toBe(false);
  await q(`update campaigns set capability='signal' where id=$1`,[c]);
+ expect(await rpc('synthetic_action_allowed',[id,at])).toBe(false);
+ // Signal now has its own qualification hold; Events remains the non-Revive control.
+ await q(`update campaigns set capability='events' where id=$1`,[c]);
  expect(await rpc('synthetic_action_allowed',[id,at])).toBe(true);
-});
+ }finally{await db.close();db=currentDb;}
+},30000);
 it('rejects cross-tenant cohort RPC identity rather than borrowing the other tenant review',async()=>{
  const f=await fixture(),foreign=await fixture();await accept(f);
  expect(await rpc('revive_review_context',[foreign.tenant,f.lead,actor])).toBeNull();

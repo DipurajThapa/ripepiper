@@ -14,6 +14,8 @@ export interface Env {
   MAIL_FROM: string;                  // e.g. "Ripe Piper <hello@ripepiper.com>"
   ADMIN_ALERT_EMAIL: string;
 
+  SIGNAL_DISCOVERY_SOURCES?: string; // server-only reviewed company boards and normalized business feeds
+  SIGNAL_DISCOVERY_FEED_HOSTS?: string; // server-only exact public hostname allowlist
   SIGNAL_SOURCE_CONNECTIONS?: string; // server-only approved JSON feeds; no caller-supplied URLs or sending authority
   GOOGLE_TENANT_CONNECTIONS?: string; // server-secret JSON; explicit read-only pilot bindings, never exposed to browser
 

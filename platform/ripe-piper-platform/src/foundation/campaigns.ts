@@ -7,6 +7,7 @@ import {proposeReviveDraft,reviveDraftInputError,validDraftSave,validRevivePropo
 import type {ReviveContext} from './revive';
 import {validSetupContext} from './revive-setup';
 import {reviveStrategyError} from './revive-strategy';
+import {prepareSignalProposal,signalStrategyForSave,SignalProposalError} from './signal-strategy';
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const bounded=(v:unknown,n:number):v is string=>typeof v==='string' && !!v.trim() && v.length<=n;
 function scheduleLocalTimeMatches(step:any,timezone:string):boolean {
@@ -42,6 +43,7 @@ export function planError(b:any):string|null {
 }
 export async function campaignPlans(req:Request,env:Env,tenantId:string){
  const user=await requireUser(req,env,true),b=await readJson(req),db=new Db(env);
+ if(b.operation==='signal-proposal')return prepareSignalProposal(db,tenantId,user.id,b.body);
  const tenant=await db.one<{id:string;name:string}>('tenants',`id=eq.${tenantId}&select=id,name`);
  if(!tenant)return bad('Client not found.',404);
  if(b.operation==='list'){
@@ -98,6 +100,10 @@ export async function campaignPlans(req:Request,env:Env,tenantId:string){
  }
  if(b.operation==='save'){
   const error=planError(b.body);if(error)return bad(error);
+  if(b.body.signalStrategy!==undefined){
+   try{b.body.signalStrategy=await signalStrategyForSave(db,tenantId,user.id,b.body);}
+   catch(e){return bad(e instanceof SignalProposalError?e.message:'The Signal sources are unavailable. No strategy was saved.',e instanceof SignalProposalError?e.status:503);}
+  }
   if(b.body?.draftContext!==undefined){
    if(b.body.product!=='revive'||!uuid.test(b.body.draftContext?.leadId??''))return bad('Draft provenance does not match this message plan.',409);
    const context=await db.rpc<ReviveContext>('revive_review_context',{p_tenant:tenantId,p_lead:b.body.draftContext.leadId,p_actor:user.id});
@@ -114,6 +120,10 @@ export async function campaignPlans(req:Request,env:Env,tenantId:string){
  else if(b.operation==='queue'){
   if(env.SYNTHETIC_SINK_ENABLED!=='true')return bad('Synthetic sequence testing is disabled.',403);
   if(!uuid.test(b.body?.leadId??'')||!validInstant(b.body?.startAt))return bad('Select a test lead and a timezone-aware start time.');
+  const target=await db.one<{id:string;capability:string}>('campaigns',`tenant_id=eq.${tenantId}&id=eq.${b.campaign_id}&select=id,capability`);
+  if(!target)return bad('Campaign not found in this account.',404);
+  if(target.id!==b.campaign_id||!PRODUCTS.includes(target.capability as any))return bad('The campaign identity could not be verified. Reload before enrolment.',503);
+  // SQL requires the current bound Signal strategy and exact approval at enrolment.
  }
  else if(b.operation!=='pause')return bad('Unknown campaign operation.');
  try{
@@ -124,6 +134,7 @@ export async function campaignPlans(req:Request,env:Env,tenantId:string){
   return json({ok:true,...ack,delivery:'not_sent'});
  }catch(e){
   if(e instanceof DbError){
+   if(e.body.includes('Current exact Signal binding required'))return bad('Signal execution requires a current saved strategy and exact reviewed approval.',409);
    if(e.body.includes('40001')||e.isConflict)return bad('Campaign changed or this enrolment already exists. Reload before continuing.',409);
    if(e.body.includes('23503'))return bad('Campaign not found in this account.',404);
    if(e.body.includes('22023')||e.body.includes('22007')||e.body.includes('23514'))return bad('Operation blocked. Check the current brief, active account, authority, contact rights, stop status and schedule limits.');

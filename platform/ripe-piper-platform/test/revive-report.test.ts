@@ -61,6 +61,31 @@ describe('read-only Revive evidence aggregation',()=>{
   expect(r.totals.synthetic.contacts).toMatchObject({replyHeld:1,requiresReview:1,claimed:1,testAcknowledged:0});
   data.actions[0].lease_until='2026-10-23T12:00:01Z';expect(buildReviveReport(tenant,data,now).totals.synthetic.contacts.requiresReview).toBe(0);
  });
+ it.each(['unreviewed','malformed','wrong-mode','future','enquiry'])('reports the conservative operational hold for a %s Response record without adding business outcomes',variation=>{
+  const data=linkedFixture(),reply:ReviveReportInput['observations'][number]={...outcome('reply'),product_context:{product:'response',kind:variation==='enquiry'?'enquiry':'reply',threadRef:'fixture-thread',disposition:'interested',need:'Known need',authority:'',timing:''}};
+  if(variation==='unreviewed')reply.assessment_reviewed_by=null;
+  if(variation==='malformed')reply.product_context={product:'response',kind:'reply'};
+  if(variation==='wrong-mode')reply.synthetic=false;
+  if(variation==='future')reply.observed_at='2026-10-24T00:00:00Z';
+  data.observations=[reply,{...outcome('unreviewed-meeting'),assessment_reviewed_by:null}];
+  const r=buildReviveReport(tenant,data,now);
+  expect(r.totals.synthetic.contacts.replyHeld).toBe(1);
+  expect(r.campaigns[0].modes.synthetic.contacts.replyHeld).toBe(1);
+  expect(r.totals.synthetic.outcomeRecords).toBe(0);
+  expect(r.totals.synthetic.outcomes.meeting_held).toBe(0);
+  expect(r.notes.join(' ')).toContain('not verified human replies');
+ });
+ it('counts raw reply holds once for enrolled contacts while excluding foreign, missing and unenrolled contacts',()=>{
+  const data=linkedFixture(),reply={...outcome('reply'),assessment_reviewed_by:null,product_context:{product:'response',kind:'reply'}};
+  data.leads.push({id:'unenrolled',tenant_id:tenant,email:'unrelated@example.invalid'});
+  data.observations=[{...reply,id:'foreign',tenant_id:foreign},{...reply,id:'missing',lead_id:'missing'},{...reply,id:'unenrolled',lead_id:'unenrolled'}];
+  expect(buildReviveReport(tenant,data,now).totals.synthetic.contacts.replyHeld).toBe(0);
+  data.observations.push(reply,{...reply,id:'duplicate-reply'});
+  data.actions.push({...data.actions[0],id:'second-action',provider_ref:'test-sink:second-action'});
+  const r=buildReviveReport(tenant,data,now);
+  expect(r.totals.synthetic.contacts.replyHeld).toBe(1);
+  expect(r.campaigns[0].modes.synthetic.contacts.replyHeld).toBe(1);
+ });
  it('ignores foreign tenant/campaign/contact and unreviewed, future or wrong-mode observations',()=>{
   const data=linkedFixture();data.campaigns.push({...data.campaigns[0],id:'foreign',tenant_id:foreign});
   data.actions.push({...data.actions[0],id:'foreign-action',tenant_id:foreign});

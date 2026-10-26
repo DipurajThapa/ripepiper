@@ -104,6 +104,6 @@ it('denies direct mutation of stored audience and public audience RPCs',async()=
  await expect(q('update campaign_assets set revive_audience=null where campaign_id=$1',[id])).rejects.toThrow('new asset version');
  for(const role of ['anon','authenticated']){await db.exec('set role '+role);try{await expect(q('select revive_audience_candidates($1,$2)',[f.tenant,actor])).rejects.toThrow('permission');}finally{await db.exec('reset role');}}
 });
-it('leaves another product manual plan and approval unchanged',async()=>{
- const f=await contact(),id=crypto.randomUUID();await save(f,id,0,{...body(),product:'signal'});expect(await approve(f,id)).toMatchObject({status:'approved',version:1});
+it.each(['response','events'])('leaves %s manual plan and approval unchanged',async(product)=>{
+ const f=await contact(),id=crypto.randomUUID();await save(f,id,0,{...body(),product});expect(await approve(f,id)).toMatchObject({status:'approved',version:1});
 });

@@ -1,0 +1,111 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+ RUN  v5.0.5 /workspace/scratch/ad528e10ee86/ripepiper-delivery/platform/ripe-piper-platform
+
+ ❯ test/qa-revive-egm.test.ts (10 tests | 4 failed) 5848ms
+   × EGM denies SQL acceptance when the Worker assessment rejects current industry fit 654ms
+   × EGM revoked independent message approver cannot authorize a claim 453ms
+   × EGM service-role cannot fabricate a queued Revive test receipt 314ms
+   × EGM service-role cannot complete a claimed Revive action after rights withdrawal 406ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/qa-revive-egm.test.ts > EGM denies SQL acceptance when the Worker assessment rejects current industry fit
+AssertionError: expected { claimed: true, completed: true } to deeply equal { claimed: false, completed: null }
+
+- Expected
++ Received
+
+  {
+-   "claimed": false,
+-   "completed": null,
++   "claimed": true,
++   "completed": true,
+  }
+
+ ❯ test/qa-revive-egm.test.ts:59:40
+     57|  const claimed=await rpc('claim_fenced_synthetic_action',[f.tenant,id,…
+     58|  const completed=claimed&&await rpc('complete_fenced_synthetic_action'…
+     59|  expect({claimed:!!claimed,completed}).toEqual({claimed:false,complete…
+       |                                        ^
+     60| });
+     61| it('EGM revoked independent message approver cannot authorize a claim'…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  test/qa-revive-egm.test.ts > EGM revoked independent message approver cannot authorize a claim
+AssertionError: expected { …(3) } to be null
+
+- Expected:
+null
+
++ Received:
+{
+  "approvalVersion": 1,
+  "assetVersion": 1,
+  "token": "f949f6d8-1e1a-4322-8763-41cb05c63f94",
+}
+
+ ❯ test/qa-revive-egm.test.ts:67:106
+     65|  const id=(await queue(f,c)).actionIds[0];
+     66|  await q('update profiles set is_admin=false where id=$1',[viewer]);
+     67|  expect(await rpc('claim_fenced_synthetic_action',[f.tenant,id,crypto.…
+       |                                                                                                          ^
+     68| });
+     69| for(const mutation of ['recipient','rights','approval','reply','eviden…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  test/qa-revive-egm.test.ts > EGM service-role cannot fabricate a queued Revive test receipt
+AssertionError: promise resolved "[ { state: 'tested', …(1) } ]" instead of rejecting
+
+- Expected:
+Error {
+  "message": "rejected promise",
+}
+
++ Received:
+[
+  {
+    "provider_ref": "test-sink:c8e15e33-0267-4c50-90c6-a2e1d97dbb05",
+    "state": "tested",
+  },
+]
+
+ ❯ test/qa-revive-egm.test.ts:85:210
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  test/qa-revive-egm.test.ts > EGM service-role cannot complete a claimed Revive action after rights withdrawal
+AssertionError: promise resolved "[ { state: 'tested', …(1) } ]" instead of rejecting
+
+- Expected:
+Error {
+  "message": "rejected promise",
+}
+
++ Received:
+[
+  {
+    "provider_ref": "test-sink:e65b00d0-94cc-40e9-89da-e2d4d1081261",
+    "state": "tested",
+  },
+]
+
+ ❯ test/qa-revive-egm.test.ts:93:171
+     91|  await q('update contact_rights set withdrawn_at=now() where tenant_id…
+     92|  await db.exec('set role service_role');
+     93|  try{await expect(q("update outbound_actions set state='tested',provid…
+       |                                                                                                                                                                           ^
+     94|  finally{await db.exec('reset role');}
+     95| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 6 passed (10)
+   Start at  21:14:28
+   Duration  6.06s (tests 99%, transform 1%)
+

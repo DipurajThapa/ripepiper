@@ -198,3 +198,17 @@ test('business brief changes reload strategy context and discard an in-flight pr
 test('non-English reviewed setup permits manual copy but disables the English-only automatic proposal',async()=>{
  const data=strategyData();data.setupContext.setup.body.language='hi-IN';const ui=mount(async()=>data);ui.select('tenant-a');await tick();assert.equal(ui.nodes.prepareReviveDraft.disabled,true);assert.match(ui.nodes.strategyBasis.textContent,/manual copy for other languages/);
 });
+test('Signal execution is visibly held and cannot enqueue or expose historical run controls',async()=>{
+ const calls=[],fixture={campaigns:[{id:'signal-plan',capability:'signal',purpose:'reviewed changes',status:'approved',asset_version:1}],assets:[],actions:[{id:'old-signal-action',campaign_id:'signal-plan',state:'queued',due_at:'2026-10-24',message_step:0}]};
+ const ui=mount(async(path,body)=>{calls.push(body);return fixture;});ui.select('tenant-a');await tick();const n=ui.nodes;n.campaignSelect.value='signal-plan';n.campaignSelect.onchange();
+ assert.equal(n.campaignQueueSubmit.disabled,true);assert.match(n.campaignExecutionStatus.textContent,/Signal execution is unavailable/);assert.doesNotMatch(n.campaignActions.innerHTML,/data-test-action/);
+ n.campaignQueue.onsubmit({preventDefault(){}});assert.equal(calls.some(c=>c.operation==='queue'),false);assert.match(n.campaignError.textContent,/trigger-bound strategy/);
+});
+
+for(const olderFails of [false,true])test('Revive report keeps the newest refresh when an older '+(olderFails?'failure':'success')+' arrives last',async()=>{
+ const pending=[],ui=mount(path=>path.endsWith('/revive-report')?new Promise((resolve,reject)=>pending.push({resolve,reject})):Promise.resolve(empty()));
+ ui.select('tenant-a');await tick();ui.nodes.loadReviveReport.onclick();ui.nodes.loadReviveReport.onclick();
+ const newer=report();newer.generatedAt='2026-10-26T12:00:00Z';newer.notes=['LATEST_RESULT'];pending[1].resolve({report:newer});await tick();
+ if(olderFails)pending[0].reject(Error('STALE_FAILURE'));else{const older=report();older.notes=['STALE_RESULT'];pending[0].resolve({report:older});}await tick();
+ assert.match(ui.nodes.reviveReportText.textContent,/LATEST_RESULT/);assert.doesNotMatch(ui.nodes.reviveReportText.textContent,/STALE/);assert.match(ui.nodes.reviveReportStatus.textContent,/2026-10-26/);
+});

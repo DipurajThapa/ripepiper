@@ -12,6 +12,9 @@ let db:PGlite,tenant:string,foreign:string;
 type Fixture={lead:string;campaign:string;action:string;synthetic:boolean};
 const strategies=new Map<string,ReturnType<typeof strategyBody>>();
 const historicalBusiness=new Map<string,Fixture>();
+let historicalSignal:Fixture;
+let executionGuardsActive=false;
+const historicalInvalid=new Map<string,Fixture>();
 const env={SUPABASE_URL:'https://fixture.example.invalid',SUPABASE_SERVICE_ROLE_KEY:'fixture-service',SUPABASE_ANON_KEY:'fixture-public'} as Env;
 beforeAll(async()=>{
  db=new PGlite({extensions:{btree_gist}});
@@ -38,7 +41,19 @@ beforeAll(async()=>{
  // disabled. The new migration must preserve their outcome history while blocking
  // any future execution of legacy assets without a reviewed strategy.
  for(const state of ['delivered','tested'])historicalBusiness.set(state,await buildFixture({synthetic:false,state},true));
- for(const file of migrations.slice(strategyIndex))await db.exec(readFileSync(new URL(file,dir),'utf8'));
+ for(const file of migrations.slice(strategyIndex)){
+  if(file.endsWith('_signal_trigger_review.sql'))historicalSignal=await buildFixture({capability:'signal'});
+  if(file.endsWith('_revive_egm_execution_guards.sql')){
+   // Invalid legacy receipts are historical migration inputs, not newly fabricated
+   // executions. Attribution must continue rejecting them after guards are added.
+   for(const state of ['queued','review','blocked','claimed'])historicalInvalid.set(state,await buildFixture({state}));
+   for(const change of ['dispatch_token=null',"provider_ref='unverified'",'acknowledged_at=null']){
+    const f=await buildFixture();await db.query('update outbound_actions set '+change+' where id=$1',[f.action]);historicalInvalid.set(change,f);
+   }
+  }
+  await db.exec(readFileSync(new URL(file,dir),'utf8'));
+  if(file.endsWith('_revive_egm_execution_guards.sql'))executionGuardsActive=true;
+ }
 });
 afterAll(async()=>db.close());
 async function service<T>(fn:()=>Promise<T>){await db.exec('set role service_role');try{return await fn();}finally{await db.exec('reset role');}}
@@ -63,7 +78,13 @@ async function buildFixture(options:{synthetic?:boolean;capability?:string;state
   await db.query(`insert into campaign_assets(tenant_id,campaign_id,version,brief_version,steps,created_by,approved_by,approved_at,revive_audience,revive_strategy)values($1,$2,1,1,$3,$4,$4,now(),$5,$6)`,[tenant,campaign,steps,staff,audience,resolved.strategy]);
  }
  const action=crypto.randomUUID();
- await db.query(`insert into outbound_actions(id,tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at,state,dispatch_token,provider_ref,acknowledged_at)values($1::uuid,$2,$3,$4,$1::text,1,1,now(),$5,$6,$7,now())`,[action,tenant,campaign,lead,options.state??(synthetic?'tested':'delivered'),crypto.randomUUID(),synthetic?'test-sink:'+action:'provider-fixture:'+action]);
+ if(executionGuardsActive){
+  // Modern fixtures earn their receipt through the same reviewed synthetic chain.
+  await service(()=>db.query(`insert into outbound_actions(id,tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at,state)values($1::uuid,$2,$3,$4,$1::text,1,1,now(),'queued')`,[action,tenant,campaign,lead]));
+  const token=crypto.randomUUID(),at=new Date().toISOString();
+  const claim=await service(()=>db.query<any>('select claim_fenced_synthetic_action($1,$2,$3,$4) value',[tenant,action,token,at]));expect(claim.rows[0].value).toMatchObject({token});
+  const ack=await service(()=>db.query<any>('select complete_fenced_synthetic_action($1,$2,$3,1,1,$4) value',[tenant,action,token,at]));expect(ack.rows[0].value).toBe(true);
+ }else await db.query(`insert into outbound_actions(id,tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at,state,dispatch_token,provider_ref,acknowledged_at)values($1::uuid,$2,$3,$4,$1::text,1,1,now(),$5,$6,$7,now())`,[action,tenant,campaign,lead,options.state??(synthetic?'tested':'delivered'),crypto.randomUUID(),synthetic?'test-sink:'+action:'provider-fixture:'+action]);
  return {lead,campaign,action,synthetic};
 }
 function context(f:Awaited<ReturnType<typeof fixture>>):ProductContext{return {product:'revive',kind:'outcome',outcome:'meeting_held',reason:'Reviewed fixture attendance, not an inferred meeting',campaignId:f.campaign,actionId:f.action};}
@@ -92,7 +113,7 @@ describe('exact acknowledged Revive action attribution',()=>{
   await expect(record(f,{...context(f),outcome:'won'},{reference,at})).rejects.toThrow('Reference reused');
  });
  it('rejects foreign tenant, contact, product and mismatched same-lead campaign',async()=>{
-  const f=await fixture(),other=await fixture(),signal=await fixture({capability:'signal'});
+  const f=await fixture(),other=await fixture(),signal=historicalSignal; // Historical foreign-product receipt predates the Signal execution fence.
   await expect(record(f,context(f),{tenant:foreign})).rejects.toThrow('scope mismatch');
   await expect(record(f,context(f),{lead:other.lead})).rejects.toThrow('exact acknowledged action');
   await expect(record(f,{...context(f),campaignId:other.campaign})).rejects.toThrow('exact acknowledged action');
@@ -103,13 +124,13 @@ describe('exact acknowledged Revive action attribution',()=>{
   await expect(record(f,context(f),{synthetic:false})).rejects.toThrow('mode mismatch');
   await expect(record(f,context(f),{at:new Date(Date.now()-3600_000).toISOString()})).rejects.toThrow('exact acknowledged action');
   for(const state of ['queued','review','blocked','claimed']){
-   await db.query('update outbound_actions set state=$1 where id=$2',[state,f.action]);
-   await expect(record(f)).rejects.toThrow('exact acknowledged action');
+   const legacy=historicalInvalid.get(state)!;
+   await expect(record(legacy)).rejects.toThrow('exact acknowledged action');
   }
  });
  it('rejects missing fence, unapproved asset and malformed sink receipt',async()=>{
   for(const change of ['dispatch_token=null',"provider_ref='unverified'",'acknowledged_at=null']){
-   const f=await fixture();await db.query('update outbound_actions set '+change+' where id=$1',[f.action]);
+   const f=historicalInvalid.get(change)!;
    await expect(record(f)).rejects.toThrow('exact acknowledged action');
   }
   const f=await fixture();await db.query('update campaign_assets set approved_by=null where campaign_id=$1',[f.campaign]);
