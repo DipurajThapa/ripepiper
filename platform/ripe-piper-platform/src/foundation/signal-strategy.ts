@@ -83,3 +83,23 @@ export async function prepareSignalProposal(db:Db,tenantId:string,actor:string,b
   return json({ok:true,proposal,delivery:'not_sent',contactAllowed:false});
  }catch(e){return bad(e instanceof SignalProposalError?e.message:'The proposal sources are unavailable. No proposal was saved or sent.',e instanceof SignalProposalError?e.status:503);}
 }
+
+/** Reconstruct the authoritative proposal before saving the exact reviewed copy. */
+export async function signalStrategyForSave(db:Db,tenantId:string,actor:string,plan:any){
+ const input=plan.signalStrategy;
+ if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).length!==5||!['leadId','signalId','synthetic','proposal','reviewed'].every(k=>Object.hasOwn(input,k))||input.reviewed!==true||input.synthetic!==true||!uuid(input.leadId)||!uuid(input.signalId)||!input.proposal)throw new SignalProposalError('Review the exact synthetic Signal proposal before saving.',400);
+ if(plan.product!=='signal'||!Array.isArray(plan.steps)||plan.steps.length!==1||plan.steps[0].offsetHours!==0)throw new SignalProposalError('Signal strategies use one bound recipient and one message.',400);
+ const step=plan.steps[0];
+ if(!plain(step.subject,160)||!text(step.body,4000)||/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f<>`{}\[\]]|%\w+%/.test(step.body)||step.evidenceReference!==`signal:${input.signalId}`)throw new SignalProposalError('Use reviewed plain-text copy and the exact Signal evidence reference.',400);
+ const snapshot=await db.rpc<SignalSnapshot>('signal_strategy_context',{p_tenant:tenantId,p_lead:input.leadId,p_actor:actor});
+ const proposal=buildSignalProposal(tenantId,{leadId:input.leadId,signalId:input.signalId,synthetic:true},snapshot);
+ const normalize=(value:any):any=>{const v=structuredClone(value);delete v.preparedAt;
+  if(validInstant(v.validUntil))v.validUntil=new Date(v.validUntil).toISOString();
+  if(Array.isArray(v.evidence))for(const e of v.evidence)if(validInstant(e?.observedAt))e.observedAt=new Date(e.observedAt).toISOString();
+  if(validInstant(v.claimSources?.offer?.observedAt))v.claimSources.offer.observedAt=new Date(v.claimSources.offer.observedAt).toISOString();
+  return v;
+ };
+ if(canonical(normalize(input.proposal))!==canonical(normalize(proposal)))throw new SignalProposalError('The prepared evidence or client configuration changed. Prepare and review a fresh strategy.');
+ if(plan.market!==snapshot.setup.setup!.body.market||plan.timezone!==snapshot.setup.setup!.body.timezone)throw new SignalProposalError('Use the reviewed client setup market and timezone.');
+ return {proposal:normalize(proposal),sourceSnapshot:snapshot,reviewedBy:actor,reviewed:true};
+}

@@ -115,7 +115,7 @@ it('rehearses two configured clients through isolated Signal discovery, qualific
   expect(await read('campaigns',{operation:'save',campaign_id:campaign,version:0,body})).toMatchObject({ok:true,id:campaign,version:1,status:'draft',delivery:'not_sent'});
   const beforeQueue=rpcNames.length;
   await read('campaigns',{operation:'queue',campaign_id:campaign,version:1,body:{leadId:imported.lead_id,startAt:new Date(Date.now()+3600000).toISOString()}},409);
-  expect(rpcNames).toHaveLength(beforeQueue);
+  expect(rpcNames).toHaveLength(beforeQueue+1);expect(rpcNames.at(-1)).toBe('manage_campaign_plan');expect(await q('select id from outbound_actions where campaign_id=$1',[campaign])).toHaveLength(0);
   const outcome={lead_id:imported.lead_id,reference:'cedar-signal-review-v1',rights_reference:'synthetic-operator-review',excerpt:'Operator accepted this trigger for additional review; no prospect was contacted.',observed_at:new Date().toISOString(),synthetic:true,context:{product:'signal',kind:'outcome',outcome:'accepted',reason:'Reviewed matching industry, market, role and need evidence.',signalId:imported.observation_id}};
   await read('product-event',{...outcome,context:{...outcome.context,signalId:second.observation_id}},409);
   const receipt=await read('product-event',outcome,201);expect(await read('product-event',outcome,201)).toMatchObject({id:receipt.id,delivery:'not_sent'});

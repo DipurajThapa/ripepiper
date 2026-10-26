@@ -1,6 +1,6 @@
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {campaignPlans} from '../src/foundation/campaigns';
-import {Db} from '../src/lib/db';
+import {Db,DbError} from '../src/lib/db';
 import type {Env} from '../src/env';
 const tenant='11111111-1111-4111-8111-111111111111',campaign='22222222-2222-4222-8222-222222222222',lead='33333333-3333-4333-8333-333333333333',source='44444444-4444-4444-8444-444444444444',action='55555555-5555-4555-8555-555555555555';
 const env={SYNTHETIC_SINK_ENABLED:'true'}as Env;
@@ -41,7 +41,7 @@ describe('strict existing campaign mutation receipts',()=>{
  });
 });
 
-it('refuses Signal enrolment before invoking the database writer even when the sink is enabled',async()=>{
+it('preserves the SQL Signal binding denial without retrying enrolment when the sink is enabled',async()=>{
  vi.spyOn(Db.prototype,'one').mockImplementation(async table=>table==='campaigns'?{id:campaign,capability:'signal'} as any:{id:tenant,name:'Ripe Piper'} as any);
- const rpc=vi.spyOn(Db.prototype,'rpc');const response=await campaignPlans(request(cases[4]),env,tenant);expect(response.status).toBe(409);expect(await response.text()).toContain('trigger-bound strategy');expect(rpc).not.toHaveBeenCalled();
+ const rpc=vi.spyOn(Db.prototype,'rpc').mockRejectedValue(new DbError(400,JSON.stringify({code:'22023',message:'Current exact Signal binding required'})));const response=await campaignPlans(request(cases[4]),env,tenant);expect(response.status).toBe(409);expect(await response.text()).toContain('current saved strategy and exact reviewed approval');expect(rpc).toHaveBeenCalledTimes(1);expect(rpc).toHaveBeenCalledWith('manage_campaign_plan',expect.objectContaining({p_tenant:tenant,p_campaign:campaign,p_operation:'queue'}));
 });

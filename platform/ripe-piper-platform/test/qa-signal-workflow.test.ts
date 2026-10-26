@@ -10,7 +10,7 @@ const directory=new URL('../supabase/migrations/',import.meta.url);
 let db:PGlite,legacy:any,claimed:any;
 const q=async(sql:string,args:any[]=[])=> (await db.query<any>(sql,args)).rows;
 async function rpc(name:string,args:any[]){await db.exec('set role service_role');try{return (await q(`select public.${name}(${args.map((_,i)=>'$'+(i+1)).join(',')}) value`,args))[0].value;}finally{await db.exec('reset role');}}
-async function fixture(product='signal'){
+async function fixture(product='signal',beforeSignalGuard=false){
  const tenant=(await q(`insert into tenants(name,slug,country,currency,status) values('QA Signal',$1,'AE','AED','active') returning id`,[crypto.randomUUID()]))[0].id;
  const lead=(await q(`insert into leads(tenant_id,source,email) values($1,'import',$2) returning id`,[tenant,crypto.randomUUID()+'@example.invalid']))[0].id;
  const observed=new Date(Date.now()-86400000).toISOString();
@@ -19,8 +19,12 @@ async function fixture(product='signal'){
  const source=(await q(`insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,rights_reference,synthetic,assessment_facts,assessment_excerpt,assessment_reviewed_by) values($1,$2,'fixture','qa-permitted-contact',$3,'review','fixture-purpose-only',true,'{}','Contact identity only; no qualified Signal trigger',$4) returning id`,[tenant,lead,observed,actor]))[0].id;
  const campaign=crypto.randomUUID();
  await rpc('manage_campaign_plan',[tenant,campaign,actor,'save',0,{product,purpose:'appointment',market:'AE',timezone:'UTC',steps:[{offsetHours:0,subject:'Fixture message',body:'Fixture-only review',evidenceReference:'qa-permitted-contact'}]}]);
+ // Only the pre-migration fixture may approve generic Signal. Current manual
+ // Signal remains a draft; attribution assertions do not require contact rights.
+ if(product!=='signal'||beforeSignalGuard){
  await rpc('manage_campaign_plan',[tenant,campaign,actor,'approve',1,{clientAuthority:'fixture-client',ownerAuthority:'fixture-owner',ctsProfile:'fixture-review',maxActions:3,expiresAt:new Date(Date.now()+7*86400000).toISOString()}]);
  await rpc('manage_campaign_plan',[tenant,campaign,actor,'rights',1,{leadId:lead,sourceId:source,noticeReference:'fixture-only'}]);
+ }
  return {tenant,lead,campaign,source};
 }
 const queue=(f:any,start=new Date(Date.now()+1000).toISOString())=>rpc('manage_campaign_plan',[f.tenant,f.campaign,actor,'queue',1,{leadId:f.lead,startAt:start}]);
@@ -30,8 +34,8 @@ beforeAll(async()=>{
  const files=readdirSync(directory).filter(f=>f.endsWith('.sql')).sort();
  for(const f of files.filter(f=>f<='20261024162439_revive_strategy_schedule.sql'))await db.exec(readFileSync(new URL(f,directory),'utf8'));
  await q(`insert into auth.users(id,email,email_confirmed_at) values($1,'qa-staff@example.invalid',now())`,[actor]);await q('update profiles set is_admin=true where id=$1',[actor]);
- legacy=await fixture();legacy.at=new Date(Date.now()+1000).toISOString();legacy.id=(await queue(legacy,legacy.at)).actionIds[0];
- claimed=await fixture();claimed.at=new Date(Date.now()+1000).toISOString();claimed.id=(await queue(claimed,claimed.at)).actionIds[0];claimed.token=crypto.randomUUID();
+ legacy=await fixture('signal',true);legacy.at=new Date(Date.now()+1000).toISOString();legacy.id=(await queue(legacy,legacy.at)).actionIds[0];
+ claimed=await fixture('signal',true);claimed.at=new Date(Date.now()+1000).toISOString();claimed.id=(await queue(claimed,claimed.at)).actionIds[0];claimed.token=crypto.randomUUID();
  expect(await rpc('claim_fenced_synthetic_action',[claimed.tenant,claimed.id,claimed.token,claimed.at])).toMatchObject({token:claimed.token});
  for(const f of files.filter(f=>f>'20261024162439_revive_strategy_schedule.sql'))await db.exec(readFileSync(new URL(f,directory),'utf8'));
 });

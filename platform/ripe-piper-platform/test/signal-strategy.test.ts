@@ -1,6 +1,6 @@
 import {afterEach,expect,it,vi} from 'vitest';
 import {Db} from '../src/lib/db';
-import {buildSignalProposal,prepareSignalProposal,signalProposalInput,type SignalSnapshot} from '../src/foundation/signal-strategy';
+import {buildSignalProposal,prepareSignalProposal,signalStrategyForSave,signalProposalInput,type SignalSnapshot} from '../src/foundation/signal-strategy';
 import {setupBody} from './helpers/revive-setup';
 const id=(n:number)=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
 const tenant=id(1),lead=id(2),actor=id(3),signal=id(4),fact=id(5),input={leadId:lead,signalId:signal,synthetic:true};
@@ -27,3 +27,15 @@ function adapter(first:SignalSnapshot,second=first){let reads=0;vi.spyOn(Db.prot
 it.each(['lead','setup','observations','tenant','stops','globalStops'])('detects changed %s between reads',async kind=>{const first=fixture(),second=structuredClone(first);if(kind==='lead')second.lead.email='other@example.invalid';if(kind==='tenant')second.tenant.name='Other';if(kind==='setup')second.setup.setup!.version++;if(kind==='observations')second.observations[0].assessment_excerpt+=' Updated';if(kind==='stops')second.stops.push({tenant_id:tenant,lead_id:lead});if(kind==='globalStops')second.globalStops.push({email:first.lead.email});adapter(first,second);expect((await prepareSignalProposal(new Db({} as any),tenant,actor,input)).status).toBe(409);});
 it('permits reordered evidence and performs no write calls',async()=>{const first=fixture(),second=structuredClone(first);second.observations.reverse();adapter(first,second);const insert=vi.spyOn(Db.prototype,'insert');expect((await prepareSignalProposal(new Db({} as any),tenant,actor,input)).status).toBe(200);expect(insert).not.toHaveBeenCalled();});
 it('returns unavailable for transport failure',async()=>{vi.spyOn(Db.prototype,'select').mockRejectedValue(Error('offline'));expect((await prepareSignalProposal(new Db({} as any),tenant,actor,input)).status).toBe(503);});
+
+it('save normalizes only timestamp fields, accepts offset microseconds and preserves timestamp-looking source text',async()=>{
+ const s=fixture(),instant=new Date(Date.now()-3600000).toISOString().slice(0,19)+'.123456+00:00';
+ s.observations.forEach(o=>o.observed_at=instant);s.setup.brief!.body.source.observedAt=instant;
+ s.observations[1].assessment_excerpt='2026-01-01T12:00:00.123456+00:00';s.setup.brief!.body.source.excerpt='2026-01-01T12:00:00.123456+00:00';
+ const proposal=buildSignalProposal(tenant,input,s);vi.spyOn(Db.prototype,'rpc').mockResolvedValue(s);
+ const binding=await signalStrategyForSave(new Db({} as any),tenant,actor,{product:'signal',market:'AE',timezone:'UTC',steps:[{offsetHours:0,...proposal.message,evidenceReference:`signal:${signal}`}],signalStrategy:{...input,proposal,reviewed:true}});
+ expect(binding.proposal.evidence.find((e:any)=>e.id===signal).excerpt).toBe(s.observations[1].assessment_excerpt);
+ expect(binding.proposal.claimSources.offer.excerpt).toBe(s.setup.brief!.body.source.excerpt);
+ expect(binding.proposal.evidence[0].observedAt).toBe(new Date(instant).toISOString());
+ expect(binding.sourceSnapshot.observations[0].observed_at).toBe(instant);
+});

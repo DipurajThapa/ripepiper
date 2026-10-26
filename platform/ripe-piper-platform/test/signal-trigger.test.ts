@@ -88,8 +88,8 @@ describe('actual Signal SQL attribution and execution boundary',()=>{
   expect((await q('select state,acknowledged_at,provider_ref from outbound_actions where id=$1',[claimed]))[0]).toMatchObject({state:'blocked',acknowledged_at:null,provider_ref:null});
  });
  it('denies new queue and direct active-state inserts while retaining recovery/cancellation',async()=>{
-  await expect(service(()=>q(`select manage_campaign_plan($1,$2,$3,'queue',1,$4)`,[tenant,campaign,staff,JSON.stringify({leadId:otherLead,startAt:new Date(Date.now()+60000).toISOString()})]))).rejects.toThrow(/Signal execution/);
-  for(const state of ['queued','claimed','tested','delivered'])await expect(service(()=>q(`insert into outbound_actions(tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at,state)values($1,$2,$3,$4,1,1,now(),$5)`,[tenant,campaign,lead,crypto.randomUUID(),state]))).rejects.toThrow(/Signal execution/);
+  await expect(service(()=>q(`select manage_campaign_plan($1,$2,$3,'queue',1,$4)`,[tenant,campaign,staff,JSON.stringify({leadId:otherLead,startAt:new Date(Date.now()+60000).toISOString()})]))).rejects.toThrow(/Signal (?:binding|live delivery|claim receipt)|Fenced Signal|Signal execution/);
+  for(const state of ['queued','claimed','tested','delivered'])await expect(service(()=>q(`insert into outbound_actions(tenant_id,campaign_id,lead_id,correlation_key,approval_version,asset_version,due_at,state)values($1,$2,$3,$4,1,1,now(),$5)`,[tenant,campaign,lead,crypto.randomUUID(),state]))).rejects.toThrow(/Signal (?:binding|live delivery|claim receipt)|Fenced Signal|Signal execution/);
   await service(()=>q(`update outbound_actions set state='cancelled' where id=$1`,[queued]));expect((await q('select state from outbound_actions where id=$1',[queued]))[0].state).toBe('cancelled');
  });
  it('exposes no public/private guard execution to anonymous or authenticated roles',async()=>{
