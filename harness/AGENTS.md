@@ -44,9 +44,9 @@ node --test scripts/harness.test.mjs
 ```
 The first produces a truthful stage report; `--require-ready` exits nonzero while any stage is unaccepted. It is intentionally impossible for an empty ledger to pass.
 
-## Elephant-Goldfish design review (26 October 2026)
+## Elephant-Goldfish development and drift checking (26 October 2026)
 
-Apply the owner's requested [Elephant-Goldfish method](https://github.com/google/elephant-goldfish-model) within these roles, not as another delivery workflow or tracker.
+Apply the owner's requested [Elephant-Goldfish method](https://github.com/google/elephant-goldfish-model) within these roles, not as another delivery workflow or tracker. The method includes specification, fresh-context review, implementation and later code/spec drift checks. Use the existing Development, independent QA and PM roles to execute and verify the reviewed design. EGM is not a continuously running production agent or a substitute for tests. For an existing product, reconstruct its accepted contract and compare it with actual code and executed behavior; repair confirmed defects and record known integration gaps separately.
 
 - CTO acts as the context-rich Elephant for design: preserve decisions in the existing specification, including exact interfaces, files, non-goals, failure states and acceptance. Keep design separate from implementation.
 - Use fresh reviewers with no inherited conversation (`fork_turns: none` where supported). Give the comprehension reviewer only the written specification; give adversarial/readiness reviewers that specification and relevant source. Repository safety instructions always apply. Fresh context reduces shared assumptions; it does not guarantee independent reasoning.

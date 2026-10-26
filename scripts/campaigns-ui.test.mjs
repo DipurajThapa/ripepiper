@@ -204,3 +204,11 @@ test('Signal execution is visibly held and cannot enqueue or expose historical r
  assert.equal(n.campaignQueueSubmit.disabled,true);assert.match(n.campaignExecutionStatus.textContent,/Signal execution is unavailable/);assert.doesNotMatch(n.campaignActions.innerHTML,/data-test-action/);
  n.campaignQueue.onsubmit({preventDefault(){}});assert.equal(calls.some(c=>c.operation==='queue'),false);assert.match(n.campaignError.textContent,/trigger-bound strategy/);
 });
+
+for(const olderFails of [false,true])test('Revive report keeps the newest refresh when an older '+(olderFails?'failure':'success')+' arrives last',async()=>{
+ const pending=[],ui=mount(path=>path.endsWith('/revive-report')?new Promise((resolve,reject)=>pending.push({resolve,reject})):Promise.resolve(empty()));
+ ui.select('tenant-a');await tick();ui.nodes.loadReviveReport.onclick();ui.nodes.loadReviveReport.onclick();
+ const newer=report();newer.generatedAt='2026-10-26T12:00:00Z';newer.notes=['LATEST_RESULT'];pending[1].resolve({report:newer});await tick();
+ if(olderFails)pending[0].reject(Error('STALE_FAILURE'));else{const older=report();older.notes=['STALE_RESULT'];pending[0].resolve({report:older});}await tick();
+ assert.match(ui.nodes.reviveReportText.textContent,/LATEST_RESULT/);assert.doesNotMatch(ui.nodes.reviveReportText.textContent,/STALE/);assert.match(ui.nodes.reviveReportStatus.textContent,/2026-10-26/);
+});

@@ -49,7 +49,9 @@ export function buildReviveReport(tenant:string,input:ReviveReportInput,now=Date
  const modeFor=(lead:Lead):Mode=>lead.email.toLowerCase().endsWith('.invalid')?'synthetic':'business';
  const evidence=[...new Map(input.observations.filter(o=>o.tenant_id===tenant&&leads.has(o.lead_id)).map(o=>[o.id,o])).values()];
  const reviewed=evidence.filter(o=>o.assessment_reviewed_by&&o.synthetic===(modeFor(leads.get(o.lead_id)!)==='synthetic')&&!productError(o.product_context,o.observed_at,now));
- const held=new Set(reviewed.filter(o=>o.product_context?.product==='response'&&['reply','enquiry'].includes(o.product_context.kind)).map(o=>o.lead_id));
+ // Operational holds mirror SQL's conservative raw reply/enquiry predicate.
+ // Review, schema validity and evidence mode govern outcomes, not permission to resume.
+ const held=new Set(evidence.filter(o=>o.product_context?.product==='response'&&['reply','enquiry'].includes(o.product_context.kind)).map(o=>o.lead_id));
  for(const a of actions.values()){
   const lead=leads.get(a.lead_id)!,mode=modeFor(lead),ack=receipt(a,lead,assets,now);
   for(const b of [totals[mode],byCampaign.get(a.campaign_id)![mode]]){
@@ -77,6 +79,7 @@ export function buildReviveReport(tenant:string,input:ReviveReportInput,now=Date
   unattributed:{synthetic:serializeUnlinked('synthetic'),business:serializeUnlinked('business')},unverifiedLinkedRecords,
   abComparison:{available:false,reason:'No predeclared variant assignment or experiment cohort is recorded.'},
   notes:['Counts are unique contacts per category, cumulative and not mutually exclusive; no conversion rate or uplift is inferred.',
+   'Reply holds are conservative operational stops from recorded replies/enquiries, including records awaiting review; they are not verified human replies or positive engagement.',
    'Test acknowledgements are synthetic. Provider acknowledgement does not prove recipient delivery. Recipient-delivery telemetry is not connected.',
    'Meetings and opportunities require reviewed linked outcomes; no booking, attendance or causal attribution is inferred from an action.',
    'Unattributed outcomes are tenant-level evidence and are not assigned to any campaign. Conflicting accepted/rejected or won/lost evidence requires review.',

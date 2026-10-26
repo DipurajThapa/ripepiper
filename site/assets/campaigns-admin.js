@@ -1,7 +1,7 @@
 /* Staff message plans in the existing Clients area. Delivery remains synthetic-only. */
 (function(){
  'use strict';
- var RP=window.RP,panel=document.getElementById('campaignPlansPanel'),tenant,generation=0,ready=false,data,selected='',version=0,dirty=false,draftContext=null,draftRequest=0,draftInvalidated=false,scheduleRequest=0,signalDraft=null,signalSaved=null;
+ var RP=window.RP,panel=document.getElementById('campaignPlansPanel'),tenant,generation=0,ready=false,data,selected='',version=0,dirty=false,draftContext=null,draftRequest=0,draftInvalidated=false,scheduleRequest=0,reportRequest=0,signalDraft=null,signalSaved=null;
  var el=function(id){return document.getElementById(id);},esc=RP.esc;
  function field(id,label,type){return '<div class="field"><label for="'+id+'">'+label+'</label><input id="'+id+'" type="'+(type||'text')+'"></div>';}
  function option(value,label){return '<option value="'+esc(value)+'">'+esc(label)+'</option>';}
@@ -90,14 +90,14 @@
  function reportLines(label,b){return label+'\nEnrolled contacts: '+b.contacts.enrolled+' · queued: '+b.contacts.queued+' · reply hold: '+b.contacts.replyHeld+' · need review: '+b.contacts.requiresReview+'\nTest acknowledgements: '+b.contacts.testAcknowledged+' · provider acknowledgements: '+b.contacts.providerAcknowledged+' (recipient delivery unverified)\nRecorded qualified conversations: '+b.outcomes.qualified_conversation+' · held meetings: '+b.outcomes.meeting_held+' · opportunities: '+b.outcomes.opportunity+' · won: '+b.outcomes.won+' · lost: '+b.outcomes.lost+'\nConflicting outcome contacts: '+b.conflictingOutcomeContacts+' · unverified action receipts: '+b.actions.unverifiedReceipt;}
  function loadReport(){
   if(!ready){error('Load the current account before reading its report.');return;}
-  var ticket=generation,campaign=selected;el('reviveReportStatus').textContent='Reading recorded Revive evidence…';
+  var ticket=generation,campaign=selected,request=++reportRequest;el('reviveReportStatus').textContent='Reading recorded Revive evidence…';
   RP.api('/api/admin/tenants/'+tenant.id+'/revive-report',{}).then(function(j){
-   if(ticket!==generation||selected!==campaign)return;
+   if(ticket!==generation||selected!==campaign||request!==reportRequest)return;
    var r=j.report,c=campaign&&r.campaigns.find(function(c){return c.id===campaign;}),b=c?c.modes:r.totals;
    if(campaign&&!c){el('reviveReportStatus').textContent='This campaign is not in the Revive report. Choose a Revive campaign or a new plan for account totals.';el('reviveReportText').textContent='';return;}
    el('reviveReportStatus').textContent=(c?'Selected Revive campaign':'All Revive campaigns for this account')+' · generated '+r.generatedAt;
    el('reviveReportText').textContent=reportLines('Synthetic evidence',b.synthetic)+'\n\n'+reportLines('Business evidence',b.business)+'\n\nUnattributed records across this account: '+r.unattributed.synthetic.records+' synthetic · '+r.unattributed.business.records+' business. Unverified linked records: '+r.unverifiedLinkedRecords+'.\n\nA/B comparison unavailable: '+r.abComparison.reason+'\n'+r.notes.join('\n');
-  }).catch(function(e){if(ticket===generation&&selected===campaign){el('reviveReportStatus').textContent=e.message;el('reviveReportText').textContent='';}});
+  }).catch(function(e){if(ticket===generation&&selected===campaign&&request===reportRequest){el('reviveReportStatus').textContent=e.message;el('reviveReportText').textContent='';}});
  }
  function invalidateDraft(){++draftRequest;if(draftContext)draftInvalidated=true;el('draftStatus').textContent=draftContext?'Draft settings changed. Prepare a new proposal before saving.':'';el('draftBasis').textContent='';}
  function prepareDraft(){
