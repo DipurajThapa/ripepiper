@@ -67,3 +67,10 @@ Rollback: revert the feature source commit on the feature branch through normal 
 a30e877009296f5396afe91fd15c7c995f6bf6817d782fe31670ead21e502701  scripts/signal-discovery-ui.test.mjs
 76caacbcf259daa996154b6a2d6b0b29159e014f716b9c70ffbafa9503869b8c  docs/LEAD_LIFECYCLE_SPEC.md
 ```
+
+
+## Hosted CI verification follow-up — 2026-10-26
+
+CTO directly inspected GitHub Actions run [40264459041](https://github.com/DipurajThapa/ripepiper/actions/runs/40264459041), verify job 121383661900: SUCCESS for published PR #9 source `4d8f55a9b795dad7a548f42a2333f1b96ffa205f`, tree `91c0ef7f8c658030e6fc53e4afa42c20e767113d`, matching local `9962528`. Typecheck, full regression, dependency security, preview build, Chromium installation and rendered workflow checks all passed. Chromium 151 and its headless shell installed successfully on the hosted runner. Logs contain four PASS receipts for product forms, the complete CRM shell, approved Signal source review/import and the actual CRM Signal workflow. These browser programs use intercepted synthetic APIs; they do not establish live provider or hosted backend acceptance. The optional staging job was skipped.
+
+This resolves the rendered-check gap using hosted CI; the earlier failed local installation remains accurately recorded. No runtime source changed after this verified tree. This documentation follow-up does not claim its own future CI result. No merge, deployment, production data change, real prospect communication or operational stage promotion occurred.
