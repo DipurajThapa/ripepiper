@@ -39,3 +39,11 @@ No hosted migration, production write, paid provider or real recipient operation
 | `site/assets/signal-admin.js` | `06e832a6f45dcda42f8f362b46659a69d58787de2eeaaf90d658457a892695a8` |
 | `site/assets/campaigns-admin.js` | `852a1913bd59f1e6d8de064e2b31645e58bbf4516edec643051ff8df26707e5e` |
 | `platform/ripe-piper-platform/test/qa-signal-reviewed-execution.test.ts` | `cf6fdea02c37670e25a1724fa8f8747f2410663059ab440792b3a67250df73a9` |
+
+## Independent hosted CI readback
+
+After publication, the independent QA agent fetched the workflow run, job steps and decoded job logs through the GitHub connector. [Run 40267077885](https://github.com/DipurajThapa/ripepiper/actions/runs/40267077885), verify job `121391706091`, completed successfully for PR head `9a4979c5bcb09235a492113639c02670cd08ffac`. The checkout log identifies GitHub's tested PR merge commit `45e5c1e40e725efa42d23776559ef0a73eafc59e`, combining that head with base `d5a7988f32eb4fce6e0124c1b8eb9cd39d15f375`. This distinguishes the submitted head from the merge integration tested by pull-request CI. The publication mapping records source tree `69361c1183aa6e126cdf362ead3b446b9700cde1`; QA independently read that same tree from local candidate commit `3214fdc729f57ff264b350a9de6bcf3b4fd568b7`.
+
+The actual logs record all 69 backend files and **1,124 tests passing**, including all **35 independent reviewed-Signal tests**, and **345 frontend/safety tests passing**. Typecheck, source layout, syntax, dependency security, preview build and Chromium installation succeeded. The staging job was skipped.
+
+The rendered workflow step completed successfully. Its Signal CRM log explicitly records the actual DOM strategy transfer, save/reload, edit/reapproval and synthetic queue/test/receipt journey, invalid-recipient retry, inert provenance, expired-board clearing and mobile layout. The other product and CRM shell checks also passed. This closes the earlier local Chromium limitation for the intercepted synthetic browser scope. It does not constitute a hosted database migration, real Auth/PostgREST acceptance, overlapping database connections, real provider delivery or live business acceptance.
