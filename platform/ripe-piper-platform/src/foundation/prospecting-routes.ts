@@ -3,6 +3,7 @@ import { Db, DbError } from "../lib/db";
 import { bad, json, readJson, requireUser } from "../routes/http";
 import { assessProspect, validBrief, validDate, validFacts, type Observation } from "./prospecting";
 import { productError, reviewProducts } from "./products";
+import { SNAPSHOT_MAX_BYTES, snapshotFailure, validProspectSnapshot } from "./prospect-snapshot";
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const bounded = (s: unknown, n: number): s is string => typeof s === "string" && !!s.trim() && s.length <= n;
 
@@ -49,32 +50,32 @@ export async function prospectShortlist(req: Request, env: Env, tenantId: string
   const actor=await requireUser(req,env,true);
   const b = await readJson(req);
   if (typeof b.synthetic !== "boolean") return bad("Choose synthetic or business evidence.");
-  const db = new Db(env);
-  if (!await db.one("tenants",`id=eq.${tenantId}&select=id`)) return bad("Client not found.",404);
-  const brief = await db.one<any>("business_briefs",`tenant_id=eq.${tenantId}&order=version.desc&select=*`);
-  const leads = await db.select<any>("leads",`tenant_id=eq.${tenantId}&select=id,company,email,status&order=id&limit=101`);
-  if (leads.length>100) return bad("This review supports up to 100 leads per client. A paginated review is required for this account.",409);
-  const observations = await db.select<Observation>("lead_observations",`tenant_id=eq.${tenantId}&synthetic=eq.${b.synthetic}&select=*&limit=1001`);
-  // Default PostgREST row caps can truncate at 1000; never present a partial evidence set as complete.
-  if (observations.length>=1000) return bad("Too much evidence for one review. Narrow the evidence set before assessing.",409);
-  const stops = leads.length ? await db.select<any>("lead_suppression",`tenant_id=eq.${tenantId}&lead_id=in.(${leads.map(l=>l.id).join(',')})&select=lead_id`) : [];
-  const emailFilter = encodeURIComponent(`(${leads.map(l=>JSON.stringify(l.email.toLowerCase())).join(',')})`);
-  const globalStops = leads.length ? await db.select<any>("suppression",`email=in.${emailFilter}&select=email`) : [];
-  const reviewOwners=observations.some(o=>o.product_context?.kind==='conversation_review')?await db.rpc<{id:string;label:string}[]>('response_review_owners',{p_tenant:tenantId,p_actor:actor.id}):undefined;
+  let snapshot: unknown;
+  try {
+    snapshot = await new Db(env,8000,SNAPSHOT_MAX_BYTES).rpc('review_prospect_snapshot',{
+      p_tenant:tenantId,p_actor:actor.id,p_synthetic:b.synthetic,
+    });
+  } catch { return bad('The complete review snapshot is unavailable. Retry the review.',503); }
+  const assessedAt = Date.now();
+  const failure = snapshotFailure(snapshot);
+  if (failure) return bad(failure===403?'Verified staff access is required.':failure===404?'Client not found.':'This account exceeds the bounded review capacity.',failure);
+  if (!validProspectSnapshot(snapshot,tenantId,b.synthetic,assessedAt)) return bad('The complete review snapshot is invalid. Retry the review.',503);
+  const {brief,leads,observations,owners:reviewOwners,snapshotAt} = snapshot;
+  const stopped = new Set(snapshot.stoppedLeadIds);
+  try {
   const results = [];
   for (const lead of leads) {
     if (b.synthetic !== lead.email.toLowerCase().endsWith(".invalid")) continue;
-    const suppressed = lead.status==="unsubscribed" || globalStops.some(s=>s.email===lead.email.toLowerCase()) || stops.some(s=>s.lead_id===lead.id);
-    const assessment = brief ? assessProspect(tenantId,lead.id,brief.body,observations.filter(o=>o.lead_id===lead.id),{
-      now:Date.now(),synthetic:b.synthetic,suppressed:lead.status==="unsubscribed" || globalStops.some(s=>s.email===lead.email.toLowerCase()) || stops.some(s=>s.lead_id===lead.id),
+    const suppressed = stopped.has(lead.id);
+    const assessment = brief ? assessProspect(snapshot.tenantId,lead.id,brief.body,observations.filter(o=>o.lead_id===lead.id),{
+      now:assessedAt,synthetic:b.synthetic,suppressed,
     }) : {leadId:lead.id,state:suppressed?"excluded":"unknown",score:null,fields:[],contactAllowed:false,reasons:suppressed?["suppressed"]:["brief_required"],nextAction:"Save a business brief before assessing fit."};
-    results.push({...assessment,company:lead.company || lead.email,products:reviewProducts(observations.filter(o=>o.lead_id===lead.id),Date.now(),assessment.reasons.includes("suppressed"),assessment.state,reviewOwners)});
+    results.push({...assessment,company:lead.company || lead.email,products:reviewProducts(observations.filter(o=>o.lead_id===lead.id),assessedAt,assessment.reasons.includes("suppressed"),assessment.state,reviewOwners)});
   }
-  const latest = await db.one<any>("business_briefs",`tenant_id=eq.${tenantId}&order=version.desc&select=version`);
-  if (latest?.version !== brief?.version) return bad("The brief changed during assessment. Refresh the shortlist.",409);
   const order:Record<string,number>={candidate:0,review:1,unknown:2,excluded:3};
   results.sort((a,b)=>order[a.state]-order[b.state] || a.leadId.localeCompare(b.leadId));
-  return json({ok:true,brief,leads,results,synthetic:b.synthetic,rulesVersion:2,assessedAt:new Date().toISOString(),externalCalls:0});
+  return json({ok:true,brief,leads,results,synthetic:b.synthetic,rulesVersion:2,snapshotAt,assessedAt:new Date(assessedAt).toISOString(),externalCalls:0});
+  } catch { return bad("The review snapshot could not be assessed safely. Retry the review.",503); }
 }
 
 /** Staff-reviewed records only. Atomic persistence and reply stops are enforced by PostgreSQL. */

@@ -2,7 +2,7 @@ import type { Env } from "../env";
 
 /** Minimal Supabase (PostgREST) client using the service role. Server-side only. */
 export class Db {
-  constructor(private env: Env, private requestTimeoutMs?: number) {}
+  constructor(private env: Env, private requestTimeoutMs?: number, private maxResponseBytes?: number) {}
 
   private headers(extra: Record<string, string> = {}) {
     return {
@@ -14,12 +14,48 @@ export class Db {
   }
 
   private async call<T>(path: string, init: RequestInit): Promise<T> {
-    const res = await fetch(`${this.env.SUPABASE_URL}/rest/v1/${path}`, { ...init,
-      ...(this.requestTimeoutMs ? { signal: AbortSignal.timeout(this.requestTimeoutMs) } : {}),
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    // The deadline includes a stalled response body, not only response headers.
+    const deadline = new Promise<never>((_, reject) => {
+      if (this.requestTimeoutMs) timer = setTimeout(() => {
+        controller.abort();
+        void reader?.cancel().catch(() => {});
+        reject(new Error('Database response deadline exceeded'));
+      }, this.requestTimeoutMs);
     });
-    const text = await res.text();
-    if (!res.ok) throw new DbError(res.status, text);
-    return (text ? JSON.parse(text) : null) as T;
+    const request = async () => {
+      const res = await fetch(`${this.env.SUPABASE_URL}/rest/v1/${path}`, { ...init,
+        ...(this.requestTimeoutMs ? { signal: controller.signal } : {}),
+      });
+      let text: string;
+      if (this.maxResponseBytes !== undefined) {
+        reader = res.body?.getReader();
+        const decoder = new TextDecoder('utf-8', {fatal:true,ignoreBOM:false});
+        const chunks: string[] = [];
+        let bytes = 0;
+        if (reader) {
+          while (true) {
+            const {done,value} = await reader.read();
+            if (done) break;
+            bytes += value.byteLength;
+            if (bytes > this.maxResponseBytes) {
+              void reader.cancel().catch(() => {});
+              throw new Error('Database response byte limit exceeded');
+            }
+            chunks.push(decoder.decode(value,{stream:true}));
+          }
+        }
+        chunks.push(decoder.decode());
+        text = chunks.join('');
+      } else text = await res.text();
+      if (!res.ok) throw new DbError(res.status, text);
+      return (text ? JSON.parse(text) : null) as T;
+    };
+    try { return await Promise.race([request(),deadline]); }
+    catch (error) { void reader?.cancel().catch(() => {}); throw error; }
+    finally { if (timer !== undefined) clearTimeout(timer); }
   }
 
   select<T = any>(table: string, query: string): Promise<T[]> {

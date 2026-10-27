@@ -13,7 +13,7 @@ export async function stagingHttpAcceptance(env,{apply=false,workerOrigin=STAGIN
  const base=bindings.SUPABASE_URL,service=bindings.SUPABASE_SERVICE_ROLE_KEY,anon=bindings.SUPABASE_ANON_KEY;
  const run=randomUUID(),tenantIds=[randomUUID(),randomUUID()],leadIds=[randomUUID(),randomUUID(),randomUUID()];
  const emails=[0,1,2].map(i=>`http-${run}-${i}@fixture.invalid`),users=[],attemptedEmails=[];
- const evidence={run,target:workerOrigin,status:'running',scope:'onboarding_auth_rls_and_staff_owner_lookup_only',notTested:['tenant_activation','outbound_execution','provider_delivery'],checks:[],cleanup:{status:'not_started',tenantIds,leadIds,userIds:[],unresolvedEmails:[]}};
+ const evidence={run,target:workerOrigin,status:'running',scope:'onboarding_auth_rls_owner_lookup_and_empty_evidence_prospect_routing_only',notTested:['prospect_qualification_with_evidence','prospect_capacity_and_byte_limits','concurrent_snapshot_changes','tenant_activation','outbound_execution','provider_delivery'],checks:[],cleanup:{status:'not_started',tenantIds,leadIds,userIds:[],unresolvedEmails:[]}};
  let phase='baseline',requests=0,writes=false,failure=false,cleanupDeadline=0;const executionDeadline=clock()+180000;
  async function call(origin,path,{method='GET',key=service,token=key,body,status=[200],cleanup=false}={}){
   if(++requests>(cleanup?120:75))throw Error('Request budget exceeded');
@@ -59,7 +59,32 @@ export async function stagingHttpAcceptance(env,{apply=false,workerOrigin=STAGIN
   ensure((await worker(tokens[0],[403])).data?.ok===false);
   const result=(await worker(tokens[2],[200])).data;ensure(result?.ok===true&&Array.isArray(result.owners));const ids=result.owners.map(o=>o.id).sort();ensure(JSON.stringify(ids)===JSON.stringify([users[0].id,users[2].id].sort()));
   const missing=(await call(workerOrigin,'/api/admin/tenants/'+randomUUID()+'/conversation-review',{method:'POST',key:anon,token:tokens[2],body:{operation:'owners'},status:[404]})).data;ensure(missing?.ok===false);
-  evidence.checks.push('worker_real_staff_session_scoped_owners_client_denied_missing_tenant');evidence.status='passed';
+  evidence.checks.push('worker_real_staff_session_scoped_owners_client_denied_missing_tenant');
+  phase='prospect_snapshot_rpc';
+  const fresh=(value,now)=>typeof value==='string'&&Number.isFinite(Date.parse(value))&&now-Date.parse(value)>=-5000&&now-Date.parse(value)<=60000;
+  for(let i=0;i<2;i++){
+   const args={p_tenant:tenantIds[i],p_actor:users[2].id,p_synthetic:true};
+   // Even a client supplying the real administrator ID cannot invoke this service-only RPC.
+   const denied=await rest('rpc/review_prospect_snapshot',{method:'POST',key:anon,token:tokens[i],body:args,status:[401,403]});ensure(denied.data?.code==='42501');
+   const snapshot=(await rest('rpc/review_prospect_snapshot',{method:'POST',body:args})).data;
+   ensure(snapshot&&typeof snapshot==='object'&&!Array.isArray(snapshot)&&snapshot.version===1&&snapshot.status==='complete'&&snapshot.tenantId===tenantIds[i]&&snapshot.synthetic===true&&fresh(snapshot.snapshotAt,clock())&&snapshot.brief===null);
+   ensure(Array.isArray(snapshot.leads)&&snapshot.leadCount===1&&snapshot.leads.length===1&&snapshot.leads[0].id===leadIds[i]&&snapshot.leads[0].email===`lead-${run}-${i}@fixture.invalid`);
+   ensure(Array.isArray(snapshot.observations)&&snapshot.observationCount===0&&snapshot.observations.length===0&&Array.isArray(snapshot.stoppedLeadIds)&&snapshot.stoppedLeadIds.length===0);
+   ensure(Array.isArray(snapshot.owners)&&snapshot.ownerCount===2&&snapshot.owners.length===2&&JSON.stringify(snapshot.owners.map(o=>o.id).sort())===JSON.stringify([users[i].id,users[2].id].sort()));
+  }
+  evidence.checks.push('service_scalar_prospect_receipt_two_tenants_no_evidence_client_rpc_denied');
+  phase='prospect_shortlist_worker';
+  for(let i=0;i<2;i++){
+   const shortlistPath='/api/admin/tenants/'+tenantIds[i]+'/shortlist';
+   ensure((await call(workerOrigin,shortlistPath,{method:'POST',key:anon,token:tokens[i],body:{synthetic:true},status:[403]})).data?.ok===false);
+   const shortlist=(await call(workerOrigin,shortlistPath,{method:'POST',key:anon,token:tokens[2],body:{synthetic:true}})).data;
+   ensure(shortlist?.ok===true&&shortlist.synthetic===true&&shortlist.brief===null&&shortlist.rulesVersion===2&&shortlist.externalCalls===0&&fresh(shortlist.assessedAt,clock())&&fresh(shortlist.snapshotAt,Date.parse(shortlist.assessedAt)));
+   ensure(Array.isArray(shortlist.leads)&&shortlist.leads.length===1&&shortlist.leads[0].id===leadIds[i]&&Array.isArray(shortlist.results)&&shortlist.results.length===1);
+   const assessment=shortlist.results[0];ensure(assessment.leadId===leadIds[i]&&assessment.state==='unknown'&&assessment.score===null&&assessment.contactAllowed===false&&Array.isArray(assessment.reasons)&&assessment.reasons.length===1&&assessment.reasons[0]==='brief_required');
+   ensure(Array.isArray(assessment.products)&&assessment.products.length===4&&new Set(assessment.products.map(p=>p.product)).size===4&&assessment.products.every(p=>['revive','signal','response','events'].includes(p.product)&&p.state==='needs_evidence'&&p.contactAllowed===false&&p.bookingAvailable===false));
+  }
+  ensure((await call(workerOrigin,'/api/admin/tenants/'+randomUUID()+'/shortlist',{method:'POST',key:anon,token:tokens[2],body:{synthetic:true},status:[404]})).data?.ok===false);
+  evidence.checks.push('worker_prospect_shortlist_tenant_scoped_unknown_no_brief_client_denied_missing_tenant');evidence.status='passed';
  }catch{failure=true;evidence.status='failed';evidence.failedPhase=phase;}
  finally{
   if(writes){

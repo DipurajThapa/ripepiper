@@ -54,7 +54,7 @@ it('rehearses two configured clients through isolated Signal discovery, qualific
    if(u.pathname==='/auth/v1/user'){expect(method).toBe('GET');return Response.json({id:actor,email:'pilot-staff@example.invalid'});}
    if(u.pathname.startsWith('/rest/v1/rpc/')){
     expect(method).toBe('POST');const name=u.pathname.split('/').at(-1)!;
-    if(!['save_business_brief','import_review_lead','record_product_event','manage_campaign_plan','revive_setup_context'].includes(name))throw Error('Unexpected RPC');
+    if(!['save_business_brief','import_review_lead','record_product_event','manage_campaign_plan','revive_setup_context','review_prospect_snapshot'].includes(name))throw Error('Unexpected RPC');
     rpcNames.push(name);const b=JSON.parse(String(init.body));
     if(Object.keys(b).some(k=>!/^p_[a-z_]+$/.test(k)))throw Error('Unexpected RPC argument');
     await db.exec('set role service_role');
