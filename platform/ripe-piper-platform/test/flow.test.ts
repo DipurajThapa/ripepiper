@@ -52,6 +52,15 @@ async function fakeSupabase(url: URL, init: RequestInit): Promise<Response> {
     ? { id: "client-1", email: "client@example.invalid" } : { id: "admin-1", email: "admin@ripepiper.com" });
   if (url.pathname.startsWith("/rest/v1/rpc/")) {
     rpcCalls.push(url.pathname);const b=JSON.parse(String(init.body));rpcBodies.push(b);
+    if (url.pathname.endsWith("/issue_agency_opt_out")) { (tables.agency_opt_out_requests ??= []).push({ token_hash:b.p_hash,email:b.p_email }); return Response.json(true); }
+    if (url.pathname.endsWith("/reserve_consultation")) {
+      const lead = tables.leads.find(x => x.id === b.p_lead && x.tenant_id == null && x.status === "qualified" && x.booking_token_hash === b.p_hash && x.email === b.p_email && (x.name ?? null) === b.p_name && !x.booking_token_used_at && x.booking_token_expires_at > new Date().toISOString());
+      if (!lead) return Response.json(false);
+      const row = defaults("meetings", { id: b.p_meeting, google_event_id: b.p_event, lead_id: lead.id, kind: "discovery", start_at: b.p_start, end_at: b.p_end, attendee_email: lead.email, attendee_name: lead.name });
+      if (constraint("meetings", row, tables.meetings ?? [])) return new Response(JSON.stringify({ code: "23P01" }), { status: 409 });
+      (tables.meetings ??= []).push(row); lead.booking_token_used_at = new Date().toISOString();
+      return Response.json(true);
+    }
     // Billing behavior is independently tested against actual PostgreSQL in payment-settlement.test.ts.
     if(url.pathname.endsWith("/reserve_payment_checkout")){
       const payment={id:uuid(),proposal_id:b.p_proposal,quote_id:b.p_quote,provider:b.p_provider,provider_ref:"attempt:"+b.p_attempt,amount:b.p_amount_minor/100,currency:b.p_currency,status:"pending",raw:{checkout:{state:"creating",attemptId:b.p_attempt}}};
@@ -67,7 +76,7 @@ async function fakeSupabase(url: URL, init: RequestInit): Promise<Response> {
       if(!m)return Response.json({version:1,disposition:"rejected",reason:"unregistered_reference"});
       return Response.json({version:1,disposition:"applied",paymentId:m.id,provider:b.p_provider,ref:b.p_ref,proposalId:b.p_proposal,quoteId:b.p_quote,amountMinor:b.p_amount_minor,currency:b.p_currency,status:"paid",tenantId:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",feeId:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",activityId:1,inviteId:null,settledAt:new Date().toISOString()});
     }
-    if(url.pathname.endsWith("/record_product_event"))return Response.json(uuid());
+    if(url.pathname.endsWith("/record_product_event")||url.pathname.endsWith("/record_gmail_product_event"))return Response.json(uuid());
     if(url.pathname.endsWith("/save_business_brief")){const b=JSON.parse(String(init.body));return Response.json(b.p_expected_version+1);}
     if(url.pathname.endsWith("/revive_audience_candidates"))return Response.json([]);
     if(url.pathname.endsWith("/revive_setup_context")){const b=JSON.parse(String(init.body));return Response.json({tenantId:b.p_tenant,setup:null,currentBriefVersion:null,ready:false,missing:["setup_required"],owners:[],brief:null});}
@@ -193,6 +202,40 @@ describe("inquiry to booked call", () => {
     expect((await call("POST", "/api/book", request)).status).toBe(503);
   });
 
+  it("holds a committed reservation after a lost RPC response without creating an event", async () => {
+    const lead: any = await (await call("POST", "/api/lead", { name: "A", email: "lost@first.ae", website: "first.ae", deal_band: 2, consent: true })).json();
+    const request = { lead_id: lead.lead_id, booking_token: lead.booking_token, start: lead.slots[0].start };
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/reserve_consultation")) { await fakeFetch(input, init); throw new Error("lost response"); }
+      return fakeFetch(input, init);
+    });
+    expect((await call("POST", "/api/book", request)).status).toBe(503);
+    expect(tables.meetings).toHaveLength(1);
+    expect((await call("POST", "/api/book", request)).status).toBe(503);
+    expect(calendarEvents).toHaveLength(0);
+  });
+
+  it("does not invite a stale attendee when identity changes before reservation", async () => {
+    const lead: any = await (await call("POST", "/api/lead", { name: "A", email: "stale@first.ae", website: "first.ae", deal_band: 2, consent: true })).json();
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      if (new URL(String(input)).pathname.endsWith("/reserve_consultation")) tables.leads[0].email = "changed@first.ae";
+      return fakeFetch(input, init);
+    });
+    expect((await call("POST", "/api/book", { lead_id: lead.lead_id, booking_token: lead.booking_token, start: lead.slots[0].start })).status).toBe(403);
+    expect(calendarEvents).toHaveLength(0);
+    expect(tables.meetings ?? []).toHaveLength(0);
+  });
+
+  it("allows only one provider creation for concurrent requests using one token", async () => {
+    const lead: any = await (await call("POST", "/api/lead", { name: "A", email: "race@first.ae", website: "first.ae", deal_band: 2, consent: true })).json();
+    const request = { lead_id: lead.lead_id, booking_token: lead.booking_token, start: lead.slots[0].start };
+    const responses = await Promise.all([call("POST", "/api/book", request), call("POST", "/api/book", request)]);
+    expect(responses.filter(r => r.status === 200)).toHaveLength(1);
+    expect(tables.meetings).toHaveLength(1);
+    expect(calendarEvents).toHaveLength(1);
+  });
+
   it("does not expose cancelled, tenant-owned, changed-attendee or expired retry details", async () => {
     const lead: any = await (await call("POST", "/api/lead", { name: "A", email: "a@first.ae", website: "first.ae", deal_band: 2, consent: true })).json();
     const request = { lead_id: lead.lead_id, booking_token: lead.booking_token, start: lead.slots[0].start };
@@ -207,6 +250,63 @@ describe("inquiry to booked call", () => {
     vi.setSystemTime(new Date("2026-11-02T04:16:00Z"));
     expect((await call("POST", "/api/book", request)).status).toBe(403);
     expect(calendarEvents).toHaveLength(1);
+  });
+
+  it("requires an explicit newsletter confirmation POST; link scans do not mutate state", async () => {
+    const token = uuid();
+    const before = rpcCalls.length;
+    const page = await call("GET", `/api/newsletter/confirm?token=${token}`);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain('method="post"');
+    expect(page.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(rpcCalls.length).toBe(before);
+    const post = new Request("https://ripepiper.com/api/newsletter/confirm", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: `token=${token}` });
+    expect((await worker.fetch(post, env, ctx)).status).toBe(200);
+    expect(rpcCalls.filter(x => x.endsWith("/confirm_agency_newsletter"))).toHaveLength(1);
+    expect((await call("GET", "/api/newsletter/confirm?token=bad")).status).toBe(400);
+  });
+
+  it("rejects malformed newsletter UUIDs on GET and POST before any database call", async () => {
+    const badToken = "-".repeat(36), before = rpcCalls.length;
+    expect((await call("GET", `/api/newsletter/confirm?token=${badToken}`)).status).toBe(400);
+    const post = new Request("https://ripepiper.com/api/newsletter/confirm", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: `token=${badToken}` });
+    expect((await worker.fetch(post, env, ctx)).status).toBe(400);
+    expect(rpcCalls.length).toBe(before);
+  });
+
+  it.each([false, {}])("does not report newsletter confirmation for an unconfirmed receipt %j", async (receipt) => {
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      if (new URL(String(input)).pathname.endsWith("/confirm_agency_newsletter")) return Response.json(receipt);
+      return fakeFetch(input, init);
+    });
+    const post = new Request("https://ripepiper.com/api/newsletter/confirm", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: `token=${uuid()}` });
+    const response = await worker.fetch(post, env, ctx);
+    expect(response.status).toBe(400);
+    expect(await response.text()).not.toContain("Your newsletter subscription is confirmed.");
+  });
+
+  it("requests email confirmation without suppressing until the confirmation POST", async () => {
+    const response = await call("POST", "/api/opt-out", {email:"owner@example.invalid",turnstile_token:"test-valid-token"});
+    expect(response.status).toBe(200);
+    expect(tables.suppression ?? []).toHaveLength(0);
+    const message = sentEmails.find(x => x.to === "owner@example.invalid")!.raw;
+    const token = /#confirm=([a-f0-9-]{36})/i.exec(message)![1];
+    expect(tables.agency_opt_out_requests[0].token_hash).not.toBe(token);
+    expect(tables.agency_opt_out_requests[0].token_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect((await call("POST", "/api/opt-out/confirm", {token})).status).toBe(200);
+    expect(rpcCalls.some(x => x.endsWith("/confirm_agency_opt_out"))).toBe(true);
+    expect((await call("POST", "/api/opt-out/confirm", {token:"invalid"})).status).toBe(400);
+  });
+
+  it("does not report confirmation delivery when Gmail acknowledgement fails", async () => {
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      if (new URL(String(input)).pathname.endsWith("/messages/send")) return Response.json({});
+      return fakeFetch(input, init);
+    });
+    const r = await call("POST", "/api/opt-out", {email:"delivery@example.invalid",turnstile_token:"test-valid-token"});
+    expect(r.status).toBe(503);
+    expect((await r.json() as any).ok).toBe(false);
+    expect(tables.suppression ?? []).toHaveLength(0);
   });
 
   it("routes Gmail users to the work-email step and small deals to 'not yet'", async () => {
@@ -585,7 +685,7 @@ describe('tenant read-only inbox integration',()=>{
  const binding=()=>({id:'33333333-3333-4333-8333-333333333333',tenantId:tenant,mailbox:'staff@example.invalid',calendarId:'calendar@example.invalid',purposeReference:'approved-selected-threads',enabled:true,expiresAt:'2026-12-01T00:00:00Z',clientId:'tenant-client',clientSecret:'tenant-secret',refreshToken:'tenant-refresh'});
  const message=()=>({id:'message1',threadId:'thread1',internalDate:String(Date.now()-1000),sizeEstimate:100,labelIds:['INBOX'],payload:{mimeType:'text/plain',headers:[{name:'From',value:'contact@business.example'},{name:'To',value:'staff@example.invalid'},{name:'Subject',value:'Business question'}],body:{data:btoa('Could we discuss the service?')}}});
  function setup(hook?:(url:URL)=>void){
-  tables.tenants=[{id:tenant,status:'active'}];tables.leads=[{id:lead,tenant_id:tenant,email:'contact@business.example'}];env.GOOGLE_TENANT_CONNECTIONS=JSON.stringify([binding()]);
+  tables.tenants=[{id:tenant,status:'active',execution_version:4}];tables.leads=[{id:lead,tenant_id:tenant,email:'contact@business.example'}];env.GOOGLE_TENANT_CONNECTIONS=JSON.stringify([binding()]);
   const calls:URL[]=[];
   vi.stubGlobal('fetch',async(input:RequestInfo|URL,init:RequestInit={})=>{
    const url=new URL(String(input));calls.push(url);hook?.(url);
@@ -609,7 +709,7 @@ describe('tenant read-only inbox integration',()=>{
   const payload={operation:'import',lead_id:lead,message_id:'message1',reviewed:true,digest:preview.message.digest};
   expect((await call('POST',root,{...payload,digest:'changed'},staff)).status).toBe(409);expect(rpcCalls).toHaveLength(0);
   const imported=await call('POST',root,payload,staff);expect(imported.status).toBe(201);expect(await imported.json()).toMatchObject({delivery:'not_sent',reviewState:'human'});
-  expect(rpcBodies[0]).toMatchObject({p_tenant:tenant,p_lead:lead,p_actor:'admin-1',p_synthetic:false,p_rights:'approved-selected-threads',p_reference:'gmail:33333333-3333-4333-8333-333333333333:message1',p_context:{product:'response',kind:'reply',disposition:'human',need:'',authority:'',timing:''}});
+  expect(rpcBodies[0]).toMatchObject({p_expected_version:4,p_connection_expires:'2026-12-01T00:00:00Z',p_tenant:tenant,p_lead:lead,p_actor:'admin-1',p_synthetic:false,p_rights:'approved-selected-threads',p_reference:'gmail:33333333-3333-4333-8333-333333333333:message1',p_context:{product:'response',kind:'reply',disposition:'human',need:'',authority:'',timing:''}});
   expect(JSON.stringify(rpcBodies)).not.toContain('tenant-secret');expect(sentEmails).toHaveLength(0);expect(calendarEvents).toHaveLength(0);
  });
  it('does not read another tenant contact or a synthetic contact from the mailbox',async()=>{

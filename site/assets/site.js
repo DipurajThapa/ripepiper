@@ -206,9 +206,22 @@
       var err = document.getElementById("oErr"), ok = document.getElementById("oOk"), email = val("oEmail").toLowerCase();
       if (!validEmail(email)) { err.textContent = "Please enter a valid email address."; return; }
       err.textContent = "";
-      var done = function () { ok.hidden = false; ok.innerHTML = okBox("task_alt", "Done. " + email.replace(/[<>&"]/g, "") + " will be added to our do-not-contact list within 48 hours."); };
+      var done = function () { ok.hidden = false; ok.textContent = "Check your email and confirm using the link within 24 hours. Your opt-out is not complete until you confirm."; };
       if (!LIVE) { err.textContent = "This form is not enabled. Nothing has been submitted or sent. Please contact hello@ripepiper.com."; return; }
-      post("/api/opt-out", { email: email, reason: document.getElementById("oReason").value }).then(done).catch(function (x) { err.textContent = x.message; });
+      post("/api/opt-out", { email: email }).then(done).catch(function (x) { err.textContent = x.message; });
+    });
+  }
+
+  var confirmBox = document.getElementById("optConfirm"), confirmButton = document.getElementById("optConfirmButton");
+  if (confirmBox && confirmButton && location.hash.indexOf("#confirm=") === 0) {
+    var optToken = location.hash.slice(9);
+    history.replaceState(null, "", location.pathname + location.search);
+    confirmBox.hidden = false;
+    confirmButton.addEventListener("click", function () {
+      var status = document.getElementById("optConfirmStatus");
+      if (!LIVE) { status.textContent = "This form is not enabled. Please contact hello@ripepiper.com."; return; }
+      confirmButton.disabled = true;
+      post("/api/opt-out/confirm", { token: optToken }).then(function () { status.textContent = "Your preference has been recorded for Ripe Piper marketing emails."; }).catch(function (e) { status.textContent = e.message; confirmButton.disabled = false; });
     });
   }
 

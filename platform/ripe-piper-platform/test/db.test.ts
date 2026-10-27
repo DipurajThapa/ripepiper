@@ -30,7 +30,7 @@ async function as(user: string, sql: string) {
 beforeAll(async () => {
   db = new PGlite({ extensions: { btree_gist } });
   await db.exec(STUB);
-  for (const f of ["0001_core.sql", "0002_security_and_views.sql", "20261022082304_tenant_identity_foundation.sql", "20261022083018_consultation_booking_capability.sql", "20261022083835_lead_provenance_and_rights.sql", "20261022084845_campaign_execution_core.sql", "20261022090405_verified_invite_acceptance.sql", "20261022090907_tenant_pause_control.sql", "20261023011051_business_brief_versions.sql", "20261023013112_product_review_workflows.sql", "20261023015506_campaign_message_versions.sql"]) {
+  for (const f of ["0001_core.sql", "0002_security_and_views.sql", "20261022082304_tenant_identity_foundation.sql", "20261022083018_consultation_booking_capability.sql", "20261022083835_lead_provenance_and_rights.sql", "20261022084845_campaign_execution_core.sql", "20261022090405_verified_invite_acceptance.sql", "20261022090907_tenant_pause_control.sql", "20261023011051_business_brief_versions.sql", "20261023013112_product_review_workflows.sql", "20261023015506_campaign_message_versions.sql", "20261027000001_atomic_consultation_reservation.sql", "20261027000002_agency_opt_out.sql"]) {
     await db.exec(readFileSync(new URL(`../supabase/migrations/${f}`, import.meta.url), "utf8"));
   }
   T1 = (await db.query<any>(`insert into tenants (name, slug, country, currency, created_at) values ('Gulf Interiors','gulf-interiors','AE','AED', now() - interval '40 days') returning id`)).rows[0].id;
@@ -479,4 +479,45 @@ it('persists selected Gmail evidence through the existing RPC once and atomicall
   await expect(db.query(sql,[T2,...args.slice(1)])).rejects.toThrow('Lead scope mismatch');
  }finally{await db.exec('reset role');}
  expect(await as(U2,`select * from lead_observations where lead_id='${lead}'`)).toHaveLength(0);
+});
+
+
+describe("atomic consultation reservation", () => {
+  it("rolls back token consumption on overlap, then permits a different slot", async () => {
+    const hash = "c".repeat(64);
+    const lead = (await db.query<any>(`insert into leads (source,email,status,booking_token_hash,booking_token_expires_at) values ('book_form','atomic@example.invalid','qualified',$1,now()+interval '1 day') returning id`, [hash])).rows[0].id;
+    const call = `select public.reserve_consultation($1,$2,$3,$4,$5,$6,$7,$8) as reserved`;
+    const first = crypto.randomUUID(), other = crypto.randomUUID();
+    await db.query(`insert into meetings(id,kind,start_at,end_at,attendee_email) values ($1,'discovery','2035-01-01T10:00Z','2035-01-01T10:15Z','other@example.invalid')`, [other]);
+    await expect(db.query(call,[lead,hash,first,'event-a','2035-01-01T10:00Z','2035-01-01T10:15Z','atomic@example.invalid',null])).rejects.toThrow();
+    expect((await db.query<any>(`select booking_token_used_at from leads where id=$1`,[lead])).rows[0].booking_token_used_at).toBeNull();
+    expect((await db.query<any>(call,[lead,hash,first,'event-a','2035-01-01T11:00Z','2035-01-01T11:15Z','atomic@example.invalid',null])).rows[0].reserved).toBe(true);
+    expect((await db.query<any>(call,[lead,hash,crypto.randomUUID(),'event-b','2035-01-01T12:00Z','2035-01-01T12:15Z','atomic@example.invalid',null])).rows[0].reserved).toBe(false);
+    await expect(as(U1, `select public.reserve_consultation('${lead}','${hash}','${crypto.randomUUID()}','x','2035-01-01T12:00Z','2035-01-01T12:15Z','atomic@example.invalid',null)`)).rejects.toThrow();
+  });
+});
+
+
+describe("verified agency opt-out", () => {
+ it("atomically stops agency records while preserving tenant records and existing objections", async () => {
+  const email='agency-stop@example.invalid', hash='d'.repeat(64);
+  await db.query(`insert into leads(source,email,status) values('book_form',$1,'qualified')`,[email]);
+  await db.query(`insert into leads(tenant_id,source,email,status) values($1,'outreach',$2,'qualified')`,[T1,email]);
+  const token=(await db.query<any>(`select public.request_agency_newsletter($1) token`,[email])).rows[0].token;
+  expect((await db.query<any>(`select public.issue_agency_opt_out($1,$2) ok`,[email,hash])).rows[0].ok).toBe(true);
+  expect((await db.query<any>(`select public.issue_agency_opt_out($1,$2) ok`,[email,'f'.repeat(64)])).rows[0].ok).toBe(false);
+  await db.query(`insert into agency_opt_out_requests(token_hash,email) values($1,$2)`,['f'.repeat(64),email]);
+  expect((await db.query<any>(`select public.confirm_agency_opt_out($1) ok`,[hash])).rows[0].ok).toBe(true);
+  expect((await db.query<any>(`select status from leads where lower(email)=$1 order by tenant_id nulls first`,[email])).rows.map(x=>x.status)).toEqual(['qualified','qualified']);
+  expect((await db.query<any>(`select public.request_agency_newsletter($1) token`,[email])).rows[0].token).toBeNull();
+  expect((await db.query<any>(`select public.confirm_agency_newsletter($1) ok`,[token])).rows[0].ok).toBe(false);
+  expect((await db.query<any>(`select public.confirm_agency_opt_out($1) ok`,['f'.repeat(64)])).rows[0].ok).toBe(false);
+  await db.query(`update agency_opt_out_requests set expires_at=now()-interval '1 second' where token_hash=$1`,[hash]);
+  expect((await db.query<any>(`select public.confirm_agency_opt_out($1) ok`,[hash])).rows[0].ok).toBe(true);
+  await db.query(`insert into agency_opt_out_requests(token_hash,email,expires_at) values($1,$2,now()-interval '1 second')`,['e'.repeat(64),'expired@example.invalid']);
+  expect((await db.query<any>(`select public.confirm_agency_opt_out($1) ok`,['e'.repeat(64)])).rows[0].ok).toBe(false);
+  expect((await db.query(`select * from agency_suppression where email='expired@example.invalid'`)).rows).toHaveLength(0);
+  await expect(as(U1, `select public.confirm_agency_opt_out('${hash}')`)).rejects.toThrow();
+  expect((await db.query(`select * from suppression where email='a@x.ae'`)).rows).toHaveLength(1);
+ });
 });
