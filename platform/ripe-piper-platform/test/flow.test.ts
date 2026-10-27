@@ -3,6 +3,7 @@
 // -> tenant + owner invite + fee + activity log -> idempotent replay.
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import worker from "../src/index";
+import {googleBindingDigest} from "../src/foundation/connections";
 import { syncSheet } from "../src/lib/sheets";
 import { syncAds } from "../src/jobs";
 
@@ -86,7 +87,7 @@ async function fakeSupabase(url: URL, init: RequestInit): Promise<Response> {
       if(!m)return Response.json({version:1,disposition:"rejected",reason:"unregistered_reference"});
       return Response.json({version:1,disposition:"applied",paymentId:m.id,provider:b.p_provider,ref:b.p_ref,proposalId:b.p_proposal,quoteId:b.p_quote,amountMinor:b.p_amount_minor,currency:b.p_currency,status:"paid",tenantId:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",feeId:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",activityId:1,inviteId:null,settledAt:new Date().toISOString()});
     }
-    if(url.pathname.endsWith("/record_product_event")||url.pathname.endsWith("/record_gmail_product_event"))return Response.json(uuid());
+    if(url.pathname.endsWith("/record_product_event")||url.pathname.endsWith("/record_authorized_gmail_event"))return Response.json(uuid());
     if(url.pathname.endsWith("/save_business_brief")){const b=JSON.parse(String(init.body));return Response.json(b.p_expected_version+1);}
     if(url.pathname.endsWith("/revive_audience_candidates"))return Response.json([]);
     if(url.pathname.endsWith("/revive_setup_context")){const b=JSON.parse(String(init.body));return Response.json({tenantId:b.p_tenant,setup:null,currentBriefVersion:null,ready:false,missing:["setup_required"],owners:[],brief:null});}
@@ -150,6 +151,7 @@ async function fakeFetch(input: RequestInfo | URL, init: RequestInit = {}): Prom
 }
 
 const env: any = {
+  MEETING_TRANSCRIPTS_ENABLED: 'true', SHEETS_SYNC_ENABLED: 'true', ADS_SYNC_ENABLED: 'true',
   SUPABASE_URL: "https://test.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "srv", SUPABASE_ANON_KEY: "anon",
   GOOGLE_CLIENT_ID: "id", GOOGLE_CLIENT_SECRET: "s", GOOGLE_REFRESH_TOKEN: "r", GOOGLE_CALENDAR_ID: "primary",
   CRM_SHEET_ID: "sheet", MAIL_FROM: "Ripe Piper <hello@ripepiper.com>", ADMIN_ALERT_EMAIL: "founder@ripepiper.com",
@@ -694,11 +696,15 @@ describe('tenant read-only inbox integration',()=>{
  const root='/api/admin/tenants/'+tenant+'/connection',staff={Authorization:'Bearer test-admin'};
  const binding=()=>({id:'33333333-3333-4333-8333-333333333333',tenantId:tenant,mailbox:'staff@example.invalid',calendarId:'calendar@example.invalid',purposeReference:'approved-selected-threads',enabled:true,expiresAt:'2026-12-01T00:00:00Z',clientId:'tenant-client',clientSecret:'tenant-secret',refreshToken:'tenant-refresh'});
  const message=()=>({id:'message1',threadId:'thread1',internalDate:String(Date.now()-1000),sizeEstimate:100,labelIds:['INBOX'],payload:{mimeType:'text/plain',headers:[{name:'From',value:'contact@business.example'},{name:'To',value:'staff@example.invalid'},{name:'Subject',value:'Business question'}],body:{data:btoa('Could we discuss the service?')}}});
- function setup(hook?:(url:URL)=>void){
+ async function setup(hook?:(url:URL)=>void){
   tables.tenants=[{id:tenant,status:'active',execution_version:4}];tables.leads=[{id:lead,tenant_id:tenant,email:'contact@business.example'}];env.GOOGLE_TENANT_CONNECTIONS=JSON.stringify([binding()]);
+  tables.tenant_google_authority=[{tenant_id:tenant,connection_id:binding().id,version:1,binding_hash:await googleBindingDigest(binding()),mailbox:binding().mailbox,calendar_id:binding().calendarId,purpose_reference:binding().purposeReference,expires_at:binding().expiresAt,verified_at:new Date().toISOString(),verified_by:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',revoked:false}];
   const calls:URL[]=[];
   vi.stubGlobal('fetch',async(input:RequestInfo|URL,init:RequestInit={})=>{
    const url=new URL(String(input));calls.push(url);hook?.(url);
+   if(url.pathname.endsWith('/tenant_google_probe_current')||url.pathname.endsWith('/tenant_google_authority_current')){
+    const b=JSON.parse(String(init.body)),a=tables.tenant_google_authority[0];return Response.json(tables.tenants[0].status==='active'&&tables.tenants[0].execution_version===b.p_execution_version&&a.version===b.p_authority_version&&!a.revoked&&(!b.p_binding_hash||a.binding_hash===b.p_binding_hash));
+   }
    if(url.pathname.endsWith('/users/me/profile'))return Response.json({emailAddress:'staff@example.invalid'});
    if(url.pathname.includes('/calendarList/'))return Response.json({id:'calendar@example.invalid',accessRole:'reader'});
    if(url.pathname.endsWith('/users/me/messages'))return Response.json({messages:[{id:'message1'}]});
@@ -707,13 +713,13 @@ describe('tenant read-only inbox integration',()=>{
   });return calls;
  }
  it('requires staff and an explicit active binding, without falling back to founder credentials',async()=>{
-  const calls=setup();expect((await call('POST',root,{operation:'check'})).status).toBe(401);expect((await call('POST',root,{operation:'check'},{Authorization:'Bearer client-token'})).status).toBe(403);
+  const calls=await setup();expect((await call('POST',root,{operation:'check'})).status).toBe(401);expect((await call('POST',root,{operation:'check'},{Authorization:'Bearer client-token'})).status).toBe(403);
   delete env.GOOGLE_TENANT_CONNECTIONS;
-  expect(await (await call('POST',root,{operation:'check'},staff)).json()).toMatchObject({state:'not_connected',canRead:false,canSend:false});
+  expect((await call('POST',root,{operation:'check'},staff)).status).toBe(409);
   expect(calls.some(u=>u.host.endsWith('googleapis.com'))).toBe(false);
  });
  it('checks identity, lists metadata, previews and imports a reviewed source into the existing response RPC',async()=>{
-  setup();expect(await (await call('POST',root,{operation:'check'},staff)).json()).toMatchObject({state:'identity_verified',canSend:false});
+  await setup();expect(await (await call('POST',root,{operation:'check'},staff)).json()).toMatchObject({state:'identity_verified',canSend:false});
   const listed:any=await (await call('POST',root,{operation:'list',lead_id:lead},staff)).json();expect(listed.messages.items[0].id).toBe('message1');expect(listed.messages.items[0]).not.toHaveProperty('excerpt');
   const preview:any=await (await call('POST',root,{operation:'preview',lead_id:lead,message_id:'message1'},staff)).json();expect(preview.message.excerpt).toContain('Could we discuss');expect(rpcCalls).toHaveLength(0);
   const payload={operation:'import',lead_id:lead,message_id:'message1',reviewed:true,digest:preview.message.digest};
@@ -723,15 +729,15 @@ describe('tenant read-only inbox integration',()=>{
   expect(JSON.stringify(rpcBodies)).not.toContain('tenant-secret');expect(sentEmails).toHaveLength(0);expect(calendarEvents).toHaveLength(0);
  });
  it('does not read another tenant contact or a synthetic contact from the mailbox',async()=>{
-  const calls=setup();tables.leads[0].tenant_id='44444444-4444-4444-8444-444444444444';expect((await call('POST',root,{operation:'list',lead_id:lead},staff)).status).toBe(404);
+  const calls=await setup();tables.leads[0].tenant_id='44444444-4444-4444-8444-444444444444';expect((await call('POST',root,{operation:'list',lead_id:lead},staff)).status).toBe(404);
   tables.leads[0].tenant_id=tenant;tables.leads[0].email='fixture@example.invalid';expect((await call('POST',root,{operation:'list',lead_id:lead},staff)).status).toBe(400);expect(calls.some(u=>u.pathname.endsWith('/messages'))).toBe(false);
  });
  it.each(['paused','revoked'])('discards a provider result when connection becomes %s',async mode=>{
-  setup(url=>{if(url.searchParams.get('format')==='full'){if(mode==='paused')tables.tenants[0].status='paused';else env.GOOGLE_TENANT_CONNECTIONS=JSON.stringify([{...binding(),enabled:false}]);}});
+  await setup(url=>{if(url.searchParams.get('format')==='full'){if(mode==='paused')tables.tenants[0].status='paused';else env.GOOGLE_TENANT_CONNECTIONS=JSON.stringify([{...binding(),enabled:false}]);}});
   const response=await call('POST',root,{operation:'preview',lead_id:lead,message_id:'message1'},staff);expect(response.status).toBe(409);expect(JSON.stringify(await response.json())).not.toContain('Could we discuss');expect(rpcCalls).toHaveLength(0);
  });
  it('blocks a refresh token connected to the wrong mailbox before reading any messages',async()=>{
-  setup();env.GOOGLE_TENANT_CONNECTIONS=JSON.stringify([{...binding(),mailbox:'other@example.invalid'}]);
+  await setup();env.GOOGLE_TENANT_CONNECTIONS=JSON.stringify([{...binding(),mailbox:'other@example.invalid'}]);
   const response=await call('POST',root,{operation:'list',lead_id:lead},staff);expect(response.status).toBe(409);expect(rpcCalls).toHaveLength(0);
  });
 });

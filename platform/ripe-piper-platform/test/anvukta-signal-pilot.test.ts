@@ -189,15 +189,16 @@ it('rehearses two configured clients through isolated Signal discovery, qualific
   await read('product-event',{...reply,reference:'northstar-unsubscribe-v1',excerpt:'Fictional prospect requests no further contact from Northstar.',context:{...reply.context,disposition:'opt_out'}},201,otherTenant);
   const stopped=await read('shortlist',{synthetic:true},200,otherTenant);
   expect(stopped.results[0]).toMatchObject({state:'excluded',contactAllowed:false});expect(stopped.results[0].reasons).toContain('suppressed');
-  await read('campaigns',proposalRequest(imported.lead_id,imported.observation_id),409);
-  const globallyStopped=await read('shortlist',{synthetic:true});
-  expect(globallyStopped.results.find((r:any)=>r.leadId===imported.lead_id)).toMatchObject({state:'excluded',contactAllowed:false});
-  expect(globallyStopped.results.find((r:any)=>r.leadId===imported.lead_id).reasons).toContain('suppressed');
-  expect(JSON.stringify(globallyStopped)).not.toContain(otherTenant);expect(JSON.stringify(globallyStopped)).not.toContain('northstar-thread');
-  expect(JSON.stringify(globallyStopped)).not.toContain('site safety onboarding');
+  // New objections are tenant-scoped: the other client retains its independent review.
+  expect((await read('campaigns',proposalRequest(imported.lead_id,imported.observation_id))).proposal.claimSources.canonicalNeed).toEqual([fact.id]);
+  const otherClientAfterStop=await read('shortlist',{synthetic:true});
+  expect(otherClientAfterStop.results.find((r:any)=>r.leadId===imported.lead_id)).toMatchObject({state:'candidate',fitPoints:90,contactAllowed:false});
+  expect(otherClientAfterStop.results.find((r:any)=>r.leadId===imported.lead_id).reasons).not.toContain('suppressed');
+  expect(JSON.stringify(otherClientAfterStop)).not.toContain(otherTenant);expect(JSON.stringify(otherClientAfterStop)).not.toContain('northstar-thread');
+  expect(JSON.stringify(otherClientAfterStop)).not.toContain('site safety onboarding');
   expect(await q('select lead_id from lead_suppression where tenant_id=$1',[tenant])).toHaveLength(0);
   expect(await q('select lead_id from lead_suppression where tenant_id=$1',[otherTenant])).toEqual([{lead_id:otherImport.lead_id}]);
-  expect(await q('select email from suppression where email=$1',[contact])).toEqual([{email:contact}]);
+  expect(await q('select email from suppression where email=$1',[contact])).toEqual([]);
   for(const client of [tenant,otherTenant]){
    expect(await q('select id from contact_rights where tenant_id=$1',[client])).toHaveLength(0);
    expect(await q('select id from outbound_actions where tenant_id=$1',[client])).toHaveLength(0);

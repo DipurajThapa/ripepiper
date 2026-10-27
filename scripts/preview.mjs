@@ -27,7 +27,7 @@ async function buildSitePreview(destination, configuration, policy, notice) {
   }
   await walk(destination);
   await writeFile(resolve(destination, 'robots.txt'), 'User-agent: *\nDisallow: /\n');
-  await writeFile(resolve(destination, '_headers'), `/*\n  X-Robots-Tag: noindex, nofollow\n  Content-Security-Policy: ${policy}; frame-ancestors 'none'\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: no-referrer\n/assets/config.js\n  Cache-Control: no-store\n`);
+  await writeFile(resolve(destination, '_headers'), `/*\n  X-Robots-Tag: noindex, nofollow\n  Content-Security-Policy: ${policy}; frame-ancestors 'none'\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: no-referrer\n/assets/config.js\n  Cache-Control: no-store\n/unsubscribe.html\n  Cache-Control: no-store\n  Referrer-Policy: no-referrer\n/unsubscribe\n  Cache-Control: no-store\n  Referrer-Policy: no-referrer\n`);
   return destination;
 }
 

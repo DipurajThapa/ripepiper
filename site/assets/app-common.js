@@ -84,13 +84,13 @@
   };
 
   /** Calls the Ripe Piper API with the signed-in user's token. */
-  RP.api = function (path, body) {
+  RP.api = function (path, body, method) {
     if (RP.demo) return Promise.reject(new Error("Sample mode: connect Supabase and deploy the API to use this action."));
     return RP.sb.auth.getSession().then(function (r) {
       return fetch((cfg.apiBase || "") + path, {
-        method: "POST",
+        method: method === "GET" ? "GET" : "POST",
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + r.data.session.access_token },
-        body: JSON.stringify(body || {})
+        body: method === "GET" ? undefined : JSON.stringify(body || {})
       }).then(function (res) { return res.json().then(function (j) { if (!res.ok || j.ok === false) throw new Error(j.error || "Request failed."); return j; }); });
     });
   };

@@ -31,6 +31,8 @@ export async function googleToken(env: Env): Promise<string> {
     try { j = await res.json(); } catch { throw new GoogleError(0, "Invalid Google token response"); }
     if (typeof j?.access_token !== "string" || !j.access_token || !Number.isFinite(j.expires_in) || j.expires_in <= 60)
       throw new GoogleError(0, "Invalid Google token response");
+    if (tokens.get(env) !== current || current.credentials !== JSON.stringify([env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, env.GOOGLE_REFRESH_TOKEN]))
+      throw new GoogleError(0, "Google credentials changed during refresh");
     current.token = j.access_token; current.exp = Date.now() + j.expires_in * 1000;
     return current.token!;
   })();
@@ -210,13 +212,13 @@ export async function meetTranscript(env: Env, meetCode: string): Promise<{ stat
 }
 
 // ------------------------------------------------------------------ Tenant read-only inbox pilot
-export async function googleMailbox(env: Env): Promise<string> {
-  const profile=await g<any>(env,'https://gmail.googleapis.com/gmail/v1/users/me/profile');
+export async function googleMailbox(env: Env, beforeRequest?:()=>Promise<void>): Promise<string> {
+  const profile=await g<any>(env,'https://gmail.googleapis.com/gmail/v1/users/me/profile',{},beforeRequest);
   if(typeof profile?.emailAddress!=='string'||!profile.emailAddress.includes('@'))throw new GoogleError(0,'Invalid mailbox identity');
   return profile.emailAddress;
 }
-export async function googleCalendarIdentity(env: Env) {
-  const calendar=await g<any>(env,`https://www.googleapis.com/calendar/v3/users/me/calendarList/${encodeURIComponent(env.GOOGLE_CALENDAR_ID)}`);
+export async function googleCalendarIdentity(env: Env, beforeRequest?:()=>Promise<void>) {
+  const calendar=await g<any>(env,`https://www.googleapis.com/calendar/v3/users/me/calendarList/${encodeURIComponent(env.GOOGLE_CALENDAR_ID)}`,{},beforeRequest);
   if(typeof calendar?.id!=='string'||!['reader','writer','owner'].includes(calendar.accessRole)||calendar.deleted)throw new GoogleError(0,'Calendar read access unavailable');
   return {id:calendar.id as string,role:calendar.accessRole as string};
 }
@@ -236,26 +238,26 @@ function inboundMetadata(message:any,id:string,sender:string,mailbox:string) {
     !Number.isFinite(date)||date>Date.now()||date<Date.now()-30*86400000)throw new GoogleError(0,'Message identity or date mismatch');
   return {id,threadId:message.threadId as string,subject:typeof subject[0]==='string'?subject[0].slice(0,300):'(no subject)',observedAt:new Date(date).toISOString()};
 }
-export async function listInboundMessages(env:Env,sender:string,mailbox:string) {
+export async function listInboundMessages(env:Env,sender:string,mailbox:string,beforeRequest?:()=>Promise<void>) {
   const q=`from:(${sender}) to:(${mailbox}) newer_than:30d -in:sent -in:drafts -in:spam -in:trash`;
-  const result=await g<any>(env,`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10&q=${encodeURIComponent(q)}`);
+  const result=await g<any>(env,`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10&q=${encodeURIComponent(q)}`,{},beforeRequest);
   if(!result||typeof result!=='object'||Array.isArray(result)||(result.messages!==undefined&&!Array.isArray(result.messages)))throw new GoogleError(0,'Invalid message list');
   if((result?.messages?.length??0)>10)throw new GoogleError(0,'Message list exceeds limit');
   const messages=[];let excluded=0;
   for(const item of result?.messages??[]){
     if(!/^[a-zA-Z0-9_-]{1,128}$/.test(item.id??''))throw new GoogleError(0,'Invalid message identifier');
-    const message=await g<any>(env,`https://gmail.googleapis.com/gmail/v1/users/me/messages/${item.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject`);
+    const message=await g<any>(env,`https://gmail.googleapis.com/gmail/v1/users/me/messages/${item.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject`,{},beforeRequest);
     try{messages.push(inboundMetadata(message,item.id,sender,mailbox));}catch{excluded++;}
   }
   return {items:messages,moreAvailable:!!result?.nextPageToken,excluded};
 }
-export async function readInboundMessage(env:Env,id:string,sender:string,mailbox:string){
+export async function readInboundMessage(env:Env,id:string,sender:string,mailbox:string,beforeRequest?:()=>Promise<void>){
   if(!/^[a-zA-Z0-9_-]{1,128}$/.test(id))throw new GoogleError(0,'Invalid message identifier');
   // Verify envelope metadata before fetching any body, then recheck the full response.
-  const envelope=await g<any>(env,`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject`);
+  const envelope=await g<any>(env,`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject`,{},beforeRequest);
   inboundMetadata(envelope,id,sender,mailbox);
   if(!Number.isFinite(envelope.sizeEstimate)||envelope.sizeEstimate>256000)throw new GoogleError(0,'Message exceeds review limit');
-  const message=await g<any>(env,`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`);
+  const message=await g<any>(env,`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`,{},beforeRequest);
   const meta=inboundMetadata(message,id,sender,mailbox);
   if(!Number.isFinite(message.sizeEstimate)||message.sizeEstimate>256000)throw new GoogleError(0,'Message exceeds review limit');
   const texts:string[]=[];let parts=0;

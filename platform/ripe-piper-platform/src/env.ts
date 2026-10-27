@@ -43,6 +43,9 @@ export interface Env {
   WHATSAPP_TOKEN?: string;
   WHATSAPP_PHONE_ID?: string;
 
+  MEETING_TRANSCRIPTS_ENABLED?: string; // exact true only; default off
+  SHEETS_SYNC_ENABLED?: string; // exact true only; uncertain append recovery remains pending
+  ADS_SYNC_ENABLED?: string; // exact true only; default off
   CONSULTATION_REMINDERS_ENABLED?: string; // default off; owner-authorized provider release only
   TURNSTILE_SECRET?: string;
   SYNTHETIC_SINK_ENABLED?: string;    // explicit development-only action test; never real delivery

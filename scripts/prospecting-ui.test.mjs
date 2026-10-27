@@ -142,3 +142,27 @@ test('outcome form carries the selected conversation or event reference',async()
   assert.equal(calls.find(c=>c.path.endsWith('/product-event')).body.context[product==='response'?'threadRef':'eventRef'],'existing-reference');
  }
 });
+
+test('durable inbox authorization requires loaded version and explicit review, then supports revoke',async()=>{
+ const calls=[];let version=0;
+ const ui=mount(async(path,body)=>{calls.push({path,body});if(path.endsWith('/shortlist'))return response();if(body.operation==='status')return{authorityVersion:version,canRead:false,canSend:false};if(body.operation==='register'||body.operation==='revoke')return{version:1,status:body.operation==='register'?'verified':'revoked',authorityVersion:++version};throw Error('Unexpected operation');});
+ ui.select('tenant-a');await tick();const n=ui.nodes;
+ n.inboxRegister.onclick();n.inboxRevoke.onclick();assert.equal(calls.length,1);
+ n.inboxAuthorityStatus.onclick();await tick();n.inboxRegister.onclick();assert.equal(calls.filter(c=>c.body.operation==='register').length,0);
+ n.inboxAuthorityReviewed.checked=true;n.inboxRegister.onclick();await tick();
+ assert.deepEqual(JSON.parse(JSON.stringify(calls.find(c=>c.body.operation==='register').body)),{operation:'register',reviewed:true,expectedVersion:0});
+ assert.match(n.inboxAuthority.textContent,/version 1/);assert.equal(n.inboxAuthorityReviewed.checked,false);
+ n.inboxExcerpt.textContent='private preview';n.inboxRevoke.onclick();await tick();
+ assert.equal(calls.find(c=>c.body.operation==='revoke').body.expectedVersion,1);assert.equal(n.inboxExcerpt.textContent,'');assert.match(n.inboxAuthority.textContent,/revoked at version 2/);
+});
+test('late authorization status cannot grant a new tenant a stale version',async()=>{
+ let finish;const calls=[];
+ const ui=mount(async(path,body)=>{calls.push({path,body});return body.operation==='status'?new Promise(r=>finish=r):response();});
+ ui.select('tenant-a');await tick();ui.nodes.inboxAuthorityStatus.onclick();ui.select('tenant-b');await tick();finish({authorityVersion:99,canRead:true,canSend:false});await tick();
+ assert.doesNotMatch(ui.nodes.inboxAuthority.textContent,/99|reading authorized/);ui.nodes.inboxAuthorityReviewed.checked=true;ui.nodes.inboxRegister.onclick();assert.equal(calls.filter(c=>c.body.operation==='register').length,0);
+});
+test('malformed authorization acknowledgement preserves review and requires status reconciliation',async()=>{
+ const ui=mount(async(path,body)=>path.endsWith('/shortlist')?response():body.operation==='status'?{authorityVersion:0,canRead:false,canSend:false}:{version:1,status:'verified',authorityVersion:7});
+ ui.select('tenant-a');await tick();ui.nodes.inboxAuthorityStatus.onclick();await tick();ui.nodes.inboxAuthorityReviewed.checked=true;ui.nodes.inboxRegister.onclick();await tick();
+ assert.match(ui.nodes.inboxStatus.textContent,/uncertain/);assert.equal(ui.nodes.inboxAuthorityReviewed.checked,true);assert.doesNotMatch(ui.nodes.inboxAuthority.textContent,/version 7/);
+});

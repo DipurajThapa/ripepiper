@@ -69,6 +69,7 @@ jobs:
       - name: Rendered product workflow checks
         timeout-minutes: 2
         run: |
+          node scripts/tenant-unsubscribe-browser-check.mjs
           node scripts/product-browser-check.mjs
           node scripts/signal-browser-check.mjs
 

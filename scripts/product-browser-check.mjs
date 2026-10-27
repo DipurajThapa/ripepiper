@@ -5,7 +5,7 @@ import {readFile} from 'node:fs/promises';
 import assert from 'node:assert/strict';
 const require=createRequire(new URL('../platform/ripe-piper-platform/package.json',import.meta.url)),{chromium}=require('playwright');
 const root=new URL('../',import.meta.url);
-const browser=await chromium.launch({headless:true});
+const browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_EXECUTABLE_PATH?{executablePath:process.env.PLAYWRIGHT_EXECUTABLE_PATH}:{})});
 const page=await browser.newPage({viewport:{width:1280,height:900}});
 const failures=[];page.on('pageerror',e=>failures.push(e.message));
 await page.route('**/*',route=>route.abort());
@@ -45,7 +45,10 @@ try {
     if(body.operation==='owners')return {owners:[{id:'22222222-2222-4222-8222-222222222222',label:'Fixture owner'}]};
     window.fixtureConversationReview={...window.fixtureConversationReview,version:1,ownerId:body.owner_id,ownerLabel:'Fixture owner',state:body.state};return {ok:true,delivery:'not_sent',sequences:'held'};
    }
+   if(path.endsWith('/unsubscribe'))return body.operation==='issue_link'?{version:1,status:'issued',url:'https://fixture.example.invalid/unsubscribe.html#token='+'a'.repeat(64),expiresAt:'2027-01-01T00:00:00Z',delivery:'not_sent'}:{version:1,status:'stopped',tenantId:'tenant-fixture',leadId:'business-fixture',alreadyStopped:false};
    if(path.endsWith('/connection')){
+    if(body.operation==='status')return {authorityVersion:window.fixtureAuthorityVersion||0,canRead:false,canSend:false};
+    if(body.operation==='register'||body.operation==='revoke'){window.fixtureAuthorityVersion=(window.fixtureAuthorityVersion||0)+1;return {version:1,status:body.operation==='register'?'verified':'revoked',authorityVersion:window.fixtureAuthorityVersion};}
     if(body.operation==='check')return {state:'identity_verified',mailbox:'staff@example.invalid',calendarId:'calendar@example.invalid'};
     if(body.operation==='list')return {messages:{items:[{id:'message1',subject:'Fixture question',observedAt:'2026-10-22T12:00:00Z'}],moreAvailable:false,excluded:0}};
     if(body.operation==='preview')return {message:{excerpt:'<script>untrusted message</script>',digest:'reviewed-source',truncated:false}};
@@ -67,6 +70,7 @@ try {
   }};
  });
  await page.addScriptTag({content:await readFile(new URL('site/assets/contact-import.js',root),'utf8')});
+ await page.addScriptTag({content:await readFile(new URL('site/assets/tenant-stops-admin.js',root),'utf8')});
  await page.addScriptTag({content:await readFile(new URL('site/assets/prospecting-admin.js',root),'utf8')});
  await page.addScriptTag({content:await readFile(new URL('site/assets/revive-setup-admin.js',root),'utf8')});
  await page.addScriptTag({content:await readFile(new URL('site/assets/campaigns-admin.js',root),'utf8')});
@@ -215,7 +219,14 @@ try {
  await page.selectOption('#prospectMode','business');
  await page.waitForFunction(()=>document.getElementById('inboxLead').value==='business-fixture');
  await page.getByText('Read selected inbox messages',{exact:true}).click();
- await page.getByRole('button',{name:'Check inbox and calendar connection',exact:true}).click();
+ await page.getByRole('button',{name:'Refresh connection authorization',exact:true}).click();
+ await page.waitForFunction(()=>document.getElementById('inboxAuthority').textContent.includes('version 0'));
+ await page.getByRole('button',{name:'Verify and authorize reading',exact:true}).click();
+ assert.equal(await page.evaluate(()=>window.fixtureCalls.some(c=>c.path.endsWith('/connection')&&c.body.operation==='register')),false);
+ await page.check('#inboxAuthorityReviewed');await page.getByRole('button',{name:'Verify and authorize reading',exact:true}).click();
+ await page.waitForFunction(()=>document.getElementById('inboxAuthority').textContent.includes('version 1'));
+ assert.equal(await page.evaluate(()=>window.fixtureCalls.find(c=>c.path.endsWith('/connection')&&c.body.operation==='register').body.expectedVersion),0);
+ await page.getByRole('button',{name:'Check inbox and calendar identity only',exact:true}).click();
  await page.waitForFunction(()=>document.getElementById('inboxStatus').textContent.includes('Account identity verified'));
  await page.getByRole('button',{name:'Find recent messages for this contact',exact:true}).click();
  await page.waitForFunction(()=>document.getElementById('inboxMessage').value==='message1');
@@ -229,6 +240,15 @@ try {
  await page.waitForFunction(()=>document.getElementById('inboxStatus').textContent.includes('no reply was sent'));
  assert.equal(await page.evaluate(()=>window.fixtureCalls.find(c=>c.body.operation==='import').body.digest),'reviewed-source');
  for(const width of [1280,390]){await page.setViewportSize({width,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2),false,`Inbox overflow at ${width}`);}
+ await page.getByRole('button',{name:'Refresh connection authorization',exact:true}).click();
+ await page.waitForFunction(()=>document.getElementById('inboxAuthority').textContent.includes('version 1'));
+ await page.getByRole('button',{name:'Revoke reading authorization',exact:true}).click();
+ await page.waitForFunction(()=>document.getElementById('inboxAuthority').textContent.includes('revoked at version 2'));
+ await page.getByText('Stop this client’s outreach',{exact:true}).click();
+ await page.getByRole('button',{name:'Create confirmation link',exact:true}).click();
+ await page.waitForFunction(()=>document.getElementById('tenantStopLink').value.includes('#token='));
+ assert.match(await page.locator('#tenantStopStatus').textContent(),/not sent/i);
+ assert.equal(await page.evaluate(()=>window.fixtureCalls.find(c=>c.body.operation==='issue_link').path),'/api/admin/tenants/tenant-fixture/leads/business-fixture/unsubscribe');
  // Exercise the real meeting admin UI and shared helpers with a synthetic database/provider boundary.
  await page.goto('https://fixture.example.invalid/');
  await page.addStyleTag({content:await readFile(new URL('site/assets/site.css',root),'utf8')});
@@ -243,8 +263,9 @@ try {
    const result=()=>({data:table==='profiles'?{is_admin:true}:table==='tenants'?[{...window.fixtureTenant}]:table==='business_briefs'?[{version:1}]:table==='meetings'?[{...window.fixtureMeeting}]:table==='proposals'?[window.fixtureProposal]:table==='payments'?[window.fixturePayment]:[]});
    const q={select:()=>q,is:()=>q,order:()=>q,limit:()=>q,eq:()=>q,single:()=>q,then:(resolve,reject)=>Promise.resolve(result()).then(resolve,reject)};return q;
   }};
-  RP.api=async(path,body)=>{
-   window.reconcileCalls.push({path,body});
+  RP.api=async(path,body,method)=>{
+   window.reconcileCalls.push({path,body,method});
+   if(path.endsWith('/reminder-receipts'))return {version:1,meetingId:window.fixtureMeeting.id,canRetry:false,receipts:[{window:'24h',state:'review',leaseUntil:'2026-01-01T00:00:00Z',acknowledgedAt:null,providerMessageId:null,requiresReview:true,delivery:'unknown'},{window:'1h',state:'absent',leaseUntil:null,acknowledgedAt:null,providerMessageId:null,requiresReview:false,delivery:'not_sent'}]};
    if(path.endsWith('/activate')){window.fixtureTenant.status='active';window.fixtureTenant.execution_version=body.expected_version+1;return {ok:true,tenant:{id:window.fixtureTenant.id,status:'active',version:window.fixtureTenant.execution_version,briefVersion:1},delivery:'not_sent'};}
    if(path.endsWith('/attendance')){window.fixtureMeeting.status=body.classification==='unknown'?'attendance_unknown':body.classification;window.fixtureMeeting.attendance_review_version=body.expected_version+1;window.fixtureMeeting.attendance_review={state:'reviewed',classification:body.classification,evidenceReference:body.evidence_reference,actor:'fixture-staff',reviewedAt:new Date().toISOString()};return {ok:true,review:{meetingId:window.fixtureMeeting.id,version:body.expected_version+1,classification:body.classification,replayed:false},delivery:'not_sent'};}
    if(path.endsWith('/receipt'))return {payment_id:window.fixturePayment.id,proposal_id:window.fixtureProposal.id,quote_id:null,status:'paid',settled_at:'2026-10-23T12:00:00Z',checkout_phase:'bound',review_disposition:null,notification_disposition:{state:'human_review_required',key:'billing:'+window.fixturePayment.id,client_purpose:'advance_received',client_recipient_reference:'proposal:'+window.fixtureProposal.id,admin_recipient_reference:'configured_admin',automatic_delivery:false}};
@@ -267,6 +288,10 @@ try {
  await page.getByRole('button',{name:'Check calendar confirmation',exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('#meetingDetail a')?.href==='https://meet.google.com/abc-defg-hij');
  assert.equal(await page.evaluate(()=>window.reconcileCalls.length),2);
+ await page.getByRole('button',{name:'Inspect reminder receipts',exact:true}).click();
+ await page.waitForFunction(()=>document.getElementById('reminderInspection').textContent.includes('needs operator review'));
+ assert.match(await page.locator('#reminderInspection').textContent(),/does not retry or send/);
+ assert.equal(await page.evaluate(()=>window.reconcileCalls.find(c=>c.path.endsWith('/reminder-receipts')).method),'GET');
  await page.evaluate(()=>{window.fixtureMeeting.start_at='2026-01-01T10:00:00Z';window.fixtureMeeting.end_at='2026-01-01T10:15:00Z';window.fixtureMeeting.status='attendance_unknown';window.fixtureMeeting.attendance_review_version=2;window.fixtureMeeting.reminder_receipts={'24h':{state:'review',reason:'delivery_uncertain'}};});
  await page.getByRole('button',{name:'Check calendar confirmation',exact:true}).click();
  await page.waitForSelector('#attendanceReviewForm');assert.match(await page.locator('#meetingDetail').textContent(),/Attendance is unverified/);assert.match(await page.locator('#meetingDetail').textContent(),/delivery_uncertain/);

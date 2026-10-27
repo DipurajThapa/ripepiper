@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 const require=createRequire(new URL('../platform/ripe-piper-platform/package.json',import.meta.url));
 const {chromium}=require('playwright'),root=new URL('../',import.meta.url),origin='https://crm.example.invalid';
 const marked=await readFile(new URL('../marked.min.js',pathToFileURL(require.resolve('marked'))),'utf8');
-const browser=await chromium.launch({headless:true});
+const browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_EXECUTABLE_PATH?{executablePath:process.env.PLAYWRIGHT_EXECUTABLE_PATH}:{})});
 const tenant='21111111-1111-4111-8111-111111111111',actor='22222222-2222-4222-8222-222222222222';
 function rows(){const now=Date.now();return {
  leads:[{id:'l1',tenant_id:null,name:'Alice Inquirer',email:'alice@example.invalid',company:'Alpha Construction',status:'new',created_at:new Date(now-3600000).toISOString(),package_interest:'revive',deal_band:1},{id:'l2',tenant_id:null,name:'Beatrice Buyer',email:'beatrice@example.invalid',company:'Beta Systems',status:'qualified',created_at:new Date(now-86400000).toISOString(),package_interest:'signal',deal_band:2},{id:'l3',tenant_id:null,name:'Carma Contact',email:'carma@example.invalid',company:'Gamma Studio',status:'not_fit',created_at:new Date(now-172800000).toISOString(),package_interest:'unsure',deal_band:0},{id:'private-prospect',tenant_id:tenant,name:'TENANT PROSPECT MUST NOT APPEAR',email:'private@example.invalid',company:'Tenant prospect',status:'new',created_at:new Date(now).toISOString()}],

@@ -1,3 +1,5 @@
+import { inspectReminderReceipts } from './foundation/reminder-receipts';
+import { tenantUnsubscribe, confirmTenantUnsubscribe } from './foundation/tenant-unsubscribe';
 import { reviewConsultation } from './foundation/consultation-review';
 import type { Env } from "./env";
 import { Db, DbError } from "./lib/db";
@@ -26,6 +28,9 @@ import { signalSource } from "./foundation/signal-sources";
 
 type Handler = (req: Request, env: Env, ctx: ExecutionContext, p: string[]) => Promise<Response>;
 const routes: [string, RegExp, Handler][] = [
+  ["POST", /^\/api\/tenant-unsubscribe\/confirm$/, (r,e)=>confirmTenantUnsubscribe(r,e)],
+  ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/leads\/([0-9a-f-]{36})\/unsubscribe$/, (r,e,_c,p)=>tenantUnsubscribe(r,e,p[0],p[1])],
+  ["GET", /^\/api\/admin\/meetings\/([0-9a-f-]{36})\/reminder-receipts$/, (r,e,_c,p)=>inspectReminderReceipts(r,e,p[0])],
   ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/revive-setup$/, (r,e,_c,p)=>reviveSetup(r,e,p[0])],
   ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/activate$/, (r,e,_c,p)=>activateTenant(r,e,p[0])],
   ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/revive-review$/, (r,e,_c,p)=>reviveReview(r,e,p[0])],
