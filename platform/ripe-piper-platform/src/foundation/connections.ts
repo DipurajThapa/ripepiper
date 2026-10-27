@@ -35,7 +35,7 @@ export function tenantGoogleConnection(env:Env,tenantId:string){
 export async function tenantConnection(req:Request,env:Env,tenantId:string){
  const user=await requireUser(req,env,true),b=await readJson(req),db=new Db(env);
  if(!['status','check','list','preview','import'].includes(b.operation))return bad('Unknown connection operation.');
- const tenant=await db.one<any>('tenants',`id=eq.${tenantId}&select=id,status`);
+ const tenant=await db.one<any>('tenants',`id=eq.${tenantId}&select=id,status,execution_version`);
  if(!tenant)return bad('Client not found.',404);
  let binding;
  try{binding=tenantGoogleConnection(env,tenantId);}catch{return bad('The tenant connection configuration needs operator repair.',503);}
@@ -73,7 +73,7 @@ export async function tenantConnection(req:Request,env:Env,tenantId:string){
   const context={product:'response',kind:'reply',threadRef:`gmail:${c.id}:${message.threadId}`,disposition:'human',need:'',authority:'',timing:''};
   const reference=`gmail:${c.id}:${message.id}`;
   // Existing RPC enforces scope, immutable reference/replay and atomic cross-product reply holds.
-  const id=await db.rpc<string>('record_product_event',{p_tenant:tenantId,p_lead:lead.id,p_actor:user.id,p_reference:reference,p_rights:c.purposeReference,
+  const id=await db.rpc<string>('record_gmail_product_event',{p_expected_version:tenant.execution_version,p_connection_expires:c.expiresAt,p_tenant:tenantId,p_lead:lead.id,p_actor:user.id,p_reference:reference,p_rights:c.purposeReference,
    p_excerpt:message.excerpt,p_observed:message.observedAt,p_synthetic:false,p_context:context});
   return json({ok:true,id,reference,threadRef:context.threadRef,reviewState:'human',excerptTruncated:message.truncated,delivery:'not_sent'},201);
  }catch(e){

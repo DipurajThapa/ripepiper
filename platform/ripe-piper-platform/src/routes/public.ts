@@ -17,7 +17,7 @@ async function upsertLead(db: Db, row: Record<string, unknown>) {
     // Same person submitted again: keep the original record and refresh the answers.
     const { source, ...patch } = row;
     const query = `tenant_id=is.null&email=eq.${encodeURIComponent(String(row.email))}`;
-    const updated = await db.update("leads", `${query}&status=neq.meeting_booked&status=neq.meeting_held&status=neq.proposal&status=neq.won`, patch);
+    const updated = await db.update("leads", `${query}&status=neq.meeting_booked&status=neq.meeting_held&status=neq.proposal&status=neq.won&status=neq.unsubscribed`, patch);
     return updated[0] ?? await db.one("leads", `${query}&select=*`);
   }
 }
@@ -55,6 +55,7 @@ export async function postLead(req: Request, env: Env, ctx: ExecutionContext) {
     booking_token_used_at: null,
     consent_at: new Date().toISOString(), ...pickUtm(b),
   });
+  if (lead.status === "unsubscribed") return json({ ok: true, route: "not_fit" });
   if (["meeting_booked", "meeting_held", "proposal", "won"].includes(lead.status))
     return json({ ok: true, route: "already_booked" });
   // Speed to lead: the founder hears about every inquiry within a minute.
@@ -100,17 +101,18 @@ export async function postBook(req: Request, env: Env) {
   if (lead.status !== "qualified") return bad("Please complete the booking form again.", 403);
   const slot = isOfferedSlot(String(b.start), now, await busyWithMeetings(env, db, now));
   if (!slot) return bad("That time is no longer available. Please choose another time.", 409);
-  // Atomic conditional claim in PostgREST prevents replay or concurrent reservations for a lead.
-  const claimed = await db.update("leads", `id=eq.${lead.id}&tenant_id=is.null&status=eq.qualified&booking_token_hash=eq.${hash}&booking_token_used_at=is.null&booking_token_expires_at=gt.${now.toISOString()}`, { booking_token_used_at: now.toISOString() });
-  if (!claimed.length) return bad("This booking link has expired or has already been used. Please complete the form again.", 403);
-  let meeting: any;
+  const meetingId = crypto.randomUUID();
+  let reserved: unknown;
   try {
-    const meetingId = crypto.randomUUID();
-    meeting = (await db.insert("meetings", { id: meetingId, google_event_id: calendarEventId(meetingId), lead_id: lead.id, kind: "discovery", start_at: slot.start, end_at: slot.end, attendee_email: lead.email, attendee_name: lead.name }))[0];
+    reserved = await db.rpc("reserve_consultation", { p_lead: lead.id, p_hash: hash, p_meeting: meetingId,
+      p_event: calendarEventId(meetingId), p_start: slot.start, p_end: slot.end, p_email: lead.email, p_name: lead.name ?? null });
   } catch (e) {
-    if (e instanceof DbError && e.isConflict) return bad("That time was just booked or a consultation already exists. Please complete the form again to choose another time.", 409);
-    throw e;
+    if (e instanceof DbError && e.isConflict) return bad("That time was just booked or a consultation already exists. Please choose another time.", 409);
+    return bad("Your reservation could not be verified. Please contact Ripe Piper for review before trying again.", 503);
   }
+  if (reserved === false) return bad("This booking link has expired or has already been used. Please complete the form again.", 403);
+  if (reserved !== true) return bad("Your reservation could not be verified. Please contact Ripe Piper for review before trying again.", 503);
+  const meeting = { id: meetingId };
   try {
     const ev = await createMeetEvent(env, {
       id: meeting.id, start: slot.start, end: slot.end, email: lead.email, name: lead.name ?? lead.email,
@@ -152,17 +154,38 @@ export async function postNewsletter(req: Request, env: Env, ctx: ExecutionConte
   if (!(await verifyTurnstile(env, b.turnstile_token, req))) return bad("Please confirm you are not a robot and try again.");
   if (b.consent !== true) return bad("Please tick the box to agree to receive the newsletter.");
   const db = new Db(env);
-  const [sub] = await db.upsert<any>("newsletter_subscribers", { email, status: "pending", consent_at: new Date().toISOString() }, "email");
-  const m = emails.newsletterConfirm(`${env.SITE_URL}/api/newsletter/confirm?token=${sub.confirm_token}`);
-  ctx.waitUntil(sendEmail(env, email, m.subject, m.text).catch(() => {}));
+  const token = await db.rpc<unknown>("request_agency_newsletter", { p_email: email });
+  if (typeof token === "string" && /^[0-9a-f-]{36}$/i.test(token)) {
+    const m = emails.newsletterConfirm(`${env.SITE_URL}/api/newsletter/confirm?token=${token}`);
+    ctx.waitUntil(sendEmail(env, email, m.subject, m.text).catch(() => {}));
+  }
   return json({ ok: true });
 }
 
-export async function getNewsletterConfirm(req: Request, env: Env) {
+function newsletterConfirmationPage(message: string, token?: string, status = 200) {
+  const form = token ? `<form method="post" action="/api/newsletter/confirm"><input type="hidden" name="token" value="${token}"><button type="submit">Confirm subscription</button></form>` : "";
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Newsletter confirmation | Ripe Piper</title></head><body><main><h1>Newsletter confirmation</h1><p>${message}</p>${form}</main></body></html>`, {
+    status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "Content-Security-Policy": "default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'", "X-Content-Type-Options": "nosniff" },
+  });
+}
+
+export async function getNewsletterConfirm(req: Request) {
   const token = new URL(req.url).searchParams.get("token") ?? "";
-  if (!/^[0-9a-f-]{36}$/.test(token)) return Response.redirect(`${env.SITE_URL}/`, 302);
-  await new Db(env).update("newsletter_subscribers", `confirm_token=eq.${token}&status=eq.pending`, { status: "confirmed", confirmed_at: new Date().toISOString() });
-  return Response.redirect(`${env.SITE_URL}/#subscribed`, 302);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token)) return newsletterConfirmationPage("This confirmation link is invalid. Please request a new one.", undefined, 400);
+  // Opening a link, including by an email scanner, never changes subscription state.
+  return newsletterConfirmationPage("Confirm that you want to receive the Ripe Piper newsletter.", token);
+}
+
+export async function postNewsletterConfirm(req: Request, env: Env) {
+  if (!(req.headers.get("content-type") ?? "").toLowerCase().startsWith("application/x-www-form-urlencoded")) return newsletterConfirmationPage("This confirmation request is invalid.", undefined, 400);
+  if (Number(req.headers.get("content-length") ?? 0) > 1024) return newsletterConfirmationPage("This confirmation request is invalid.", undefined, 400);
+  const body = await req.text();
+  if (body.length > 1024) return newsletterConfirmationPage("This confirmation request is invalid.", undefined, 400);
+  const params = new URLSearchParams(body), token = params.get("token") ?? "";
+  if (params.getAll("token").length !== 1 || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token)) return newsletterConfirmationPage("This confirmation link is invalid. Please request a new one.", undefined, 400);
+  const confirmed = await new Db(env).rpc<unknown>("confirm_agency_newsletter", { p_token: token });
+  if (confirmed !== true) return newsletterConfirmationPage("This subscription could not be confirmed. Please contact hello@ripepiper.com.", undefined, 400);
+  return newsletterConfirmationPage("Your newsletter subscription is confirmed.");
 }
 
 export async function postOptOut(req: Request, env: Env) {
@@ -170,9 +193,22 @@ export async function postOptOut(req: Request, env: Env) {
   const email = cleanEmail(b.email);
   if (!email) return bad("Please enter a valid email address.");
   if (!(await verifyTurnstile(env, b.turnstile_token, req))) return bad("Please confirm you are not a robot and try again.");
-  const db = new Db(env);
-  await db.upsert("suppression", { email, reason: cleanText(b.reason, 120) || "opt-out page" }, "email");
-  await db.update("newsletter_subscribers", `email=eq.${encodeURIComponent(email)}`, { status: "unsubscribed", unsubscribed_at: new Date().toISOString() });
-  await db.update("leads", `email=eq.${encodeURIComponent(email)}`, { status: "unsubscribed" });
+  const token = newBookingToken();
+  const issued = await new Db(env).rpc<unknown>("issue_agency_opt_out", { p_hash: await hashBookingToken(token), p_email: email });
+  if (issued !== true) return bad("Please wait a minute before requesting another confirmation email.", 429);
+  const link = `${env.SITE_URL}/opt-out.html#confirm=${token}`;
+  try {
+    await sendEmail(env, email, "Confirm your Ripe Piper opt-out", `To stop Ripe Piper's own marketing emails, open this link and confirm within 24 hours: ${link}\n\nFor client campaign requests or help, reply to the original message or email hello@ripepiper.com.`);
+  } catch {
+    return bad("We could not verify delivery of the confirmation email. Please try again or contact hello@ripepiper.com.", 503);
+  }
+  return json({ ok: true });
+}
+
+export async function postOptOutConfirm(req: Request, env: Env) {
+  const b = await readJson(req);
+  if (!validBookingToken(b.token)) return bad("This confirmation link is invalid or expired.", 400);
+  const result = await new Db(env).rpc<unknown>("confirm_agency_opt_out", { p_hash: await hashBookingToken(b.token) });
+  if (result !== true) return bad("This confirmation link is invalid or expired. Please request a new one.", 400);
   return json({ ok: true });
 }

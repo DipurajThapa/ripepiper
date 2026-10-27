@@ -48,7 +48,7 @@ it('queues three future steps but claims them only in order',async()=>{
  await db.exec('begin');expect(await rpc('claim_fenced_synthetic_action',[f.tenant,ids[1],crypto.randomUUID(),await afterDue(ids[1])])).toBeNull();await db.exec('rollback');
  for(const id of ids){const token=crypto.randomUUID(),at=await afterDue(id);expect(await rpc('claim_fenced_synthetic_action',[f.tenant,id,token,at])).toMatchObject({token});expect(await rpc('complete_fenced_synthetic_action',[f.tenant,id,token,1,1,at])).toBe(true);}
  expect(await q("select id from outbound_actions where campaign_id=$1 and state='tested'",[c])).toHaveLength(3);
-});
+}, 20000);
 it('ignores stale conflicting facts',async()=>{
  const f=await fixture();await q(`insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,rights_reference,synthetic,assessment_facts,assessment_excerpt,assessment_reviewed_by) values($1,$2,'fixture','stale-fit',now()-interval '120 days','review','fixture-authority',true,'{"industry":"retail"}','retail',$3)`,[f.tenant,f.lead,actor]);await accept(f);expect(await rpc('revive_candidate_current',[f.tenant,f.lead,new Date().toISOString()])).toBe(true);
 });

@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+# The frozen quality receipt hashes exact source bytes on every platform.
+/scripts/prospect-quality-evaluation.mjs text eol=lf
+/platform/ripe-piper-platform/src/foundation/prospecting.ts text eol=lf
+/platform/ripe-piper-platform/src/foundation/prospecting-routes.ts text eol=lf

@@ -2,7 +2,7 @@ import { reviewConsultation } from './foundation/consultation-review';
 import type { Env } from "./env";
 import { Db, DbError } from "./lib/db";
 import { fillShell, postPage, indexPage, type Post } from "./lib/blog";
-import { postLead, getSlots, postBook, postCalculator, postNewsletter, getNewsletterConfirm, postOptOut } from "./routes/public";
+import { postLead, getSlots, postBook, postCalculator, postNewsletter, getNewsletterConfirm, postNewsletterConfirm, postOptOut, postOptOutConfirm } from "./routes/public";
 import { viewProposal, approveProposal, stripeWebhook, razorpayWebhook, acceptQuote, inspectPayment } from "./routes/proposals";
 import { processMeeting, reconcileBooking, draftProposal, sendProposal, createQuote, sendQuote, inviteUser, runAdsSync } from "./routes/admin";
 import { json, html, HttpError } from "./routes/http";
@@ -52,8 +52,10 @@ const routes: [string, RegExp, Handler][] = [
   ["POST", /^\/api\/book$/, (r, e) => postBook(r, e)],
   ["POST", /^\/api\/calculator$/, (r, e, c) => postCalculator(r, e, c)],
   ["POST", /^\/api\/newsletter$/, (r, e, c) => postNewsletter(r, e, c)],
-  ["GET", /^\/api\/newsletter\/confirm$/, (r, e) => getNewsletterConfirm(r, e)],
+  ["GET", /^\/api\/newsletter\/confirm$/, (r) => getNewsletterConfirm(r)],
+  ["POST", /^\/api\/newsletter\/confirm$/, (r, e) => postNewsletterConfirm(r, e)],
   ["POST", /^\/api\/opt-out$/, (r, e) => postOptOut(r, e)],
+  ["POST", /^\/api\/opt-out\/confirm$/, (r, e) => postOptOutConfirm(r, e)],
   ["GET", /^\/p\/([0-9a-f-]{36})$/, (_r, e, _c, p) => viewProposal(p[0], e)],
   ["POST", /^\/p\/([0-9a-f-]{36})\/approve$/, (_r, e, _c, p) => approveProposal(p[0], e)],
   ["POST", /^\/webhooks\/stripe$/, (r, e) => stripeWebhook(r, e)],
