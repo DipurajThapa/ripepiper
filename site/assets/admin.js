@@ -114,7 +114,9 @@
       { label: "Status", render: function (m) { return RP.badge(m.attendance_review && m.attendance_review.state === "needs_review" ? "Attendance review required" : ((!m.attendance_review && (m.status === "held" || m.status === "no_show")) ? m.status + " (unverified)" : (m.status === "booked" && !m.meet_url ? "Calendar review required" : m.status))); } }, { label: "Notes", render: function (m) { return m.notes ? "Ready" : "–"; } }], data.meetings, { clickable: true, empty: "No meetings booked yet." });
   }
   function list(xs) { return xs && xs.length ? "<ul>" + xs.map(function (x) { return "<li>" + RP.esc(x) + "</li>"; }).join("") + "</ul>" : '<p class="muted">Not discussed.</p>'; }
+  var meetingReviewGeneration = 0;
   function meetingDetail(m) {
+    var reviewTicket = ++meetingReviewGeneration;
     cur.meeting = m;
     var n = m.notes, q = m.requirements, h = '<h3>' + RP.esc(m.attendee_name || m.attendee_email) + "</h3><p class=\"muted\">" + RP.dateTime(m.start_at) + " · " + RP.badge(m.status === "attendance_unknown" ? "Attendance unknown" : m.status) + (m.meet_url ? ' · <a href="' + RP.esc(m.meet_url) + '" rel="noopener">Meet link</a>' : "") + "</p>";
     if (m.status === "booked") {
@@ -137,9 +139,23 @@
         '<div class="field"><label for="pasteT">Or paste the transcript or your own notes</label><textarea id="pasteT" class="editor"></textarea></div>' +
         '<button class="btn btn-line" type="button" id="useT">Create notes from this text</button><p class="err" id="tErr"></p><div id="tOk" hidden></div>';
     }
+    h += '<button class="btn btn-line" type="button" id="inspectReminders">Inspect reminder receipts</button><p id="reminderInspection" role="status"></p>';
     if (RP.consultationReviewMarkup) h += RP.consultationReviewMarkup(m);
     $("meetingDetail").innerHTML = h;
     if (RP.wireConsultationReview) RP.wireConsultationReview(m, function () { return fetchAll().then(function () { renderMeetings(); if (cur.meeting && cur.meeting.id === m.id) meetingDetail(data.meetings.find(function (x) { return x.id === m.id; }) || m); }); });
+    var inspectReminders = $("inspectReminders");
+    inspectReminders.addEventListener("click", function () {
+      var result = $("reminderInspection"), meetingId = m.id;
+      if (RP.demo || !RP.sb) { result.textContent = "Receipt inspection requires the connected admin site."; return; }
+      inspectReminders.disabled = true; result.textContent = "Reading recorded attempts…";
+      RP.api("/api/admin/meetings/" + meetingId + "/reminder-receipts", undefined, "GET").then(function (j) {
+        if (reviewTicket !== meetingReviewGeneration || !cur.meeting || cur.meeting.id !== meetingId) return;
+        if (j.version !== 1 || j.meetingId !== meetingId || j.canRetry !== false || !Array.isArray(j.receipts) || j.receipts.length !== 2) throw new Error("Receipt inspection unavailable.");
+        result.textContent = j.receipts.map(function (r) { return r.window + ": " + (r.state === "absent" ? "No recorded attempt" : r.state + (r.requiresReview ? " — needs operator review" : "")) + (r.acknowledgedAt ? " · provider acknowledged " + RP.dateTime(r.acknowledgedAt) : "") + (r.providerMessageId ? " · receipt " + r.providerMessageId : ""); }).join(". ") + ". Provider acknowledgement does not prove delivery. Inspection does not retry or send.";
+      }).catch(function (e) {
+        if (reviewTicket === meetingReviewGeneration && cur.meeting && cur.meeting.id === meetingId) result.textContent = e.message;
+      }).finally(function () { if (reviewTicket === meetingReviewGeneration) inspectReminders.disabled = false; });
+    });
     var reconcile = $("reconcileBooking");
     if (reconcile) reconcile.addEventListener("click", function () {
       var meetingId = m.id, result = $("calendarReview");

@@ -12,10 +12,11 @@ import { json, bad, readJson, requireUser } from "./http";
 /** Fetch the Meet transcript (or use an uploaded one) and produce notes, minutes and requirements with AI. */
 export async function processMeeting(req: Request, env: Env, id: string) {
   await requireUser(req, env, true);
+  if(env.MEETING_TRANSCRIPTS_ENABLED!=="true")return bad("Meeting transcript processing is disabled.",409);
   const b = await readJson(req).catch(() => ({} as Record<string, any>));
   const db = new Db(env);
-  const m = await db.one<any>("meetings", `id=eq.${id}&select=*`);
-  if (!m) return bad("Meeting not found.", 404);
+  const m = await db.one<any>("meetings", `id=eq.${id}&tenant_id=is.null&select=*`);
+  if (!m || m.tenant_id !== null) return bad("Meeting not found.", 404);
   let transcript = typeof b.transcript === "string" && b.transcript.trim().length > 200 ? b.transcript : m.transcript;
   if (!transcript) {
     if (!m.meet_code) return bad("This meeting has no Google Meet code. Paste the transcript instead.");
@@ -23,7 +24,7 @@ export async function processMeeting(req: Request, env: Env, id: string) {
     if (t.status !== "ready") return bad(t.status === "no_record" ? "Google has no record of this call yet. Try again 30 minutes after the call ends." : "The call has no transcript. Turn on transcription in Google Meet, or paste the transcript.");
     transcript = t.text;
   }
-  const lead = m.lead_id ? await db.one<any>("leads", `id=eq.${m.lead_id}&select=name,company,website`) : null;
+  const lead = m.lead_id ? await db.one<any>("leads", `id=eq.${m.lead_id}&tenant_id=is.null&select=name,company,website`) : null;
   const a = await analyseMeeting(env, transcript!, { company: lead?.company ?? lead?.website, attendee: m.attendee_name });
   const minutes = minutesMarkdown(a, `Call with ${m.attendee_name ?? m.attendee_email}`, new Date(m.start_at).toISOString().slice(0, 10));
   await saveMeetingDraft(db,m,{transcript,notes:{summary:a.summary,...a.notes},minutes,requirements:{...a.requirements,decisions:a.minutes.decisions,actions:a.minutes.actions}},"transcript_unverified");
@@ -106,6 +107,7 @@ export async function inviteUser(req: Request, env: Env, tenantId: string) {
 
 export async function runAdsSync(req: Request, env: Env) {
   await requireUser(req, env, true);
+  if(env.ADS_SYNC_ENABLED!=="true")return bad("Ads sync is disabled.",409);
   return json({ ok: true, result: await syncAds(env, 7) });
 }
 

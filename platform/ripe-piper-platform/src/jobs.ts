@@ -7,7 +7,7 @@ import { meetingSnapshot, saveMeetingDraft } from "./foundation/consultation-rev
 import { dueReminder } from "./lib/slots";
 import { syncSheet } from "./lib/sheets";
 import { analyseMeeting, minutesMarkdown } from "./lib/ai";
-import { googleAdsRows, metaRows, linkedinRows, toTenantCurrency, type AdRow } from "./lib/ads";
+import { googleAdsRows, metaRows, linkedinRows, toTenantCurrency, adsHttpError, redactedAdsError, type AdRow } from "./lib/ads";
 import { runReviveAutomation } from "./foundation/revive-automation";
 
 /** Default-off consultation reminders. A claim is not delivery; uncertain attempts never retry automatically. */
@@ -51,6 +51,7 @@ function sameSnapshot(actual:any,expected:Record<string,unknown>){return !!actua
 
 /** Draft notes never establish prospect identity, attendance or a lead conversion. */
 export async function processFinishedMeetings(env: Env, now = new Date()) {
+  if(env.MEETING_TRANSCRIPTS_ENABLED!=="true")return {processed:0,no_show:0,waiting:0,review:0,disabled:true};
   const db=new Db(env,15000),ended=new Date(now.getTime()-20*60_000).toISOString(),giveUp=now.getTime()-3*3600_000;
   const list=await db.select<any>("meetings",`tenant_id=is.null&status=eq.booked&end_at=lte.${ended}&ai_processed_at=is.null&select=*&order=end_at.asc&limit=5`);
   const out={processed:0,no_show:0,waiting:0,review:0};
@@ -75,6 +76,12 @@ export async function processFinishedMeetings(env: Env, now = new Date()) {
 
 /** Nightly: pull ad spend and results for every connected ad account, converted to the client's currency. */
 export async function syncAds(env: Env, days = 3) {
+  if(env.ADS_SYNC_ENABLED!=="true")return {accounts:0,rows:0,errors:0,disabled:true};
+  try { return await syncEnabledAds(env, days); }
+  catch (error) { throw new Error(redactedAdsError(error)); }
+}
+
+async function syncEnabledAds(env: Env, days: number) {
   const db = new Db(env);
   const accounts = await db.select<any>("ad_accounts", "status=neq.disconnected&select=*,tenants(currency,status)");
   const rates = Object.fromEntries((await db.select<any>("fx_rates", "select=currency,aed_per_unit")).map(r => [r.currency, Number(r.aed_per_unit)]));
@@ -106,7 +113,7 @@ export async function syncAds(env: Env, days = 3) {
       result.rows += payload.length;
     } catch (e) {
       result.errors++;
-      await db.update("ad_accounts", `id=eq.${acc.id}&status=neq.disconnected`, { status: "error", last_error: String(e).slice(0, 500) });
+      await db.update("ad_accounts", `id=eq.${acc.id}&status=neq.disconnected`, { status: "error", last_error: redactedAdsError(e) });
     }
   }
   return result;
@@ -116,15 +123,20 @@ async function linkedinCurrency(env: Env, accountId: string): Promise<string> {
   const res = await fetch(`https://api.linkedin.com/rest/adAccounts/${accountId}`, {
     headers: { Authorization: `Bearer ${env.LINKEDIN_ACCESS_TOKEN}`, "LinkedIn-Version": "202610", "X-Restli-Protocol-Version": "2.0.0" },
   });
+  if (!res.ok) throw adsHttpError("linkedin", res.status);
   const j = (await res.json()) as any;
   return j.currency ?? "USD";
 }
 
 export async function runScheduled(cron: string, env: Env) {
-  if (cron === "0 22 * * *") return { ads: await syncAds(env) };      // 02:00 Gulf Standard Time
+  if (cron === "0 22 * * *") return { ads: env.ADS_SYNC_ENABLED === "true" ? await syncAds(env) : {accounts:0,rows:0,errors:0,disabled:true} };      // 02:00 Gulf Standard Time
   // Revive reuses the existing tick only after explicit isolated-environment activation.
   // Its dedicated staff route and direct tests do not execute the founder's other jobs.
   const revive = env.REVIVE_AUTOMATION_ENABLED === "true" ? await runReviveAutomation(env) : undefined;
-  const [reminders, meetings, sheet] = await Promise.all([sendReminders(env), processFinishedMeetings(env), syncSheet(env)]);
+  const [reminders, meetings, sheet] = await Promise.all([
+    env.CONSULTATION_REMINDERS_ENABLED === "true" ? sendReminders(env) : {sent:0,review:0,disabled:true},
+    env.MEETING_TRANSCRIPTS_ENABLED === "true" ? processFinishedMeetings(env) : {processed:0,no_show:0,waiting:0,review:0,disabled:true},
+    env.SHEETS_SYNC_ENABLED === "true" ? syncSheet(env) : {synced:0,failed:0,disabled:true},
+  ]);
   return { reminders, meetings, sheet, ...(revive ? { revive } : {}) };
 }

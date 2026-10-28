@@ -48,8 +48,9 @@ export function findRow(columnA: string[][], id: string): number | null {
   return i >= 0 ? i + 1 : null;
 }
 
-/** Process pending outbox items in creation order. Safe to run repeatedly: each record is upserted by id. */
-export async function syncSheet(env: Env, batch = 40): Promise<{ synced: number; failed: number }> {
+/** Default-off outbox sync. Uncertain appends/concurrent runs still require operator recovery. */
+export async function syncSheet(env: Env, batch = 40): Promise<{ synced: number; failed: number; disabled?: boolean }> {
+  if(env.SHEETS_SYNC_ENABLED!=="true")return {synced:0,failed:0,disabled:true};
   const db = new Db(env);
   const pending = await db.select<any>("sheet_outbox", `synced_at=is.null&attempts=lt.8&order=created_at.asc&limit=${batch}`);
   if (!pending.length) return { synced: 0, failed: 0 };

@@ -21,6 +21,9 @@ GOOGLE_CALENDAR_ID = "primary"
 AI_MODEL = "claude-sonnet-5-5"
 MAIL_FROM = "Ripe Piper <hello@ripepiper.com>"
 WHATSAPP_ENABLED = "false"
+MEETING_TRANSCRIPTS_ENABLED = "false"
+SHEETS_SYNC_ENABLED = "false"
+ADS_SYNC_ENABLED = "false"
 REVIVE_AUTOMATION_ENABLED = "false"
 
 # Secrets (set each with: npx wrangler secret put NAME)

@@ -23,7 +23,7 @@ it.each([
   if(u.pathname.endsWith('/leads'))return Response.json([{company:'Fixture'}]);
   throw Error('Unexpected database operation');
  });
- const result=await processFinishedMeetings({SUPABASE_URL:'https://fixture.supabase.co',SUPABASE_SERVICE_ROLE_KEY:'fixture',ADMIN_ALERT_EMAIL:'staff@example.invalid'} as Env,new Date('2026-10-23T12:00:00Z'));
+ const result=await processFinishedMeetings({MEETING_TRANSCRIPTS_ENABLED:'true',SUPABASE_URL:'https://fixture.supabase.co',SUPABASE_SERVICE_ROLE_KEY:'fixture',ADMIN_ALERT_EMAIL:'staff@example.invalid'} as Env,new Date('2026-10-23T12:00:00Z'));
  expect(result).toMatchObject({review:1,waiting:0,no_show:0});
  expect(changes.filter(c=>c.table==='draft_rpc')).toHaveLength(1);
  expect(changes.filter(c=>c.table==='meetings'&&['held','no_show'].includes(c.body.status))).toHaveLength(0);

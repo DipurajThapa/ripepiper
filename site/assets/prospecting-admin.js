@@ -14,8 +14,12 @@
       importForm()+'<button id="prospectExport" class="btn btn-line" type="button">Download internal review</button><p id="productMetrics" role="status"></p><details><summary>Business brief</summary><form id="briefForm" class="stack"><div class="field"><label for="briefOffer">Offer and problem solved</label><textarea id="briefOffer" maxlength="500" required></textarea></div><div class="form-grid">'+
       fields.map(function(f,i){return input('brief_'+f,labels[i]+' (comma-separated)');}).join('')+ ['industry','market','role','need'].map(function(f){return input('alias_'+f,f+' aliases: target = alias; target = alias');}).join('')+input('briefAge','Evidence validity in days','number')+input('briefReference','Brief source reference')+input('briefObserved','Source date','date')+'</div><div class="field"><label for="briefExcerpt">Supporting source excerpt or interview note</label><textarea id="briefExcerpt" maxlength="2000" required></textarea></div><button class="btn btn-dark" type="submit">Save reviewed brief version</button></form></details>'+
       '<details><summary>Add reviewed prospect evidence</summary><form id="evidenceForm" class="stack"><div class="field"><label for="evidenceLead">Existing lead</label><select id="evidenceLead"></select></div><div class="form-grid">'+input('evidenceSource','Source type, e.g. client interview')+input('evidenceReference','Unique dated source reference')+input('evidenceRights','Permitted-use reference')+input('evidenceObserved','Observation date','date')+
-      ['industry','market','role','need'].map(function(f){return input('evidence_'+f,f.charAt(0).toUpperCase()+f.slice(1)+' (leave unknown blank)');}).join('')+'</div><div class="field"><label for="evidenceExcerpt">Source excerpt containing the recorded values</label><textarea id="evidenceExcerpt" maxlength="2000" required></textarea></div><button class="btn btn-line" type="submit">Record reviewed evidence</button></form></details>'+conversationForm()+productForm()+inboxForm()+reviveReviewForm()+'<div id="prospectResults" aria-live="polite"></div>';
+      ['industry','market','role','need'].map(function(f){return input('evidence_'+f,f.charAt(0).toUpperCase()+f.slice(1)+' (leave unknown blank)');}).join('')+'</div><div class="field"><label for="evidenceExcerpt">Source excerpt containing the recorded values</label><textarea id="evidenceExcerpt" maxlength="2000" required></textarea></div><button class="btn btn-line" type="submit">Record reviewed evidence</button></form></details>'+conversationForm()+productForm()+inboxForm()+tenantStopsForm()+reviveReviewForm()+'<div id="prospectResults" aria-live="polite"></div>';
     el('inboxCheck').onclick=checkInbox;
+    el('inboxAuthorityStatus').onclick=loadInboxAuthority;
+    el('inboxRegister').onclick=registerInboxAuthority;
+    el('inboxRevoke').onclick=revokeInboxAuthority;
+    el('tenantStopLead').onchange=showTenantStop;
     el('inboxList').onclick=listInbox;
     el('inboxPreview').onclick=previewInbox;
     el('inboxImport').onclick=importInbox;
@@ -52,7 +56,7 @@
   function path(action,id) { return '/api/admin/tenants/'+(id||tenant.id)+'/'+action; }
   function load() {
     var ticket = ++generation, synthetic = el('prospectMode').value === 'synthetic';
-    ready = false; snapshot=null; inboxSelection=null; error('');
+    ready = false; snapshot=null; inboxSelection=null; inboxAuthorityVersion=null; el('tenantStopBody').textContent=''; el('inboxAuthority').textContent='Refresh connection status before changing authorization.'; error('');
     window.dispatchEvent(new CustomEvent('rp:prospect-review-state',{detail:{tenantId:tenant.id,message:'Loading current Signal qualification and outcomes…'}}));
     invalidateImport();
     el('inboxMessage').innerHTML='';el('inboxExcerpt').textContent='';el('inboxReviewed').checked=false;
@@ -84,7 +88,7 @@
       window.dispatchEvent(new CustomEvent('rp:prospect-review-state',{detail:{tenantId:tenant.id,snapshot:j}}));
       var observed=j.results.filter(function(r){return (r.products||[]).some(function(p){return p.history.length;});}).length;
       el('productMetrics').textContent=observed+' contacts with product history / '+j.results.length+' reviewed contacts. Outcome counts describe recorded evidence, not conversion uplift.';
-      ready = true;
+      ready = true; el('tenantStopLead').innerHTML=el('evidenceLead').innerHTML; showTenantStop();
     }).catch(function(e){if(ticket===generation){ready=false; error(e.message); el('briefVersion').textContent='Review unavailable. Nothing has been saved.';el('prospectResults').textContent='';window.dispatchEvent(new CustomEvent('rp:prospect-review-state',{detail:{tenantId:tenant.id,message:'Signal review unavailable. Refresh before making decisions.'}}));}});
   }
   var reviveSelection=null,reviveBusy=false;
@@ -181,16 +185,47 @@
     var url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'})),a=document.createElement('a');
     a.href=url;a.download='ripepiper-internal-review.json';a.click();URL.revokeObjectURL(url);
   }
-  var inboxSelection=null,inboxBusy=false;
-  function inboxForm(){return '<details><summary>Read selected inbox messages</summary><p>Read-only Google connection for this client. Select a business contact, preview a recent incoming message, then confirm its use for human review. Importing holds follow-ups; it does not reply or qualify the lead.</p><button id="inboxCheck" class="btn btn-line" type="button">Check inbox and calendar connection</button><div class="field"><label for="inboxLead">Existing business contact</label><select id="inboxLead"></select></div><button id="inboxList" class="btn btn-line" type="button">Find recent messages for this contact</button><div class="field"><label for="inboxMessage">Incoming message (last 30 days, up to 10)</label><select id="inboxMessage"></select></div><button id="inboxPreview" class="btn btn-line" type="button">Preview selected message</button><pre id="inboxExcerpt" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre><label class="consent"><input type="checkbox" id="inboxReviewed"><span>I reviewed this excerpt and its permitted use for this client.</span></label><button id="inboxImport" class="btn btn-line" type="button">Import for human review</button><p id="inboxStatus" role="status"></p></details>';}
+  function tenantStopsForm(){return '<details><summary>Stop this client’s outreach</summary><p>A stop applies to this client and selected contact. Issuing a confirmation link does not send it.</p><label for="tenantStopLead">Existing contact</label><select id="tenantStopLead"></select><div id="tenantStopBody"></div></details>';}
+  function showTenantStop(){
+    var selected=el('tenantStopLead').value, ticket=generation, tenantId=tenant.id;
+    var lead=snapshot&&snapshot.leads.find(function(l){return l.id===selected;});
+    if(!ready||!lead||!RP.tenantStopMarkup||!RP.wireTenantStop){el('tenantStopBody').textContent='Select a contact from the current review.';return;}
+    el('tenantStopBody').innerHTML=RP.tenantStopMarkup(lead);
+    RP.wireTenantStop(tenantId,lead,function(){return ticket===generation&&tenant.id===tenantId&&el('tenantStopLead').value===lead.id;},function(){if(ticket===generation)return load();});
+  }
+  var inboxSelection=null,inboxBusy=false,inboxAuthorityVersion=null;
+  function inboxForm(){return '<details><summary>Read selected inbox messages</summary><p>Read-only Google connection for this client. Select a business contact, preview a recent incoming message, then confirm its use for human review. Importing holds follow-ups; it does not reply or qualify the lead.</p><button id="inboxAuthorityStatus" class="btn btn-line" type="button">Refresh connection authorization</button><p id="inboxAuthority" role="status"></p><label class="consent"><input type="checkbox" id="inboxAuthorityReviewed"><span>I reviewed the dedicated mailbox, calendar and purpose configured for this client.</span></label><button id="inboxRegister" class="btn btn-line" type="button">Verify and authorize reading</button><button id="inboxRevoke" class="btn btn-line" type="button">Revoke reading authorization</button><p class="hint">Revoke authorization before separately rotating provider credentials, then verify and authorize again. Sending remains disabled.</p><button id="inboxCheck" class="btn btn-line" type="button">Check inbox and calendar identity only</button><div class="field"><label for="inboxLead">Existing business contact</label><select id="inboxLead"></select></div><button id="inboxList" class="btn btn-line" type="button">Find recent messages for this contact</button><div class="field"><label for="inboxMessage">Incoming message (last 30 days, up to 10)</label><select id="inboxMessage"></select></div><button id="inboxPreview" class="btn btn-line" type="button">Preview selected message</button><pre id="inboxExcerpt" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre><label class="consent"><input type="checkbox" id="inboxReviewed"><span>I reviewed this excerpt and its permitted use for this client.</span></label><button id="inboxImport" class="btn btn-line" type="button">Import for human review</button><p id="inboxStatus" role="status"></p></details>';}
   function inboxRequest(body,onResult){
     if(!ready||inboxBusy){el('inboxStatus').textContent='Load this client and wait for the current request.';return;}
     var ticket=generation,id=tenant.id;inboxBusy=true;el('inboxStatus').textContent='Checking…';
     RP.api(path('connection',id),body).then(function(j){
       if(ticket!==generation)return;
-      if(j.state==='not_connected'){el('inboxStatus').textContent='No active tenant connection. A dedicated mailbox/calendar and read-only Google consent are required.';return;}
+      if(j.state==='not_connected'&&body.operation!=='status'&&body.operation!=='revoke'){el('inboxStatus').textContent='No active tenant connection. A dedicated mailbox/calendar and read-only Google consent are required.';return;}
       onResult(j);
     }).catch(function(e){if(ticket===generation)el('inboxStatus').textContent=e.message;}).finally(function(){inboxBusy=false;});
+  }
+  function loadInboxAuthority(){inboxRequest({operation:'status'},function(j){
+    if(!Number.isSafeInteger(j.authorityVersion)||j.authorityVersion<0||typeof j.canRead!=='boolean'||j.canSend!==false)throw Error('Connection authorization response unavailable.');
+    inboxAuthorityVersion=j.authorityVersion;
+    el('inboxAuthority').textContent='Authorization version '+j.authorityVersion+' · '+(j.canRead?'reading authorized':'reading unavailable')+'. Sending disabled.';
+    el('inboxStatus').textContent='Authorization status loaded. Identity checks alone do not grant reading access.';
+  });}
+  function registerInboxAuthority(){
+    if(inboxAuthorityVersion===null||!el('inboxAuthorityReviewed').checked){el('inboxStatus').textContent='Refresh connection authorization and confirm the configured account and purpose first.';return;}
+    inboxRequest({operation:'register',reviewed:true,expectedVersion:inboxAuthorityVersion},function(j){
+      if(j.version!==1||j.status!=='verified'||!Number.isSafeInteger(j.authorityVersion)||j.authorityVersion!==inboxAuthorityVersion+1)throw Error('Authorization acknowledgement uncertain. Refresh status before another change.');
+      inboxAuthorityVersion=j.authorityVersion;el('inboxAuthorityReviewed').checked=false;
+      el('inboxAuthority').textContent='Reading authorized at version '+j.authorityVersion+'. Sending disabled.';
+      el('inboxStatus').textContent='Mailbox and calendar identity verified and reading authorization recorded.';
+    });
+  }
+  function revokeInboxAuthority(){
+    if(inboxAuthorityVersion===null||inboxAuthorityVersion===0){el('inboxStatus').textContent='Refresh connection authorization before revoking an existing registration.';return;}
+    inboxRequest({operation:'revoke',expectedVersion:inboxAuthorityVersion},function(j){
+      if(j.version!==1||j.status!=='revoked'||!Number.isSafeInteger(j.authorityVersion)||j.authorityVersion!==inboxAuthorityVersion+1)throw Error('Revocation acknowledgement uncertain. Refresh status before another change.');
+      inboxAuthorityVersion=j.authorityVersion;inboxSelection=null;el('inboxExcerpt').textContent='';el('inboxMessage').innerHTML='';el('inboxReviewed').checked=false;el('inboxAuthorityReviewed').checked=false;
+      el('inboxAuthority').textContent='Reading revoked at version '+j.authorityVersion+'. Sending disabled.';el('inboxStatus').textContent='Reading authorization revoked. Historical evidence is retained.';
+    });
   }
   function checkInbox(){inboxRequest({operation:'check'},function(j){el('inboxStatus').textContent=j.state==='identity_verified'?'Account identity verified for '+j.mailbox+' and calendar '+j.calendarId+'. Message access is checked on preview; sending is disabled.':'Connection is not verified.';});}
   function listInbox(){

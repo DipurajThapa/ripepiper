@@ -80,3 +80,18 @@ describe('stable calendar reservation reconciliation',()=>{
   mockProvider(()=>Response.json(ev));await expect(reconcileMeetEvent(env,p)).rejects.toThrow();
  });
 });
+
+it('rejects an OAuth refresh completed after its credential binding changed',async()=>{
+ let complete!:(r:Response)=>void;
+ const fetcher=vi.fn().mockImplementationOnce(()=>new Promise<Response>(r=>complete=r)).mockResolvedValue(Response.json({access_token:'new',expires_in:3600}));vi.stubGlobal('fetch',fetcher);
+ const pending=googleToken(env);env.GOOGLE_REFRESH_TOKEN='rotated';
+ const rejection=expect(pending).rejects.toThrow('credentials changed');
+ complete(Response.json({access_token:'old',expires_in:3600}));await rejection;
+ expect(await googleToken(env)).toBe('new');
+});
+it('rejects a replaced in-flight cache entry even when credentials are later restored',async()=>{
+ let complete!:(r:Response)=>void;const original=env.GOOGLE_REFRESH_TOKEN;
+ const fetcher=vi.fn().mockImplementationOnce(()=>new Promise<Response>(r=>complete=r)).mockResolvedValue(Response.json({access_token:'new',expires_in:3600}));vi.stubGlobal('fetch',fetcher);
+ const pending=googleToken(env);env.GOOGLE_REFRESH_TOKEN='rotated';await googleToken(env);env.GOOGLE_REFRESH_TOKEN=original;
+ const rejection=expect(pending).rejects.toThrow('credentials changed');complete(Response.json({access_token:'old',expires_in:3600}));await rejection;
+});
