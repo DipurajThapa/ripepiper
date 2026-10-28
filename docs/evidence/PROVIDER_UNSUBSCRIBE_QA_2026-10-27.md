@@ -43,3 +43,7 @@ No hosted migration, deployment, OAuth consent, real provider read/send, paid ca
 
 Independent-connection concurrency, actual provider identity/delivery, Sheets append recovery, backup restore and hosted operational readiness remain unverified. Local PGlite and intercepted provider receipts do not establish those properties. Deployment and live-operation gates remain blocked pending their separate evidence and authorization.
 
+
+## PM commit binding — 28 October 2026
+
+Root/PM binds the independently inspected runtime and fixture source to commit d966be5d04d4c2401909967880fec8803e30478f. Final broad local regression passed1,397 backend tests across84 files and378 Node checks. CI run40626640581 / verify122613018044 passed that runtime SHA, including pinned-browser checks. The final documentation-only PR head must pass the normal protected checks before merge. See DELIVERY.md and PR #11 for publication and the static-preview exception; these PM facts do not expand this reviewer’s independently executed scope.
