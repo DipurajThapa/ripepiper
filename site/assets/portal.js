@@ -3,31 +3,30 @@
 (function () {
   "use strict";
   var RP = window.RP, $ = function (id) { return document.getElementById(id); };
-  var state = { tenants: [], tenant: null, role: "viewer", monthly: [], month: null, sources: [], ads: [], fees: [], deals: [], proposals: [], quotes: [], payments: [], activity: [], adAccounts: [] };
+  var state = { tenants: [], tenant: null, role: "viewer", monthly: [], outcomes: [], month: null, sources: [], ads: [], fees: [], deals: [], proposals: [], quotes: [], payments: [], activity: [], adAccounts: [] };
 
   /* ---------------------------------------------------------- sample data (shown only when Supabase is not connected) */
   function demoData() {
     var months = ["2026-05-01", "2026-06-01", "2026-07-01", "2026-08-01", "2026-09-01", "2026-10-01"];
-    var base = [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [62, 9, 1200, 1150, 64, 21, 7, 5, 9000, 7500], [80, 13, 1600, 1560, 98, 33, 10, 8, 11000, 7500],
-      [94, 16, 1800, 1765, 121, 41, 12, 10, 12500, 7500], [101, 19, 1900, 1872, 140, 48, 15, 12, 13000, 9300], [88, 17, 1700, 1675, 129, 44, 13, 11, 12000, 9100]];
+    var base = [[0, 0, 0, 0, 0, 0, 0, 0], [62, 9, 1200, 1150, 64, 21, 7, 5], [80, 13, 1600, 1560, 98, 33, 10, 8],
+      [94, 16, 1800, 1765, 121, 41, 12, 10], [101, 19, 1900, 1872, 140, 48, 15, 12], [88, 17, 1700, 1675, 129, 44, 13, 11]];
     var won = [0, 0, 60000, 85000, 120000, 95000], open = [0, 40000, 150000, 210000, 260000, 300000];
     state.tenant = { id: "t1", name: "Gulf Interiors LLC (sample)", currency: "AED", plan: "engine", package: "signal", attribution_model: "first_touch", status: "active" };
     state.tenants = [state.tenant]; state.role = "owner";
+    state.fees = [{ month: "2026-06-01", type: "setup", amount: 2750, note: "10% advance on the fixed-scope price" }, { month: "2026-06-01", type: "setup", amount: 2250, note: "Setup balance" }]
+      .concat(months.slice(1).map(function (m) { return { month: m, type: "retainer", amount: 7500, note: "Monthly engine" }; }))
+      .concat([{ month: "2026-09-01", type: "performance", amount: 1800, note: "3 meetings above the monthly floor" }, { month: "2026-10-01", type: "performance", amount: 1600, note: "2 meetings above the monthly floor" }]);
+    /* Ad account sync is off, so the sample has no ad spend and the monthly fees are the fee rows below. */
     state.monthly = months.map(function (m, i) {
-      var b = base[i], fees = b[9], ad = b[8], cost = fees + ad;
+      var b = base[i], ad = 0, fees = state.fees.reduce(function (n, f) { return f.month === m ? n + f.amount : n; }, 0), cost = fees + ad;
       return { month: m, currency: "AED", leads: b[0], qualified_leads: b[1] * 2, emails_sent: b[2], emails_delivered: b[3], replies: b[4], positive_replies: b[5],
         meetings_booked: b[6] + 2, meetings_held: b[7], icp_match_pct: [0, 71, 78, 83, 86, 88][i], ad_spend: ad, fees: fees, total_cost: cost, won_revenue: won[i], open_pipeline: open[i],
         deals_won: [0, 0, 1, 1, 2, 1][i], cost_per_meeting: b[7] ? cost / b[7] : null, cost_per_qualified_lead: b[1] ? cost / (b[1] * 2) : null,
         reply_rate_pct: b[3] ? 100 * b[4] / b[3] : null, roi_pct: cost ? 100 * (won[i] - cost) / cost : null };
     });
+    state.outcomes = months.map(function (m, i) { var b = base[i]; return { month: m, qualified_conversation: b[5], meeting_held: b[7], opportunity: [0, 2, 4, 5, 6, 5][i], won: [0, 0, 1, 1, 2, 1][i], lost: [0, 0, 1, 1, 1, 2][i] }; });
     state.sources = [{ source: "outreach", leads: 310, qualified: 58, won_revenue: 245000 }, { source: "google", leads: 64, qualified: 12, won_revenue: 60000 },
       { source: "linkedin", leads: 33, qualified: 9, won_revenue: 55000 }, { source: "meta", leads: 18, qualified: 2, won_revenue: 0 }];
-    state.ads = [{ platform: "google_ads", day: "2026-10-12", spend: 6200, impressions: 41000, clicks: 1180, conversions: 21 },
-      { platform: "linkedin", day: "2026-10-12", spend: 4100, impressions: 18500, clicks: 260, conversions: 7 },
-      { platform: "meta", day: "2026-10-12", spend: 1700, impressions: 52000, clicks: 640, conversions: 6 }];
-    state.fees = [{ month: "2026-06-01", type: "setup", amount: 2750, note: "10% advance on the fixed-scope price" }, { month: "2026-06-01", type: "setup", amount: 2250, note: "Setup balance" }]
-      .concat(months.slice(1).map(function (m) { return { month: m, type: "retainer", amount: 7500, note: "Monthly engine" }; }))
-      .concat([{ month: "2026-09-01", type: "performance", amount: 1800, note: "3 meetings above the monthly floor" }, { month: "2026-10-01", type: "performance", amount: 1600, note: "2 meetings above the monthly floor" }]);
     state.deals = [{ id: "d1", name: "Head office fit-out, Business Bay", stage: "won", value: 95000, currency: "AED", source: "outreach", closed_at: "2026-10-08" },
       { id: "d2", name: "Clinic interiors, Al Barsha", stage: "proposal", value: 140000, currency: "AED", source: "linkedin", closed_at: null },
       { id: "d3", name: "Retail kiosk refurbishment", stage: "negotiation", value: 60000, currency: "AED", source: "google", closed_at: null },
@@ -39,7 +38,6 @@
       { at: "2026-10-07T08:00:00Z", kind: "note", actor: "Ripe Piper", message: "Reply rate dropped from 7.5% to 6.9% after the Diwali week. We expect it to recover this week." },
       { at: "2026-09-02T08:00:00Z", kind: "milestone", actor: "Ripe Piper", message: "Ideal customer match passed 85% for the first time after we added the 'new office' signal." },
       { at: "2026-06-03T09:00:00Z", kind: "milestone", actor: "Ripe Piper", message: "Advance of AED 2,750 received. The engagement has started." }];
-    state.adAccounts = [{ platform: "google_ads", last_synced_at: "2026-10-19T22:05:00Z" }];
   }
 
   /* ---------------------------------------------------------- live data */
@@ -55,15 +53,17 @@
       sb.from("quotes").select("*").eq("tenant_id", t).order("created_at", { ascending: false }),
       sb.from("payments").select("purpose,amount,currency,status,provider,created_at").eq("tenant_id", t).order("created_at", { ascending: false }),
       sb.from("activity_log").select("*").eq("tenant_id", t).order("at", { ascending: false }).limit(50),
-      sb.from("ad_accounts").select("platform,last_synced_at,status").eq("tenant_id", t)
+      sb.from("ad_accounts").select("platform,last_synced_at,status").eq("tenant_id", t),
+      sb.from("v_tenant_outcomes_monthly").select("*").eq("tenant_id", t).order("month")
     ]).then(function (r) {
-      ["monthly", "sources", "ads", "fees", "deals", "proposals", "quotes", "payments", "activity", "adAccounts"].forEach(function (k, i) { state[k] = r[i].data || []; });
+      ["monthly", "sources", "ads", "fees", "deals", "proposals", "quotes", "payments", "activity", "adAccounts", "outcomes"].forEach(function (k, i) { state[k] = r[i].data || []; });
     });
   }
 
   /* ---------------------------------------------------------- rendering */
   function cur() { return state.tenant.currency; }
   function monthRow(m) { return state.monthly.find(function (x) { return x.month === m; }) || {}; }
+  function outcomeRow(m) { return state.outcomes.find(function (x) { return x.month === m; }) || {}; }
   function prevMonth(m) { var i = state.monthly.findIndex(function (x) { return x.month === m; }); return i > 0 ? state.monthly[i - 1] : null; }
 
   function kpi(label, value, prev, fmt, lowerIsBetter, note) {
@@ -76,27 +76,30 @@
   }
 
   function renderOverview() {
+    /* Meetings held come from reviewed outcomes recorded by the engine, the same source as the funnel. */
     var m = monthRow(state.month), p = prevMonth(state.month) || {}, c = cur(), mon = function (v) { return RP.money(v, c); };
+    var o = outcomeRow(state.month), po = p.month ? outcomeRow(p.month) : {}, perMeeting = function (row, out) { return out.meeting_held ? row.total_cost / out.meeting_held : null; };
     $("kpis").innerHTML = [
       kpi("Qualified leads", m.qualified_leads, p.qualified_leads, RP.num),
-      kpi("Meetings held", m.meetings_held, p.meetings_held, RP.num),
-      kpi("Cost per meeting held", m.cost_per_meeting, p.cost_per_meeting, mon, true, "Our fees plus ad spend, divided by meetings held"),
+      kpi("Meetings held", o.meeting_held, po.meeting_held, RP.num),
+      kpi("Cost per meeting held", perMeeting(m, o), p.month ? perMeeting(p, po) : null, mon, true, "Our fees divided by meetings held"),
       kpi("Open pipeline", m.open_pipeline, p.open_pipeline, mon),
       kpi("Revenue from won deals", m.won_revenue, p.won_revenue, mon),
       kpi("Return on investment", m.roi_pct, p.roi_pct, RP.pct, false, "Won revenue minus total cost, divided by total cost")
     ].join("");
-    var last = state.monthly.slice(-6), max = Math.max.apply(null, last.map(function (x) { return Math.max(x.qualified_leads || 0, x.meetings_held || 0); }).concat([1]));
+    var last = state.monthly.slice(-6), max = Math.max.apply(null, last.map(function (x) { return Math.max(x.qualified_leads || 0, outcomeRow(x.month).meeting_held || 0); }).concat([1]));
     $("trend").innerHTML = '<div class="legend"><span><i class="ready"></i>Qualified leads</span><span><i class="warm"></i>Meetings held</span></div>' +
       last.map(function (x) {
         return '<div class="bar-row"><span class="mono">' + RP.monthLabel(x.month).slice(0, 3) + '</span><div class="bar-pair">' +
           '<div class="bar"><i class="ready" style="width:' + (100 * (x.qualified_leads || 0) / max) + '%"></i></div><span class="mono">' + RP.num(x.qualified_leads) + "</span>" +
-          '<div class="bar"><i class="warm" style="width:' + (100 * (x.meetings_held || 0) / max) + '%"></i></div><span class="mono">' + RP.num(x.meetings_held) + "</span></div></div>";
+          '<div class="bar"><i class="warm" style="width:' + (100 * (outcomeRow(x.month).meeting_held || 0) / max) + '%"></i></div><span class="mono">' + RP.num(outcomeRow(x.month).meeting_held) + "</span></div></div>";
       }).join("");
   }
 
   function renderFunnel() {
-    var m = monthRow(state.month);
-    var steps = [["Emails delivered", m.emails_delivered], ["Replies", m.replies], ["Interested replies", m.positive_replies], ["Meetings booked", m.meetings_booked], ["Meetings held", m.meetings_held], ["Deals won", m.deals_won]];
+    /* Sending counts come from outreach; every later step is a reviewed outcome recorded by the engine. */
+    var m = monthRow(state.month), o = outcomeRow(state.month);
+    var steps = [["Emails sent", m.emails_sent], ["Emails delivered", m.emails_delivered], ["Qualified conversations", o.qualified_conversation], ["Meetings held", o.meeting_held], ["Opportunities", o.opportunity], ["Won", o.won]];
     var top = steps[0][1] || 1;
     $("funnel").innerHTML = steps.map(function (s, i) {
       var prev = i ? steps[i - 1][1] : null, share = prev ? " · " + RP.pct(100 * (s[1] || 0) / prev) + " of previous step" : "";
@@ -133,12 +136,11 @@
 
   function renderValue() {
     var m = monthRow(state.month), c = cur(), mon = function (v) { return RP.money(v, c); };
-    var all = state.monthly.reduce(function (a, x) { a.cost += Number(x.total_cost || 0); a.won += Number(x.won_revenue || 0); a.fees += Number(x.fees || 0); a.ads += Number(x.ad_spend || 0); return a; }, { cost: 0, won: 0, fees: 0, ads: 0 });
+    var all = state.monthly.reduce(function (a, x) { a.cost += Number(x.total_cost || 0); a.won += Number(x.won_revenue || 0); return a; }, { cost: 0, won: 0 });
     $("valueKpis").innerHTML =
       '<div class="kpi"><span class="muted">Our fees this month</span><b>' + mon(m.fees) + "</b></div>" +
-      '<div class="kpi"><span class="muted">Your ad spend this month</span><b>' + mon(m.ad_spend) + "</b></div>" +
       '<div class="kpi"><span class="muted">Revenue from won deals this month</span><b>' + mon(m.won_revenue) + "</b></div>" +
-      '<div class="kpi"><span class="muted">Total cost since the start</span><b>' + mon(all.cost) + '</b><span class="hint">Fees ' + mon(all.fees) + " + ad spend " + mon(all.ads) + "</span></div>" +
+      '<div class="kpi"><span class="muted">Total cost since the start</span><b>' + mon(all.cost) + '</b><span class="hint">Our fees only</span></div>' +
       '<div class="kpi"><span class="muted">Won revenue since the start</span><b>' + mon(all.won) + "</b></div>" +
       '<div class="kpi"><span class="muted">Return since the start</span><b>' + (all.cost ? RP.pct(100 * (all.won - all.cost) / all.cost) : "–") + '</b><span class="hint">Each 1 spent returned ' + (all.cost ? (all.won / all.cost).toFixed(1) : "–") + " in won revenue</span></div>";
     var labels = { setup: "Setup", retainer: "Monthly fee", performance: "Performance fee", quote: "Customisation" };
@@ -184,8 +186,7 @@
   function renderAll() {
     $("tenantName").textContent = state.tenant.name;
     $("tenantPlan").textContent = (state.tenant.plan === "sprint" ? "Revive Sprint" : "Monthly engine") + " · " + state.tenant.package + " · " + (state.role === "owner" ? "Account owner" : "Viewer");
-    var synced = state.adAccounts.map(function (a) { return a.last_synced_at; }).filter(Boolean).sort().pop();
-    $("freshness").textContent = "Outreach and deals update live. Ad data last updated " + (synced ? RP.dateTime(synced) : "when you connect an ad account") + ".";
+    $("freshness").textContent = "Outreach, outcomes and deals update live.";
     renderOverview(); renderFunnel(); renderAds(); renderValue(); renderDeals(); renderQuotes(); renderActivity();
   }
 
@@ -202,12 +203,29 @@
     var id = e.target.dataset && e.target.dataset.deal;
     if (id) {
       var f = e.target.dataset.f, val = f === "value" ? Number(e.target.value) : e.target.value, patch = {}; patch[f] = val;
-      if (f === "stage" && (val === "won" || val === "lost")) patch.closed_at = new Date().toISOString().slice(0, 10);
+      if (f === "stage") patch.closed_at = val === "won" || val === "lost" ? new Date().toISOString().slice(0, 10) : null;
       var d = state.deals.find(function (x) { return x.id === id; }); Object.assign(d, patch);
       if (!RP.demo) RP.sb.from("deals").update(patch).eq("id", id).then(function (r) { if (r.error) $("dealsHelp").textContent = "We could not save that change. Please refresh the page and try again."; else load(state.tenant.id).then(renderAll); });
     }
   });
+  /* Exit policy: the client can take their records at any time. Built from rows already loaded. */
+  function csvCell(v) { var num = typeof v === "number"; v = v == null ? "" : String(v); if (!num && /^[=+\-@\t\r]/.test(v)) v = "'" + v; return '"' + v.replace(/"/g, '""') + '"'; }
+  function recordsCsv() {
+    var c = cur(), rows = [["record", "date", "name", "status", "amount", "currency", "detail"]];
+    state.deals.forEach(function (d) { rows.push(["deal", d.closed_at, d.name, d.stage, d.value, d.currency, d.source]); });
+    state.fees.forEach(function (f) { rows.push(["fee", f.month, f.type, "", f.amount, f.currency || c, f.note]); });
+    state.payments.forEach(function (p) { rows.push(["payment", p.created_at, p.purpose, p.status, p.amount, p.currency, p.provider]); });
+    state.activity.forEach(function (a) { rows.push(["activity", a.at, a.kind, "", "", "", a.message]); });
+    state.outcomes.forEach(function (o) { ["qualified_conversation", "meeting_held", "opportunity", "won", "lost"].forEach(function (k) { rows.push(["outcome", o.month, k, "", o[k], "", "distinct contacts"]); }); });
+    return rows.map(function (r) { return r.map(csvCell).join(","); }).join("\r\n") + "\r\n";
+  }
+  function downloadCsv() {
+    var url = URL.createObjectURL(new Blob([recordsCsv()], { type: "text/csv;charset=utf-8" })), a = document.createElement("a");
+    a.href = url; a.download = "ripepiper-records-" + new Date().toISOString().slice(0, 10) + ".csv"; a.click(); URL.revokeObjectURL(url);
+  }
+
   document.addEventListener("click", function (e) {
+    if (e.target.closest("#downloadCsv")) return downloadCsv();
     var b = e.target.closest("[data-accept]"); if (!b) return;
     var errEl = document.querySelector('[data-qerr="' + b.dataset.accept + '"]');
     RP.api("/api/portal/quotes/" + b.dataset.accept + "/accept").then(function (j) { location.href = j.payment_url; })

@@ -75,7 +75,9 @@ it('enforces [start,end) window boundaries, waits without claiming, and blocks a
  expect(await rpc('claim_fenced_synthetic_action',[f.tenant,id,crypto.randomUUID(),at.toISOString()])).toBeNull();expect((await q('select state from outbound_actions where id=$1',[id]))[0].state).toBe('blocked');
 });
 it('rechecks the working window at completion without acknowledging after closing time',async()=>{
- const f=await fixture({workingDays:[1,2,3,4,5,6,7],startMinute:540,endMinute:1020});await save(f);await authorize(f);const start=nextDay((new Date().getUTCDay()+1)%7,16,59),id=(await queue(f,start)).actionIds[0],token=crypto.randomUUID();
+ const f=await fixture({workingDays:[1,2,3,4,5,6,7],startMinute:540,endMinute:1020});await save(f);await authorize(f);const start=nextDay((new Date().getUTCDay()+1)%7,16,59),id=(await queue(f,nextDay((new Date().getUTCDay()+1)%7,16,50))).actionIds[0],token=crypto.randomUUID();
+ // New schedules keep a cron margin before closing; a row queued before that margin can still be due at 16:59.
+ await q('update outbound_actions set due_at=$2 where id=$1',[id,start]);
  expect(await rpc('claim_fenced_synthetic_action',[f.tenant,id,token,start])).toMatchObject({token});const end=new Date(Date.parse(start)+60000).toISOString();expect(await rpc('complete_fenced_synthetic_action',[f.tenant,id,token,1,1,end])).toBe(false);expect((await q('select acknowledged_at from outbound_actions where id=$1',[id]))[0].acknowledged_at).toBeNull();
 });
 it('reserves distinct tenant-local-day contacts across campaigns and frees cancelled reservations',async()=>{

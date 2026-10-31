@@ -90,6 +90,13 @@ it('preview and enrolment preserve actual follow-up spacing after a Friday-close
  const queued=await rpc('manage_campaign_plan',[f.tenant,p.id,actor,'queue',1,{leadId:c.lead,startAt:start}]);expect(queued.actionIds).toHaveLength(3);const persisted=await q('select due_at from outbound_actions where campaign_id=$1 order by message_step',[p.id]);expect(persisted.map(x=>Date.parse(x.due_at))).toEqual(preview.steps.map((x:any)=>Date.parse(x.dueAt)));
  expect(await rpc('manage_campaign_plan',[f.tenant,p.id,actor,'queue',1,{leadId:c.lead,startAt:start}])).toMatchObject({replayed:true,actionIds:queued.actionIds});
 });
+it('moves a start inside the last cron interval of the window to the next working day start',async()=>{
+ const f=await fixture();await activate(f);const c=await contact(f),p=await plan(f,[c.lead]);await approve(f,p.id);await rpc('manage_campaign_plan',[f.tenant,p.id,actor,'rights',1,{leadId:c.lead,sourceId:c.source,noticeReference:'QA notice'}]);
+ // Mon-Thu 16:58 Dubai is two minutes before endMinute (1020); the next day is a working day.
+ const late=new Date();late.setUTCHours(12,58,0,0);while(late<=new Date()||![1,2,3,4].includes(late.getUTCDay()))late.setUTCDate(late.getUTCDate()+1);
+ const next=new Date(late);next.setUTCDate(next.getUTCDate()+1);next.setUTCHours(5,0,0,0);
+ const preview=await rpc('preview_revive_schedule',[f.tenant,p.id,actor,1,c.lead,late.toISOString()]);expect(Date.parse(preview.steps[0].dueAt)).toBe(next.getTime());expect(preview.steps[0].localTime).toBe('09:00:00');
+});
 it('reserves the tenant local-day contact cap across campaigns and includes uncertain work',async()=>{
  const f=await fixture();f.setup.dailyContactCap=1;await rpc('save_revive_setup',[f.tenant,actor,1,1,'reviewed',f.setup]);await activate(f);const a=await contact(f),b=await contact(f);
  const create=async(lead:string)=>{const id=crypto.randomUUID(),payload=body([lead]);payload.strategy.setupVersion=2;await rpc('manage_campaign_plan',[f.tenant,id,actor,'save',0,payload]);await approve(f,id);return id;};

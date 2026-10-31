@@ -27,7 +27,7 @@ it('registers exact CAS, keeps namespace stable, rejects old/core/generic bypass
  await expect(register(t)).rejects.toThrow('authority changed');
  await expect(register(t,1,hash,'33333333-3333-4333-8333-333333333333')).rejects.toThrow('authority changed');
  const args=evidence(t);const id=(await db.query<any>(record,args)).rows[0].id;expect((await db.query<any>(record,args)).rows[0].id).toBe(id);
- const legacy='select public.record_gmail_product_event($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)';await expect(db.query(legacy,args.slice(0,11))).rejects.toThrow('Legacy Gmail');
+ const legacy='select public.record_gmail_product_event($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)';await expect(db.query(legacy,args.slice(0,11))).rejects.toThrow('does not exist');
  const generic='select public.record_product_event($1,$2,$3,$4,$5,$6,$7,$8,$9) id';const manual=[t.id,t.lead,actor,`GMAIL:${connection}:forged`,'approved-source','Reviewed message',args[8],false,args[10]];
  await expect(db.query(generic,manual)).rejects.toThrow('durable authority');
  await expect(db.query(generic,[...manual.slice(0,3),'manual-reply',...manual.slice(4)])).rejects.toThrow('existing reviewed response');

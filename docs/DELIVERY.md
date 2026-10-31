@@ -8,9 +8,9 @@ Owner and release authority: Dipuraj Thapa. Ripe Piper is a managed, staff-confi
 
 **Overall: development-complete for the bounded offline scope, not client-ready.** All four packages have tested source implementations against synthetic data. No live lead-to-outcome service exists yet.
 
-- **Source:** `main` only; all earlier feature branches are merged and deleted. The latest merge is PR #12, which fixed about 33 audited defects (payment send-claim after Gmail 5xx, zero-value quotes, paid-return page, Turnstile visibility, calculator one-time breakdown honouring opt-outs, removal of `GET /api/slots`, admin UI fixes, AI retry/timeout, reminder day, blog link safety, staging blog via the ASSETS binding, Signal transfer, Revive fixes, Windows dependency audit).
-- **Checks on current source:** typecheck clean; Vitest 84 files / 1,412 tests; `node --test scripts/*.test.mjs` 384 tests; dependency audit 0 vulnerabilities; the three rendered browser checks in CI (`tenant-unsubscribe-browser-check`, `product-browser-check`, `signal-browser-check`) pass locally.
-- **Migrations:** 39 files in `platform/ripe-piper-platform/supabase/migrations`. Isolated staging (`wgomywhuzyboxlckopca`) has the first 35 applied and verified. The four newest are local only and not applied to any hosted database: `20261027194016_durable_google_authority.sql`, `20261027194035_tenant_contact_stops.sql`, `20261031000000_revive_draft_matched_need_only.sql`, `20261031000001_staff_member_role_change.sql`. Production Supabase was last observed with only its 3 original migrations.
+- **Source:** `main`, plus the uncommitted outcome-engine work on `feat/outcome-engine-2026-10-31` described under [Outcome-engine branch](#outcome-engine-branch-not-merged). Earlier feature branches are merged and deleted. The latest merge is PR #12, which fixed about 33 audited defects (payment send-claim after Gmail 5xx, zero-value quotes, paid-return page, Turnstile visibility, calculator one-time breakdown honouring opt-outs, removal of `GET /api/slots`, admin UI fixes, AI retry/timeout, reminder day, blog link safety, staging blog via the ASSETS binding, Signal transfer, Revive fixes, Windows dependency audit).
+- **Checks (2026-10-31, outcome-engine branch):** typecheck clean; Vitest 87 files / 1,431 tests; `node --test scripts/*.test.mjs` 391 tests; dependency audit 0 vulnerabilities; the three rendered browser checks in CI (`tenant-unsubscribe-browser-check`, `product-browser-check`, `signal-browser-check`) pass locally.
+- **Migrations:** 40 files in `platform/ripe-piper-platform/supabase/migrations`. Isolated staging (`wgomywhuzyboxlckopca`) has the first 35 applied and verified. The five newest are local only and not applied to any hosted database: `20261027194016_durable_google_authority.sql`, `20261027194035_tenant_contact_stops.sql`, `20261031000000_revive_draft_matched_need_only.sql`, `20261031000001_staff_member_role_change.sql`, `20261031000002_resume_rebook_outcomes.sql` (branch only). Production Supabase was last observed with only its 3 original migrations.
 - **Runtime:** no API Worker is deployed. The static site publishes to Cloudflare Pages from `main` with `live:false` configuration, so it shows sample data and does not reach an API.
 - **Deployment hold:** production deploys are blocked on purpose (`npm run deploy` runs `scripts/blocked-deploy.mjs`, and the `.githooks/pre-push` hook blocks pushes to `main`). Commits that must not trigger a Pages build use the `[CF-Pages-Skip]` prefix.
 - **Providers:** every provider flag is off unless set to exactly `"true"`, and neither Worker template sets one on (the flag list is in the [platform README](../platform/ripe-piper-platform/README.md#configuration)). Real secrets, OAuth consent and payment keys are not configured.
@@ -21,7 +21,8 @@ Owner and release authority: Dipuraj Thapa. Ripe Piper is a managed, staff-confi
 - **Calculator:** emails its breakdown once. No follow-up sequence.
 - **Roles:** staff admin, client owner, client viewer; only staff change roles and the last owner cannot be demoted. Details in the [root README](../README.md#roles).
 - **Google Ads sync stays off.** It only feeds optional ad spend into the client cost report and no package needs it. Enabling it would also need the `adwords` OAuth scope.
-- **Paused campaigns** resume by editing the messages and re-approving them; there is no separate resume switch.
+- **Paused campaigns** resume by editing the messages and re-approving them; there is no separate resume switch. With migration `20261031000002`, re-approval re-enrols contacts whose earlier actions were only cancelled by that pause or edit (`campaign_paused`, `message_version_changed`); delivered, tested, blocked and review history never restarts, and cancelled rows no longer use up `max_actions`.
+- **WhatsApp stays off.** Reminders go out only with the guest's explicit opt-in, and only after the owner approves per-message spend and supplies the Meta account (owner-only action 8). Until the owner provides the real number, the public site shows no WhatsApp contact.
 - **Budget:** US$20 is the one total incremental build budget across all products, integrations, model usage and trials. Paid use stays disabled until prior usage is reconciled (RP-018). Discretionary calls stop at US$18 committed plus reserved.
 - **Architecture:** extend the existing static site and Worker; no replacement site, second engine or separate backlog. Ripe Piper runs as an ordinary tenant; legacy `tenant_id IS NULL` data stays intact until a tested, approved migration.
 - **Human gates stay:** business brief, contact qualification, exact message approval, live communication and outcome classification are human decisions. Automation never approves its own evidence, rights, spend or messages.
@@ -63,6 +64,20 @@ Manual enquiry/reply triage with per-thread missing questions and cross-product 
 
 Staff registration and attendance records with per-event history; default-off synthetic public registration (`EVENT_REGISTRATION_ENABLED`) with expiry-bound cancellation/recovery, reviewed versioned settings, capacity and replay controls (RP-050).
 
+## Outcome-engine branch (not merged)
+
+Uncommitted on `feat/outcome-engine-2026-10-31`; covered by targeted tests only, not the full suite, and not applied to staging.
+
+- **Revive resume and scheduling** (migration `20261031000002`, `revive-automation.ts`): resume as described under owner decisions; the correlation key carries the asset version; automation treats only current-version actions as existing and counts a `40001` refusal as blocked. A step is scheduled only where its due time plus 5 minutes is still inside the working window, so an enrolment in the last cron tick is no longer expired and blocked.
+- **Consultation rebook:** a reviewed `no_show` or `unknown` returns the agency lead from `meeting_booked` to `qualified` (unless another booked, rescheduled or held meeting exists), so the prospect can book again.
+- **Consultation cancel:** `cancelBooking` in `routes/admin.ts` (staff only, agency meetings) removes the Google event (any error except 404/410 returns 409 and changes nothing), sets the meeting `cancelled`, returns the lead to `qualified` (same no-other-meeting rule) and logs a staff-only note. The admin meeting view's Cancel button calls `POST /api/admin/meetings/:id/cancel`.
+- **AI cost safety:** the transcript is cut to 256,000 characters before `save_meeting_draft`; `processMeeting` returns stored notes when nothing new is posted; `draftProposal` filters `tenant_id is null` and reuses an open draft for the same meeting, plan, package, currency and amount; `claude()` throws unless `stop_reason` is `end_turn`.
+- **Client portal:** the funnel reads the member-scoped, counts-only view `v_tenant_outcomes_monthly` (reviewed, non-synthetic outcome observations); `Download your records (CSV)` builds the file in the browser; the Ads tab and ad-spend figures are hidden while `ADS_SYNC_ENABLED` is off; marketing chrome is removed. The staff weekly form no longer asks for meetings booked or held.
+- **Public site:** Turnstile loads on demand from `site.js`, so every newsletter form works once a key is set; the placeholder WhatsApp number is removed and WhatsApp links appear only when `config.whatsappNumber` is set; without a live API the booking form is replaced by an email notice; a WhatsApp reminder opt-in field sits behind `config.whatsappReminders` (false).
+- **WhatsApp (default off):** `WHATSAPP_ENABLED` is `"false"` in both Worker templates and enables only on exact `true`; turning it on needs owner approval (owner-only action 8). The migration adds consent columns on `meetings` (number, consent time, notice, opt-out time; consent requires number and notice). `POST /api/book` stores an E.164 number with consent only while the flag is on. `lib/whatsapp.ts` sends one approved template (Graph `v26.0`, no retry). `GET/POST /webhooks/whatsapp` checks the verify token and the `X-Hub-Signature-256` HMAC with a constant-time compare; STOP is honoured even while sending is off (meetings marked opted out, attendee email added to `agency_suppression`), other inbound messages raise a masked admin alert. The 1-hour reminder goes by WhatsApp instead of email only when the flag and `WHATSAPP_REMINDER_TEMPLATE` are set and the meeting has consent and no opt-out; it uses the same fenced reminder ledger and rechecks opt-out just before the provider call.
+- **Removed:** dead `src/contracts/v1.ts` and its test; the migration drops the uncalled `complete_synthetic_action`, `expire_synthetic_claim` and the `record_gmail_product_event` stub. The unused `no_show` counter in `jobs.ts` is gone. Still present: the `src/foundation/actions.ts` shim.
+- **Blog copy:** the seeded post no longer says in-window WhatsApp replies are free; the static `site/blog/cold-email-rules-uae-india.html` still does.
+
 ## Open backlog
 
 Only items with remaining work are listed. Items with no remaining work (RP-001 to RP-005, RP-010, RP-011, RP-015) are in git history.
@@ -70,7 +85,7 @@ Only items with remaining work are listed. Items with no remaining work (RP-001 
 | ID | Priority | Remaining work | Milestone |
 |---|---|---|---|
 | RP-012 | P0 | Tenant client-calendar booking: expiring contact/action-bound capability, availability, timezone checks, one reservation per event, provider receipt and reconciliation. Public consultation booking exists but is not client-campaign booking. | M02 |
-| RP-013 | P0 | Tenant sender identity and credential binding for real outbound (no founder-credential fallback); proof against a real provider. | M02 |
+| RP-013 | P0 | Live outreach go-live bundle, blocked until the owner authorises live sending: tenant sender (From = connected mailbox, completion that writes `delivered`, no founder-credential fallback); Gmail reply check just before dispatch; DSN hard-bounce stop with its own suppression reason; List-Unsubscribe/One-Click on tenant campaign mail only; SPF/DKIM/DMARC check before approval; per-mailbox daily cap; proof against a real provider. | M02 |
 | RP-014 | P0 | Live payment settlement with real provider keys in the isolated environment. | M02 |
 | RP-016 | P1 | Real provider delivery/read reconciliation for reminders; separate-connection proof. | M02 |
 | RP-017 | P1 | Sheets duplicate-safe retry before `SHEETS_SYNC_ENABLED` is turned on. | M02 |
@@ -97,7 +112,7 @@ Only items with remaining work are listed. Items with no remaining work (RP-001 
 ## Release blockers
 
 1. **No deployed Worker.** Staging needs its secrets and a manual dispatch (owner action 1), then the staging HTTP acceptance run and cleanup must pass.
-2. **Four migrations unapplied.** Apply `20261027194016` through `20261031000001` to staging with their rollback packet (`qa/staging-authority-rollback-acceptance.sql` covers the authority/stop migrations) before testing the matching Worker. Do not apply to production without owner approval for the exact commit, migration set and rollback.
+2. **Five migrations unapplied.** Apply `20261027194016` through `20261031000002` to staging with their rollback packet (`qa/staging-authority-rollback-acceptance.sql` covers the authority/stop migrations) before testing the matching Worker. Do not apply to production without owner approval for the exact commit, migration set and rollback.
 3. **No real provider proof.** Tenant mailbox identity, lawful contact rights, reply sync, calendar booking and payment settlement are fixture-tested only.
 4. **Operations unproven.** Backup restore, monitoring, incident recovery and independent-session concurrency have no evidence (`security-and-operations` stage).
 5. **Budget unreconciled** (RP-018); paid AI stays off.
@@ -111,9 +126,13 @@ Engineering, tests and documentation need no further approval. Only these need t
 
 1. **Staging secrets.** In GitHub **Settings → Secrets and variables → Actions**, set `RIPEPIPER_STAGING_CLOUDFLARE_API_TOKEN`, `RIPEPIPER_STAGING_SERVICE_ROLE_KEY` and `RIPEPIPER_STAGING_ANON_KEY` (staging keys only, never production; never paste them into chat).
 2. **Staging dispatch** from a fresh branch off `main`, following [DEVELOPMENT.md](DEVELOPMENT.md#staging-deploy).
-
 3. **Google OAuth consent** for the pilot mailbox/calendar, and sharing the chosen calendar with the pilot account, once the integration is ready.
 4. **Payment provider keys** (test mode first) for settlement testing.
 5. **Budget reconciliation** of prior usage before any paid call.
 6. **Production release approval** for an exact commit, migration set and rollback, and the scope of any real communication.
 7. **Pilot decisions:** client offer/segment, source entitlement, contact rights, message approvals and outcome classification.
+8. **WhatsApp:** a real WhatsApp Business number, a Meta Business account/WABA and app (token, phone-number id, app secret, verify token), an approved utility template `consultation_reminder`, and approval to pay for each message (charged from 1 October 2026) before `WHATSAPP_ENABLED` is set to true. The real number also goes in `config.whatsappNumber` before any WhatsApp contact copy returns to the site.
+9. **WhatsApp opt-in wording** and its notice reference signed off under UAE PDPL and India DPDP.
+10. **Turnstile** production site key (`config.js` `turnstileSiteKey` is empty) and secret before the public forms go live.
+11. **Live outreach (RP-013):** authorisation, plus each client's connected mailbox and sending-domain DNS (SPF/DKIM/DMARC), before any real campaign email.
+12. **Production deploy** of the new migration and matching Worker (production deploys are blocked today).

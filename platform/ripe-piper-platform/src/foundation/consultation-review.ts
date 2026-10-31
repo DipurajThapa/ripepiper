@@ -4,7 +4,7 @@ import {bad,json,readJson,requireUser} from '../routes/http';
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function meetingSnapshot(m:any){return {id:m.id,tenantId:m.tenant_id??null,leadId:m.lead_id??null,kind:m.kind??'discovery',startAt:new Date(m.start_at).toISOString(),endAt:new Date(m.end_at).toISOString(),email:m.attendee_email,name:m.attendee_name??null,eventId:m.google_event_id??null,meetUrl:m.meet_url??null,meetCode:m.meet_code??null};}
 export async function saveMeetingDraft(db:Db,m:any,draft:{transcript?:string;notes?:any;minutes?:string;requirements?:any},reason:'transcript_unverified'|'attendance_source_unavailable'|'analysis_unavailable'){
- const result=await db.rpc<any>('save_meeting_draft',{p_meeting:m.id,p_snapshot:meetingSnapshot(m),p_transcript:draft.transcript??null,p_notes:draft.notes??null,p_minutes:draft.minutes??null,p_requirements:draft.requirements??null,p_reason:reason});
+ const result=await db.rpc<any>('save_meeting_draft',{p_meeting:m.id,p_snapshot:meetingSnapshot(m),p_transcript:draft.transcript?.slice(0,256000)??null,p_notes:draft.notes??null,p_minutes:draft.minutes??null,p_requirements:draft.requirements??null,p_reason:reason});
  if(result?.meetingId!==m.id||!Number.isSafeInteger(result.reviewVersion)||result.reviewVersion<0||!['unknown','held','no_show'].includes(result.attendance)||typeof result.notesReady!=='boolean')throw Error('Meeting draft acknowledgement is uncertain');
  return {meetingId:m.id,reviewVersion:result.reviewVersion,attendance:result.attendance,notesReady:result.notesReady};
 }

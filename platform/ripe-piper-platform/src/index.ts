@@ -6,7 +6,8 @@ import { Db, DbError } from "./lib/db";
 import { fillShell, postPage, indexPage, type Post } from "./lib/blog";
 import { postLead, postBook, postCalculator, postNewsletter, getNewsletterConfirm, postNewsletterConfirm, postOptOut, postOptOutConfirm } from "./routes/public";
 import { viewProposal, approveProposal, stripeWebhook, razorpayWebhook, acceptQuote, inspectPayment } from "./routes/proposals";
-import { processMeeting, reconcileBooking, draftProposal, sendProposal, createQuote, sendQuote, inviteUser, runAdsSync } from "./routes/admin";
+import { whatsappVerify, whatsappWebhook } from "./routes/whatsapp";
+import { processMeeting, reconcileBooking, cancelBooking, draftProposal, sendProposal, createQuote, sendQuote, inviteUser, runAdsSync } from "./routes/admin";
 import { json, html, HttpError } from "./routes/http";
 import { runScheduled } from "./jobs";
 import { recordSubjectRequest } from "./foundation/requests";
@@ -64,8 +65,11 @@ const routes: [string, RegExp, Handler][] = [
   ["POST", /^\/p\/([0-9a-f-]{36})\/approve$/, (_r, e, _c, p) => approveProposal(p[0], e)],
   ["POST", /^\/webhooks\/stripe$/, (r, e) => stripeWebhook(r, e)],
   ["POST", /^\/webhooks\/razorpay$/, (r, e) => razorpayWebhook(r, e)],
+  ["GET", /^\/webhooks\/whatsapp$/, (r, e) => whatsappVerify(r, e)],
+  ["POST", /^\/webhooks\/whatsapp$/, (r, e, c) => whatsappWebhook(r, e, c)],
   ["POST", /^\/api\/portal\/quotes\/([0-9a-f-]{36})\/accept$/, (r, e, _c, p) => acceptQuote(r, e, p[0])],
   ["POST", /^\/api\/admin\/meetings\/([0-9a-f-]{36})\/reconcile$/, (r, e, _c, p) => reconcileBooking(r, e, p[0])],
+  ["POST", /^\/api\/admin\/meetings\/([0-9a-f-]{36})\/cancel$/, (r, e, _c, p) => cancelBooking(r, e, p[0])],
   ["POST", /^\/api\/admin\/meetings\/([0-9a-f-]{36})\/process$/, (r, e, _c, p) => processMeeting(r, e, p[0])],
   ["POST", /^\/api\/admin\/meetings\/([0-9a-f-]{36})\/draft-proposal$/, (r, e, _c, p) => draftProposal(r, e, p[0])],
   ["POST", /^\/api\/admin\/proposals\/([0-9a-f-]{36})\/send$/, (r, e, _c, p) => sendProposal(r, e, p[0])],

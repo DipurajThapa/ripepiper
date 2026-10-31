@@ -19,7 +19,7 @@ function intercept(){vi.stubGlobal('fetch',async(input:string,init:RequestInit={
  const table=url.pathname.replace('/rest/v1/','');
  if(['tenants','campaigns','campaign_assets','outbound_actions'].includes(table)&&(!init.method||init.method==='GET')){
   const values:any[]=[],where:string[]=[];
-  for(const [key,value] of url.searchParams){if(['select','order','limit'].includes(key))continue;if(!/^[a-z_]+$/.test(key))throw Error('Unexpected filter');const i=value.indexOf('.'),operator=({eq:'=',gt:'>',gte:'>=',lt:'<',lte:'<='} as Record<string,string>)[value.slice(0,i)];if(!operator)throw Error('Unexpected operator');values.push(value.slice(i+1));where.push(`${key}${operator}$${values.length}`);}
+  for(const [key,value] of url.searchParams){if(['select','order','limit'].includes(key))continue;if(!/^[a-z_]+$/.test(key))throw Error('Unexpected filter');const i=value.indexOf('.'),operator=({eq:'=',neq:'<>',gt:'>',gte:'>=',lt:'<',lte:'<='} as Record<string,string>)[value.slice(0,i)];if(!operator)throw Error('Unexpected operator');values.push(value.slice(i+1));where.push(`${key}${operator}$${values.length}`);}
   const order=(url.searchParams.get('order')??'').split(',').filter(Boolean).map(part=>{if(!/^[a-z_]+(\.(asc|desc))?$/.test(part))throw Error('Unexpected ordering');return part.replace('.',' ');});
   return Response.json(await rows(`select * from ${table}${where.length?' where '+where.join(' and '):''}${order.length?' order by '+order.join(','):''} limit ${Math.min(Number(url.searchParams.get('limit')??100),1001)}`,values));
  }

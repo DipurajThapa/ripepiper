@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { once } from 'node:events';
@@ -50,6 +50,37 @@ test('live consultation UI forwards its one-use capability from lead response to
   assert.equal(requests.length,2,JSON.stringify({error:fields.fErr.textContent,result:result.innerHTML,token:requests[0]?.booking_token}));
   assert.equal(requests[1].lead_id,'lead-1');
   assert.equal(requests[1].booking_token,token);
+  assert.equal('whatsapp' in requests[1],false);
+});
+
+test('book form is replaced with the email notice before input when not live', async () => {
+  let replaced=null,listened=false;
+  const bookForm={addEventListener(){listened=true},replaceWith(n){replaced=n}};
+  const context={window:{RP_CONFIG:{live:false}},document:{createElement:()=>({}),querySelector:()=>null,querySelectorAll:()=>[],getElementById:id=>id==='bookForm'?bookForm:null},
+    location:{hostname:'ripepiper.com',pathname:'/book.html',search:'',hash:'',protocol:'https:'},URLSearchParams,sessionStorage:{getItem:()=>null,setItem:()=>{}},fetch:()=>{throw new Error('Network forbidden');}};
+  vm.runInNewContext(await readFile(new URL('site/assets/site.js',root),'utf8'),context);
+  assert.equal(listened,false);assert.match(replaced.innerHTML,/mailto:hello@ripepiper\.com/);
+});
+
+test('newsletter loads Turnstile on pages without the script tag and sends its token', async () => {
+  const requests=[],appended=[];
+  const fields={nlEmail:{value:'synthetic@example.invalid'},nlConsent:{checked:true},nlErr:{textContent:''},nlOk:{hidden:true,innerHTML:''},nlForm:{addEventListener(_e,fn){this.submit=fn}}};
+  const win={RP_CONFIG:{live:true,turnstileSiteKey:'test-key'}};
+  const turnstile={render(_node,opts){this.callback=opts.callback;return 1},execute(){this.callback('synthetic-token')},remove(){}};
+  const body={appendChild(el){appended.push(el);if(el.src){win.turnstile=turnstile;el.onload();}}};
+  const context={window:win,document:{body,createElement:()=>({style:{},remove(){}}),querySelector:()=>null,querySelectorAll:()=>[],getElementById:id=>fields[id]||null},
+    location:{hostname:'ripepiper.com',pathname:'/packages/revive.html',search:'',hash:'',protocol:'https:'},URLSearchParams,sessionStorage:{getItem:()=>null,setItem:()=>{}},setTimeout,clearTimeout,
+    fetch:async (url,init)=>{requests.push({url,body:JSON.parse(init.body)});return {ok:true,json:async()=>({ok:true})};}};
+  vm.runInNewContext(await readFile(new URL('site/assets/site.js',root),'utf8'),context);
+  fields.nlForm.submit({preventDefault(){}});
+  for(let i=0;i<5&&!requests.length;i++)await new Promise(r=>setImmediate(r));
+  assert.equal(appended.filter(el=>el.src).length,1);assert.equal(appended.find(el=>el.src).src,'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit');
+  assert.equal(requests.length,1,fields.nlErr.textContent);assert.equal(requests[0].url,'/api/newsletter');assert.equal(requests[0].body.turnstile_token,'synthetic-token');
+});
+
+test('no public page ships the placeholder WhatsApp number', async () => {
+  const files=(await readdir(new URL('site/',root),{recursive:true})).filter(f=>/\.(html|js)$/.test(f));
+  for(const f of files)assert.ok(!(await readFile(new URL('site/'+f.replaceAll('\\','/'),root),'utf8')).includes('000 0000'),f);
 });
 
 test('preview copies preserve source and reject writes/API access', async () => {

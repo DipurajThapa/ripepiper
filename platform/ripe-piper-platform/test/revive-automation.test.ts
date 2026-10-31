@@ -23,7 +23,7 @@ function adapter(options:any={}) {
   if(table==='revive_reviews')return reviews;
   if(table==='outbound_actions'){
    const params=new URLSearchParams(query),id=params.get('id')?.slice(3),scopeTenant=params.get('tenant_id')?.slice(3),scopeCampaign=params.get('campaign_id')?.slice(3);
-   return actions.filter(a=>(!id||a.id===id)&&(!scopeTenant||a.tenant_id===scopeTenant)&&(!scopeCampaign||a.campaign_id===scopeCampaign)&&(!params.has('state')||(a.state==='queued'&&Date.parse(a.due_at)<=Date.now())));
+   return actions.filter(a=>(!id||a.id===id)&&(!scopeTenant||a.tenant_id===scopeTenant)&&(!scopeCampaign||a.campaign_id===scopeCampaign)&&(!params.has('state')||(params.get('state')==='eq.claimed'?a.state==='claimed':a.state==='queued'&&Date.parse(a.due_at)<=Date.now()))&&(!params.has('asset_version')||(params.get('asset_version')!.startsWith('neq.')?a.asset_version!==Number(params.get('asset_version')!.slice(4)):a.asset_version===Number(params.get('asset_version')!.slice(3)))));
   }
   throw Error('Unexpected table '+table);
  });
@@ -36,9 +36,10 @@ function adapter(options:any={}) {
    if(options.malformedQueue)return{ok:true};
    const review=reviews.find(r=>r.lead_id===args.p_body.leadId&&r.tenant_id===args.p_tenant&&r.state==='accepted'&&Number.isFinite(Date.parse(r.expires_at))&&Date.parse(r.expires_at)>Date.now());
    if(!review)throw new DbError(400,'22023 current audience review invalid');
-   const existing=actions.filter(a=>a.campaign_id===args.p_campaign&&a.lead_id===args.p_body.leadId);
+   const existing=actions.filter(a=>a.campaign_id===args.p_campaign&&a.lead_id===args.p_body.leadId&&a.asset_version===args.p_version);
    if(existing.length)return{actionIds:existing.map(a=>a.id),replayed:true};
-   const a={...freshAction(),campaign_id:args.p_campaign,lead_id:args.p_body.leadId,due_at:args.p_body.startAt};actions.push(a);return{actionIds:[a.id],replayed:false};
+   if(actions.some(a=>a.campaign_id===args.p_campaign&&a.lead_id===args.p_body.leadId&&a.asset_version!==args.p_version&&!(a.state==='cancelled'&&['campaign_paused','message_version_changed'].includes(a.error_code))))throw new DbError(500,'{"code":"40001","message":"Existing enrolment cannot restart"}');
+   const a={...freshAction(),campaign_id:args.p_campaign,lead_id:args.p_body.leadId,due_at:args.p_body.startAt,asset_version:args.p_version};actions.push(a);return{actionIds:[a.id],replayed:false};
   }
   const action=actions.find(a=>a.id===args.p_id&&a.tenant_id===args.p_tenant);
   if(name==='revive_action_readiness')return options.readiness??{tenantId:args.p_tenant,actionId:args.p_id,campaignId:action?.campaign_id,assetVersion:1,disposition:'ready',reason:'working_window'};
@@ -76,8 +77,22 @@ describe('bounded autonomous Revive synthetic coordinator',()=>{
   expect(a.calls.filter(c=>c.table==='campaigns')[0].query).toContain('capability=eq.revive');
   expect(a.calls.some(c=>c.table==='revive_reviews')).toBe(false);expect(a.calls.filter(c=>c.table==='campaign_assets')[0].query).toContain('version=eq.1');
  });
- it.each(['cancelled','blocked','tested','delivered','review'])('never restarts an existing %s enrolment',async state=>{
+ it.each(['cancelled','blocked','tested','delivered','review'])('never restarts an existing %s enrolment on the current version',async state=>{
   const a=adapter({actions:[freshAction(state)]});expect(await runReviveAutomation(env)).toMatchObject({enrolled:0,tested:0,existing:1});expect(a.calls.some(c=>c.name==='manage_campaign_plan')).toBe(false);
+ });
+ it('re-queues a contact paused on an older version once the edited version is approved',async()=>{
+  const a=adapter({campaigns:[{id:campaign,tenant_id:tenant,operator_id:admin,capability:'revive',status:'approved',asset_version:2}],assets:[{tenant_id:tenant,campaign_id:campaign,version:2,revive_audience:freshAudience()}],actions:[{...freshAction('cancelled'),error_code:'campaign_paused'}]});
+  expect(await runReviveAutomation(env)).toMatchObject({enrolled:1,existing:0});expect(a.calls.filter(c=>c.name==='manage_campaign_plan').map(c=>[c.args.p_operation,c.args.p_version])).toEqual([['queue',2]]);
+  expect(a.actions.map(x=>[x.state,x.asset_version])).toEqual([['cancelled',1],['queued',2]]);
+ });
+ it('skips a contact with tested older-version history without pausing the edited campaign',async()=>{
+  const a=adapter({campaigns:[{id:campaign,tenant_id:tenant,operator_id:admin,capability:'revive',status:'approved',asset_version:2}],assets:[{tenant_id:tenant,campaign_id:campaign,version:2,revive_audience:freshAudience()}],actions:[freshAction('tested')]});
+  expect(await runReviveAutomation(env)).toMatchObject({enrolled:0,blocked:1,review:0});expect(a.calls.filter(c=>c.name==='manage_campaign_plan').map(c=>c.args.p_operation)).toEqual(['queue']);
+ });
+ it('keeps processing a campaign whose older versions hold more history than the per-campaign bound',async()=>{
+  const old=Array.from({length:120},()=>({...freshAction('cancelled'),id:crypto.randomUUID(),lead_id:crypto.randomUUID(),error_code:'campaign_paused'}));
+  const a=adapter({campaigns:[{id:campaign,tenant_id:tenant,operator_id:admin,capability:'revive',status:'approved',asset_version:2}],assets:[{tenant_id:tenant,campaign_id:campaign,version:2,revive_audience:freshAudience()}],actions:old});
+  expect(await runReviveAutomation(env)).toMatchObject({enrolled:1,limited:false});expect(a.calls.filter(c=>c.table==='outbound_actions').map(c=>new URLSearchParams(c.query).get('asset_version'))).toEqual(expect.arrayContaining(['eq.2','neq.2']));
  });
  it('parallel runs use one fenced completion for the same existing due action',async()=>{
   const a=adapter({actions:[freshAction()]});const results=await Promise.all([runReviveAutomation(env),runReviveAutomation(env)]);

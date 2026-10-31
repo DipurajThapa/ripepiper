@@ -110,3 +110,35 @@ test('coverage details follow cards and compact trend dates retain full accessib
  assert.match(html,/<time datetime="2026-10-11" aria-label="2026-10-11 UTC" title="2026-10-11 UTC">11<\/time>/);
  assert.match(html,/<time datetime="2026-10-24" aria-label="2026-10-24 UTC" title="2026-10-24 UTC">24<\/time>/);
 });
+
+const portalSources=await Promise.all(['app-common.js','portal.js'].map(f=>readFile(new URL('../site/assets/'+f,import.meta.url),'utf8')));
+function bootPortal(){
+ const els={},on={},blobs=[],el=id=>els[id]??={id,innerHTML:'',textContent:'',value:'',hidden:true,dataset:{},addEventListener(){}};
+ const document={getElementById:el,querySelector:()=>el('q'),querySelectorAll:s=>s==='[data-tab]'?[{dataset:{tab:'overview'},setAttribute(){},addEventListener(){}}]:[],
+  addEventListener:(t,f)=>(on[t]??=[]).push(f),createElement:()=>({click(){}})};
+ const ctx={window:{RP_CONFIG:{}},document,location:{hash:'',origin:'',pathname:''},history:{replaceState(){}},Blob,URL:{createObjectURL:b=>(blobs.push(b),'blob:test'),revokeObjectURL(){}}};
+ for(const s of portalSources)vm.runInNewContext(s,ctx);
+ const fire=(t,target)=>on[t].forEach(f=>f({target}));
+ const csv=async()=>{fire('click',{closest:s=>s==='#downloadCsv'?{}:null});return (await blobs.at(-1).text()).split('\r\n').filter(Boolean);};
+ return {els,fire,csv};
+}
+test('portal funnel shows the engine outcome counts after the sending counts',()=>{
+ const html=bootPortal().els.funnel.innerHTML,labels=[...html.matchAll(/<div class="f-row"><span>([^<]+)<\/span>.*?<span class="mono">([^<]+)</g)].map(m=>m[1]+'='+m[2]);
+ assert.deepEqual(labels,['Emails sent=1,700','Emails delivered=1,675','Qualified conversations=44','Meetings held=11','Opportunities=5','Won=1']);
+ assert.doesNotMatch(html,/Interested replies|Meetings booked/);
+});
+test('portal records CSV has a header and one row per deal',async()=>{
+ const rows=await bootPortal().csv();
+ assert.equal(rows[0],'"record","date","name","status","amount","currency","detail"');
+ assert.equal(rows.filter(r=>r.startsWith('"deal",')).length,4);assert.ok(rows.includes('"deal","2026-10-08","Head office fit-out, Business Bay","won","95000","AED","outreach"'));
+ assert.ok(rows.some(r=>r.startsWith('"fee",'))&&rows.some(r=>r.startsWith('"payment",'))&&rows.some(r=>r.startsWith('"activity",')));
+ assert.ok(rows.includes('"outcome","2026-10-01","meeting_held","","11","","distinct contacts"'));
+});
+test('portal moving a deal out of won or lost clears closed_at',async()=>{
+ const p=bootPortal();p.fire('change',{id:'',dataset:{deal:'d1',f:'stage'},value:'proposal'});
+ assert.ok((await p.csv()).includes('"deal","","Head office fit-out, Business Bay","proposal","95000","AED","outreach"'));
+});
+test('portal records CSV neutralises spreadsheet formulas in text cells',async()=>{
+ const p=bootPortal();p.fire('change',{id:'',dataset:{deal:'d2',f:'name'},value:'=HYPERLINK("x")'});
+ assert.ok((await p.csv()).includes(`"deal","","'=HYPERLINK(""x"")","proposal","140000","AED","linkedin"`));
+});

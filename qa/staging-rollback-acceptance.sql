@@ -75,7 +75,7 @@ BEGIN
  response:=public.claim_fenced_synthetic_action(t,q,k,now());
  IF response->>'token' IS DISTINCT FROM k::text THEN RAISE EXCEPTION 'Fenced claim failed'; END IF;
  IF public.claim_fenced_synthetic_action(t,q,gen_random_uuid(),now()) IS NOT NULL THEN RAISE EXCEPTION 'Duplicate claim accepted'; END IF;
- IF public.complete_synthetic_action(q,now()) THEN RAISE EXCEPTION 'Legacy completion bypassed fence'; END IF;
+ IF to_regprocedure('public.complete_synthetic_action(uuid,timestamptz)') IS NOT NULL OR to_regprocedure('public.expire_synthetic_claim(uuid,timestamptz)') IS NOT NULL THEN RAISE EXCEPTION 'Legacy completion bypassed fence'; END IF;
  IF public.complete_fenced_synthetic_action(x,q,k,1,1,now()) THEN RAISE EXCEPTION 'Foreign tenant completed claim'; END IF;
  IF public.complete_fenced_synthetic_action(t,q,gen_random_uuid(),1,1,now()) THEN RAISE EXCEPTION 'Wrong token completed claim'; END IF;
  IF NOT public.complete_fenced_synthetic_action(t,q,k,1,1,now()) THEN RAISE EXCEPTION 'Valid completion failed'; END IF;
