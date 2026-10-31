@@ -12,8 +12,8 @@ import { json, bad, readJson, requireUser, HttpError } from "./http";
 
 const paidAI = <T>(p: Promise<T>) => p.catch(e => { throw e instanceof PaidUseBlocked ? new HttpError(409, "Paid AI is not enabled for this environment.") : e; });
 const TAKEN = new Error("already claimed");
-/** Claim a draft (draft -> sent) only once Gmail is reachable; release it when Gmail definitely rejected the send.
- *  An uncertain outcome after the claim stays sent, so a retry can never email the client twice. */
+/** Claim a draft (draft -> sent) only once Gmail is reachable; release it only when Gmail definitely rejected the send (4xx).
+ *  A 5xx, timeout or unverified result after the claim may still have delivered, so it stays sent and a retry can never email the client twice. */
 async function claimAndSend(env: Env, table: string, id: string, claim: Record<string, unknown>, release: Record<string, unknown>, to: string, m: { subject: string; text: string }) {
   const db = new Db(env); let claimed = false;
   try {
@@ -22,7 +22,7 @@ async function claimAndSend(env: Env, table: string, id: string, claim: Record<s
   } catch (e) {
     if (e === TAKEN) return "taken";
     if (!claimed) { if (e instanceof GoogleError) return "unsent"; throw e; }
-    if (e instanceof GoogleError && e.status >= 400) { await db.update(table, `id=eq.${id}&status=eq.sent`, release); return "unsent"; }
+    if (e instanceof GoogleError && e.status >= 400 && e.status < 500) { await db.update(table, `id=eq.${id}&status=eq.sent`, release); return "unsent"; }
     return "uncertain";
   }
 }

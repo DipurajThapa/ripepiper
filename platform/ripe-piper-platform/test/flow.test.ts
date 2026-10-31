@@ -513,9 +513,9 @@ describe("admin delivery of proposals and quotations", () => {
   it("keeps a proposal draft when Gmail rejects the send and stays sent when the outcome is uncertain", async () => {
     tables.proposals = [defaults("proposals", { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", kind: "pre", plan: "sprint", package: "revive", currency: "AED", fixed_amount: 3500, content_md: "x", client_email: "c@d.ae", status: "draft" })];
     const p = tables.proposals[0], send = () => call("POST", `/api/admin/proposals/${p.id}/send`, {}, { Authorization: "Bearer simulated-admin-token" });
-    failGmail(500);
+    failGmail(400);
     expect((await send()).status).toBe(502);expect(p).toMatchObject({ status: "draft", sent_at: null });
-    failGmail(0);
+    failGmail(504);
     const uncertain = await send();expect(uncertain.status).toBe(502);expect((await uncertain.json() as any).error).toContain(`/p/${p.access_token}`);
     expect(p.status).toBe("sent");expect((await send()).status).toBe(400);
   });
@@ -523,7 +523,7 @@ describe("admin delivery of proposals and quotations", () => {
     tables.proposals = [defaults("proposals", { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", tenant_id: "tenant-1", kind: "pre", plan: "sprint", package: "revive", currency: "AED", fixed_amount: 3500, content_md: "x", client_email: "c@d.ae", status: "paid" })];
     const create = (unit_price: number) => call("POST", "/api/admin/quotes", { proposal_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", items: [{ description: "Extra", quantity: 1, unit_price }] }, { Authorization: "Bearer simulated-admin-token" });
     expect((await create(0)).status).toBe(400);expect(tables.quotes ?? []).toHaveLength(0);
-    const first = await (await create(250)).json() as any;failGmail(503);
+    const first = await (await create(250)).json() as any;failGmail(400);
     expect((await call("POST", `/api/admin/quotes/${first.quote.id}/send`, {}, { Authorization: "Bearer simulated-admin-token" })).status).toBe(502);
     expect(tables.quotes[0].status).toBe("draft");vi.stubGlobal("fetch", fakeFetch);
     const retry = await (await create(250)).json() as any;expect(retry.quote.id).toBe(first.quote.id);expect(tables.quotes).toHaveLength(1);
