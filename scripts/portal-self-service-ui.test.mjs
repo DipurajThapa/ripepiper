@@ -14,7 +14,7 @@ async function boot({role,ownership}){
  const query=table=>{const q={select:()=>q,eq:()=>q,order:()=>q,gte:()=>q,limit:()=>q,then:(ok,no)=>Promise.resolve(table==='memberships'?{data:[{role,tenants:{...tenant}}]}:{data:table==='v_tenant_monthly'?[{month:'2026-10-01'}]:[]}).then(ok,no)};return q;};
  const RP={demo:false,sb:{from:query},esc:s=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;'),badge:String,money:String,num:String,pct:String,date:String,icon:()=>'',monthLabel:String,table:()=>'',tabs(){},
   auth:ready=>setImmediate(()=>ready({id:'user-1',email:'owner@example.test'})),
-  api:async(path,body)=>{calls.push({path,body});if(body?.operation==='list')return {ok:true,grants:[],campaigns:[],assets:[],actions:[]};if(body?.operation==='connections')return {ok:true,connections:[]};if(body?.operation==='status')return {ok:true,tenantId:TENANT,ownership,envelope:null,problems:['envelope_missing']};return {ok:true};}};
+  api:async(path,body)=>{calls.push({path,body});if(path.endsWith('/onboarding'))return {ok:true,steps:[],connectors:[],next:null,liveSending:false};if(body?.operation==='list')return {ok:true,grants:[],campaigns:[],assets:[],actions:[]};if(body?.operation==='connections')return {ok:true,connections:[]};if(body?.operation==='status')return {ok:true,tenantId:TENANT,ownership,envelope:null,problems:['envelope_missing']};return {ok:true};}};
  const window={RP,addEventListener:(n,f)=>(listeners[n]??=[]).push(f),dispatchEvent:e=>{events.push(e);(listeners[e.type]??[]).forEach(f=>f(e));}};
  const document={getElementById:node,querySelectorAll:s=>s==='[data-owner]'?ownerTabs:[],addEventListener:(t,f)=>(docListeners[t]??=[]).push(f)};
  const ctx={window,document,CustomEvent:class{constructor(type,o){this.type=type;this.detail=o.detail;}},crypto:{randomUUID:()=>TENANT},URL,Blob};
@@ -39,7 +39,7 @@ test('a managed owner gets grants, mode, envelope, connections and export withou
  for(const id of ['grantSave','modeSwitch','envApprove','connectionsList','channelsSave','endService'])assert.match(account,new RegExp('id="'+id+'"'));
  assert.match(account,/Switch to self-service/);assert.equal(ui.nodes.downloadJson.hidden,false);assert.deepEqual(ui.ownerTabs.map(t=>t.hidden),[false,true]);
  assert.equal(ui.events.length,0);assert.equal(ui.nodes.campaignPlansPanel.innerHTML,'');
- assert.deepEqual(tenantCalls(ui.calls).map(c=>c.path.slice(c.path.lastIndexOf('/')+1)).sort(),['connection','envelope','operator-grants']);
+ assert.deepEqual(tenantCalls(ui.calls).map(c=>c.path.slice(c.path.lastIndexOf('/')+1)).sort(),['connection','envelope','onboarding','operator-grants']);
  for(const c of tenantCalls(ui.calls))assert.ok(c.path.startsWith('/api/admin/tenants/'+TENANT+'/'),c.path);
 });
 test('a viewer keeps the read-only dashboard: no owner controls, panels or tenant API calls',async()=>{

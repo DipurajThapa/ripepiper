@@ -107,7 +107,7 @@ export function tenantConnection(a:any,b:any,tenantId:string,purpose?:Connection
 }
 
 const SAFE='id,provider,account_identity,purposes,scopes_granted,status,version,last_checked_at,last_error_code,expires_at,consented_at';
-async function registryList(db:Db,tenantId:string){
+export async function registryList(db:Db,tenantId:string){
  const [rows,setup]=await Promise.all([db.select<any>('tenant_connections',`tenant_id=eq.${tenantId}&status=neq.revoked&select=${SAFE}&order=provider.asc,id.asc&limit=20`),
   db.one<any>('revive_setups',`tenant_id=eq.${tenantId}&select=body&order=version.desc`)]);
  const sender=typeof setup?.body?.senderEmail==='string'?setup.body.senderEmail.toLowerCase():null;
