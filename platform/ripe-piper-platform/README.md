@@ -34,7 +34,7 @@ All routes are in `src/index.ts`. Anything else returns 404 JSON. Routes under `
 | Agency: meetings | `POST /api/admin/meetings/:id/reconcile`, `/process`, `/draft-proposal`, `/attendance`; `GET /api/admin/meetings/:id/reminder-receipts` |
 | Agency: sales | `POST /api/admin/proposals/:id/send`, `/api/admin/quotes`, `/api/admin/quotes/:id/send`, `/api/admin/payments/:id/receipt` |
 | Tenants | `POST /api/admin/tenants`, `GET /api/admin/platform-overview` (counts only), and under `/api/admin/tenants/:id/`: `pause`, `activate`, `invite`, `operator-grants`, `mode`, `envelope`, `connections/:provider/authorize`, `offboard`, `GET export`, `brief`, `prospect-evidence`, `prospect-import`, `product-event`, `shortlist`, `campaigns`, `connection`, `conversation-review`, `events`, `signal-source`, `revive-setup`, `revive-review`, `revive-run`, `revive-report`, `actions/:actionId/receipt`, `leads/:leadId/unsubscribe` |
-| OAuth | `GET /api/oauth/google/callback`, `GET /api/oauth/microsoft/callback` (tenant and actor come only from the consumed state) |
+| OAuth | `GET /api/oauth/google/callback`, `GET /api/oauth/microsoft/callback` (tenant and actor come only from the consumed state, which works only in the browser that started it) |
 | Other | `POST /api/admin/ads/sync`, `/api/admin/subject-requests`, `/api/admin/actions/:id/test` |
 | Blog | `GET /blog`, `GET /blog/:slug` (rendered from `posts`, wrapped in the site's `blog-shell.html`) |
 

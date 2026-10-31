@@ -84,8 +84,10 @@ async function bridge(input:string,init:RequestInit={}){
   return Response.json(await asRole("service_role",`select ${/^[a-z_,]+$/.test(select)?select:'*'} from public.${table} where ${filter}${order.length?' order by '+order.join(','):''} limit ${Number(u.searchParams.get('limit')??100)}`,values));
  }catch(e:any){return Response.json({code:e.code,message:e.message},{status:e.code==='40001'?409:e.code==='42501'?403:400});}
 }
+let jar='';// One browser: keeps the OAuth binding cookie like a real one.
 async function call(as:string,method:string,path:string,body?:object){
- const res=await worker.fetch(new Request(`https://api.example${path}`,{method,headers:{Authorization:`Bearer ${as}`,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined}),env,{} as ExecutionContext);
+ const res=await worker.fetch(new Request(`https://api.example${path}`,{method,headers:{Authorization:`Bearer ${as}`,'Content-Type':'application/json',...(jar?{Cookie:jar}:{})},body:body?JSON.stringify(body):undefined}),env,{} as ExecutionContext);
+ const set=res.headers.get('Set-Cookie');if(set)jar=set.split(';')[0];
  const text=await res.text();let json:any=text;try{json=JSON.parse(text);}catch{}
  return {status:res.status,body:json};
 }

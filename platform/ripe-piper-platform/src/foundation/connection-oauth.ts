@@ -12,6 +12,11 @@ const b64=(s:string)=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
 const escape=(s:string)=>s.replace(/[&<>"']/g,c=>`&#${c.charCodeAt(0)};`);
 // The provider redirects the browser here: a plain page, no scripts, nothing from the query echoed back except our own messages.
 const page=(message:string,status:number)=>{const r=html(`<!doctype html><meta charset="utf-8"><title>Mailbox connection</title><p>${escape(message)}</p>`,status);r.headers.set('Referrer-Policy','no-referrer');return r;};
+// The state only works in the browser that started it (RFC 9700 4.7): a forwarded consent link cannot attach someone else's mailbox.
+const BINDER='rp_oauth',binderPattern=/^[A-Za-z0-9_-]{43}$/;
+const binderCookie=(value:string,maxAge:number)=>`${BINDER}=${value}; Path=/api/oauth/; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Lax`;
+const boundHash=async(state:string,binder:string)=>hashState(`${await hashState(state)}.${binder}`);
+const readBinder=(req:Request)=>(req.headers.get('Cookie')??'').split(';').map(c=>c.trim()).find(c=>c.startsWith(BINDER+'='))?.slice(BINDER.length+1)??'';
 
 /** POST /api/admin/tenants/{id}/connections/{google|microsoft}/authorize {purposes, account?}: returns the provider consent URL. */
 export async function authorizeConnection(req:Request,env:Env,tenantId:string,slug:string){
@@ -23,9 +28,12 @@ export async function authorizeConnection(req:Request,env:Env,tenantId:string,sl
  const purposes=b.purposes as ConnectionPurpose[],account=b.account?.toLowerCase()??null;
  try{
   const start=await startAuthorization(env,provider,purposes);
-  const verifier=await seal(env,connectionAad(tenantId.toLowerCase(),start.stateHash,provider),start.verifier);
-  await new Db(env,8000).rpc('begin_oauth_state',{p_tenant:tenantId.toLowerCase(),p_actor:user.id,p_provider:provider,p_purposes:purposes,p_state_hash:start.stateHash,p_expected_identity:account,...sealedArgs(verifier)});
-  return json({ok:true,url:account?`${start.url}&login_hint=${encodeURIComponent(account)}`:start.url,expiresInSeconds:600});
+  const binder=btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))).replace(/[+]/g,'-').replace(/[/]/g,'_').replace(/=+$/,'');
+  const stateHash=await boundHash(start.state,binder);
+  const verifier=await seal(env,connectionAad(tenantId.toLowerCase(),stateHash,provider),start.verifier);
+  await new Db(env,8000).rpc('begin_oauth_state',{p_tenant:tenantId.toLowerCase(),p_actor:user.id,p_provider:provider,p_purposes:purposes,p_state_hash:stateHash,p_expected_identity:account,...sealedArgs(verifier)});
+  const res=json({ok:true,url:account?`${start.url}&login_hint=${encodeURIComponent(account)}`:start.url,expiresInSeconds:600});
+  res.headers.append('Set-Cookie',binderCookie(binder,600));return res;
  }catch(e){
   if(e instanceof DbError&&e.body.includes('42501'))return bad('Not found.',404);
   if(e instanceof DbError&&e.body.includes('22023'))return bad('Too many connection attempts are pending. Wait ten minutes and try again.',429);
@@ -40,9 +48,11 @@ export async function oauthCallback(req:Request,env:Env,slug:string){
  if(!oauthEnabled(env)||!provider)return bad('Not found.',404);
  const q=new URL(req.url).searchParams,state=q.get('state')??'',code=q.get('code');
  if(!/^[A-Za-z0-9_-]{43}$/.test(state))return page('This connection link is invalid. Start again from Connections.',400);
- const db=new Db(env,8000),stateHash=await hashState(state);
+ const binder=readBinder(req);
+ if(!binderPattern.test(binder))return page('Finish the connection in the same browser where you pressed Connect. Start again from Connections.',400);
+ const db=new Db(env,8000),stateHash=await boundHash(state,binder);
  const s=await db.rpc<any>('consume_oauth_state',{p_provider:provider,p_state_hash:stateHash});
- if(!s)return page('This connection link has expired or was already used. Start again from Connections.',400);
+ if(!s)return page('This connection link has expired, was already used or was started in another browser. Start again from Connections.',400);
  if(q.has('error')||!code)return page('Consent was not completed, so nothing was connected. Start again from Connections.',400);
  const tenant=String(s.tenantId);
  if(!uuid.test(tenant)||!uuid.test(String(s.actorId))||s.provider!==provider)throw Error('Invalid OAuth state record');

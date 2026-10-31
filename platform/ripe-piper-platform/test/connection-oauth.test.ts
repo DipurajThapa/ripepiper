@@ -47,7 +47,8 @@ async function bridge(input:string,init:RequestInit={}){
   return Response.json(await q(`select ${u.searchParams.get('select')??'*'} from public.${table} where ${where.join(' and ')||'true'} limit ${Number(u.searchParams.get('limit')??100)}`,values));
  }catch(e:any){return Response.json({code:e.code,message:e.message},{status:e.code==='40001'?409:e.code==='42501'?403:400});}
 }
-const call=(method:string,path:string,body?:object)=>worker.fetch(new Request(`https://api.example${path}`,{method,headers:{Authorization:'Bearer fixture','Content-Type':'application/json'},body:body?JSON.stringify(body):undefined}),env,{} as ExecutionContext);
+let jar='';// One browser: keeps the OAuth binding cookie like a real one.
+const call=async(method:string,path:string,body?:object)=>{const res=await worker.fetch(new Request(`https://api.example${path}`,{method,headers:{Authorization:'Bearer fixture','Content-Type':'application/json',...(jar?{Cookie:jar}:{})},body:body?JSON.stringify(body):undefined}),env,{} as ExecutionContext);const set=res.headers.get('Set-Cookie');if(set)jar=set.split(';')[0];return res;};
 async function user(label:string){const id=crypto.randomUUID();await q('insert into auth.users(id,email,email_confirmed_at) values($1,$2,now())',[id,`${label}-${id}@fixture.invalid`]);return id;}
 async function tenant(){
  const id=(await q(`insert into tenants(name,slug,country,currency,status) values('OAuth fixture',$1,'AE','AED','active') returning id`,['oauth-'+crypto.randomUUID()]))[0].id as string;
@@ -83,6 +84,10 @@ it('binds tenant from the single-use hashed state (never the query), seals with 
  const {url}=await authorize(a);const state=url!.searchParams.get('state')!;
  expect(url!.host).toBe('accounts.google.com');expect(url!.searchParams.get('code_challenge_method')).toBe('S256');expect(url!.searchParams.get('access_type')).toBe('offline');
  const stored=await q('select state_hash,tenant_id from ripepiper_private.oauth_states where tenant_id=$1',[a.id]);expect(stored).toHaveLength(1);expect(stored[0].state_hash).not.toBe(state);
+ expect(jar).toMatch(/^rp_oauth=[A-Za-z0-9_-]{43}$/);
+ // The same link opened in another browser (no or a different binding cookie) is refused and leaves the state usable.
+ const own=jar;for(const other of ['','rp_oauth='+'A'.repeat(43)]){jar=other;expect((await call('GET',`/api/oauth/google/callback?state=${state}&code=code-a`)).status).toBe(400);}
+ expect(tokenCalls).toBe(0);jar=own;
  // A tenant (and anything else) in the query is ignored.
  const res=await call('GET',`/api/oauth/google/callback?state=${state}&code=code-a&tenant=${b.id}&tenant_id=${b.id}`);
  expect(res.status).toBe(200);expect(await res.text()).toContain('owner@client-a.example');
