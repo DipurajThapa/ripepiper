@@ -1,13 +1,31 @@
 import { saveMeetingDraft } from "../foundation/consultation-review";
 import type { Env } from "../env";
-import { Db } from "../lib/db";
-import { meetTranscript, sendEmail, reconcileMeetEvent } from "../lib/google";
+import { Db, DbError } from "../lib/db";
+import { meetTranscript, sendEmail, reconcileMeetEvent, GoogleError } from "../lib/google";
+import { PaidUseBlocked } from "../lib/build-budget";
 import { analyseMeeting, minutesMarkdown, draftPreProposal, priceBlock, type MeetingAnalysis } from "../lib/ai";
 import { quoteTotal, money } from "../lib/pricing";
 import { emails } from "../lib/email";
 import { cleanEmail, cleanText } from "../lib/validate";
 import { syncAds } from "../jobs";
-import { json, bad, readJson, requireUser } from "./http";
+import { json, bad, readJson, requireUser, HttpError } from "./http";
+
+const paidAI = <T>(p: Promise<T>) => p.catch(e => { throw e instanceof PaidUseBlocked ? new HttpError(409, "Paid AI is not enabled for this environment.") : e; });
+const TAKEN = new Error("already claimed");
+/** Claim a draft (draft -> sent) only once Gmail is reachable; release it when Gmail definitely rejected the send.
+ *  An uncertain outcome after the claim stays sent, so a retry can never email the client twice. */
+async function claimAndSend(env: Env, table: string, id: string, claim: Record<string, unknown>, release: Record<string, unknown>, to: string, m: { subject: string; text: string }) {
+  const db = new Db(env); let claimed = false;
+  try {
+    await sendEmail(env, to, m.subject, m.text, undefined, async () => { const [r] = await db.update(table, `id=eq.${id}&status=eq.draft`, claim); if (!r) throw TAKEN; claimed = true; });
+    return "sent";
+  } catch (e) {
+    if (e === TAKEN) return "taken";
+    if (!claimed) { if (e instanceof GoogleError) return "unsent"; throw e; }
+    if (e instanceof GoogleError && e.status >= 400) { await db.update(table, `id=eq.${id}&status=eq.sent`, release); return "unsent"; }
+    return "uncertain";
+  }
+}
 
 /** Fetch the Meet transcript (or use an uploaded one) and produce notes, minutes and requirements with AI. */
 export async function processMeeting(req: Request, env: Env, id: string) {
@@ -25,7 +43,7 @@ export async function processMeeting(req: Request, env: Env, id: string) {
     transcript = t.text;
   }
   const lead = m.lead_id ? await db.one<any>("leads", `id=eq.${m.lead_id}&tenant_id=is.null&select=name,company,website`) : null;
-  const a = await analyseMeeting(env, transcript!, { company: lead?.company ?? lead?.website, attendee: m.attendee_name });
+  const a = await paidAI(analyseMeeting(env, transcript!, { company: lead?.company ?? lead?.website, attendee: m.attendee_name }));
   const minutes = minutesMarkdown(a, `Call with ${m.attendee_name ?? m.attendee_email}`, new Date(m.start_at).toISOString().slice(0, 10));
   await saveMeetingDraft(db,m,{transcript,notes:{summary:a.summary,...a.notes},minutes,requirements:{...a.requirements,decisions:a.minutes.decisions,actions:a.minutes.actions}},"transcript_unverified");
   return json({ ok: true, analysis: a, minutes });
@@ -43,7 +61,7 @@ export async function draftProposal(req: Request, env: Env, meetingId: string) {
   const plan = ["sprint", "engine"].includes(b.plan) ? b.plan : m.requirements.recommended_plan;
   const pkg = ["revive", "signal", "response", "events"].includes(b.package) ? b.package : m.requirements.recommended_package;
   const analysis: MeetingAnalysis = { summary: m.notes?.summary ?? "", notes: m.notes, minutes: { decisions: m.requirements.decisions ?? [], actions: m.requirements.actions ?? [] }, requirements: { ...m.requirements, recommended_plan: plan, recommended_package: pkg } };
-  const content = await draftPreProposal(env, analysis, { company: lead?.company ?? lead?.website ?? "your company", contact: m.attendee_name ?? "", currency, singleEvent: b.single_event === true });
+  const content = await paidAI(draftPreProposal(env, analysis, { company: lead?.company ?? lead?.website ?? "your company", contact: m.attendee_name ?? "", currency, singleEvent: b.single_event === true }));
   const { scope } = priceBlock(currency, plan, pkg, b.single_event === true);
   const [p] = await db.insert<any>("proposals", { lead_id: m.lead_id, meeting_id: m.id, kind: "pre", plan, package: pkg, currency, fixed_amount: scope.total, content_md: content, client_email: m.attendee_email, status: "draft" });
   return json({ ok: true, proposal: p });
@@ -53,11 +71,14 @@ export async function draftProposal(req: Request, env: Env, meetingId: string) {
 export async function sendProposal(req: Request, env: Env, id: string) {
   await requireUser(req, env, true);
   const db = new Db(env);
-  const [p] = await db.update<any>("proposals", `id=eq.${id}&status=eq.draft`, { status: "sent", sent_at: new Date().toISOString() });
+  const p = await db.one<any>("proposals", `id=eq.${id}&status=eq.draft&select=id,lead_id,access_token,client_email`);
   if (!p) return bad("Only draft proposals can be sent.");
   const lead = p.lead_id ? await db.one<any>("leads", `id=eq.${p.lead_id}&select=name`) : null;
-  const m = emails.preProposal(lead?.name ?? "there", `${env.SITE_URL}/p/${p.access_token}`);
-  await sendEmail(env, p.client_email, m.subject, m.text);
+  const link = `${env.SITE_URL}/p/${p.access_token}`, m = emails.preProposal(lead?.name ?? "there", link);
+  const r = await claimAndSend(env, "proposals", id, { status: "sent", sent_at: new Date().toISOString() }, { status: "draft", sent_at: null }, p.client_email, m);
+  if (r === "taken") return bad("Only draft proposals can be sent.");
+  if (r === "unsent") return bad("The email was not sent. The proposal is still a draft; check the Gmail connection and try again.", 502);
+  if (r === "uncertain") return bad(`Email delivery is uncertain, so the proposal is marked sent and will not be emailed again. Share the client link directly: ${link}`, 502);
   return json({ ok: true });
 }
 
@@ -71,25 +92,33 @@ export async function createQuote(req: Request, env: Env) {
   const items = (Array.isArray(b.items) ? b.items : []).map((i: any) => ({ description: cleanText(i.description, 200), quantity: Number(i.quantity), unit_price: Number(i.unit_price) }));
   if (!items.length) return bad("Add at least one item to the quotation.");
   const total = quoteTotal(items);
-  const [q] = await db.insert<any>("quotes", { proposal_id: p.id, tenant_id: p.tenant_id, items, currency: p.currency, total, status: "draft" });
+  if (!(total > 0)) return bad("A quotation total must be greater than zero. Record free customisations without a quotation.");
+  // A retried "create and send" reuses the identical open draft instead of creating a second payable quotation.
+  const key = (xs: any[]) => JSON.stringify(xs.map(i => [i.description, Number(i.quantity), Number(i.unit_price)]));
+  const same = (await db.select<any>("quotes", `proposal_id=eq.${p.id}&status=in.(draft,sent,accepted)&paid_at=is.null&select=*`)).find(o => key(o.items) === key(items));
+  if (same && same.status !== "draft") return bad("An identical quotation was already sent and is awaiting payment.", 409);
+  const [q] = same ? [same] : await db.insert<any>("quotes", { proposal_id: p.id, tenant_id: p.tenant_id, items, currency: p.currency, total, status: "draft" });
   return json({ ok: true, quote: q, total_label: money(total, p.currency) });
 }
 
 export async function sendQuote(req: Request, env: Env, id: string) {
   await requireUser(req, env, true);
   const db = new Db(env);
-  const [q] = await db.update<any>("quotes", `id=eq.${id}&status=eq.draft`, { status: "sent" });
+  const q = await db.one<any>("quotes", `id=eq.${id}&status=eq.draft&select=*`);
   if (!q) return bad("Only draft quotations can be sent.");
   const p = await db.one<any>("proposals", `id=eq.${q.proposal_id}&select=client_email`);
   const m = emails.quote("there", `${env.SITE_URL}/portal/#quotes`);
-  await sendEmail(env, p.client_email, m.subject, m.text);
+  const r = await claimAndSend(env, "quotes", id, { status: "sent" }, { status: "draft" }, p.client_email, m);
+  if (r === "taken") return bad("Only draft quotations can be sent.");
+  if (r === "unsent") return bad("The email was not sent. The quotation is still a draft; check the Gmail connection and send it again.", 502);
   await db.insert("activity_log", { tenant_id: q.tenant_id, actor: "Ripe Piper", kind: "change", message: `Quotation for customisations sent: ${money(Number(q.total), q.currency)}.` });
+  if (r === "uncertain") return bad("Email delivery is uncertain. The quotation is live on the client's dashboard and will not be emailed again; tell the client directly.", 502);
   return json({ ok: true });
 }
 
-/** Invite a person to a client's dashboard. They sign in with Google or an email link using this address. */
+/** Invite a person to a client's dashboard, or change the role of someone who already accepted. They sign in with Google or an email link using this address. */
 export async function inviteUser(req: Request, env: Env, tenantId: string) {
-  await requireUser(req, env, true);
+  const staff = await requireUser(req, env, true);
   const b = await readJson(req);
   const email = cleanEmail(b.email);
   if (!email) return bad("Please enter a valid email address.");
@@ -100,9 +129,20 @@ export async function inviteUser(req: Request, env: Env, tenantId: string) {
   if (!tenant) return bad("Client not found.", 404);
   if (!['onboarding', 'active'].includes(tenant.status)) return bad("This client is paused or inactive.", 409);
   const previous = await db.one<{ accepted_at: string | null }>("invites", `tenant_id=eq.${tenantId}&email=eq.${encodeURIComponent(email)}&select=accepted_at`);
-  if (previous?.accepted_at) return bad("This invitation was already accepted. Review the member's role separately.", 409);
+  if (previous?.accepted_at) return changeRole(db, tenantId, email, role, staff.id);
   await db.upsert("invites", { tenant_id: tenantId, email, role }, "tenant_id,email");
   return json({ ok: true });
+}
+
+async function changeRole(db: Db, tenantId: string, email: string, role: string, actor: string) {
+  try {
+    const r = await db.rpc<{ role: string; previous_role: string }>("set_member_role", { p_tenant: tenantId, p_email: email, p_role: role, p_actor: actor });
+    return json({ ok: true, changed: r.previous_role !== r.role, role: r.role });
+  } catch (e) {
+    if (e instanceof DbError && e.body.includes("Last owner")) return bad("This is the client's only owner. Make another member an owner first.", 409);
+    if (e instanceof DbError && e.body.includes("Member not found")) return bad("This person accepted an invitation but has no access to this client now.", 409);
+    throw e;
+  }
 }
 
 export async function runAdsSync(req: Request, env: Env) {

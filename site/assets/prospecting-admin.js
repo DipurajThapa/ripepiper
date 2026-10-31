@@ -114,7 +114,7 @@
       if(ticket!==generation)return;clearRevive();el('reviveStatus').textContent='Recorded '+j.review.state+' · review version '+j.review.version+'. No message was sent. Changed evidence requires another review.';
     }).catch(function(e){if(ticket===generation){clearRevive();el('reviveStatus').textContent=e.message;}}).finally(function(){reviveBusy=false;});
   }
-  function date(id) { var v=el(id).value; return v ? v+'T00:00:00.000Z' : ''; }
+  function date(id) { var v=el(id).value; if(!v)return ''; var o=-new Date(v+'T00:00:00').getTimezoneOffset(),a=Math.abs(o),p=function(n){return String(n).padStart(2,'0');}; return v+'T00:00:00'+(o<0?'-':'+')+p(Math.floor(a/60))+':'+p(a%60); }
   function saveBrief(event) {
     event.preventDefault(); if(!ready){error('Load the current brief before saving.');return;}
     var id=tenant.id, ticket=generation, b={offer:el('briefOffer').value.trim(),maxAgeDays:Number(el('briefAge').value),source:{reference:el('briefReference').value.trim(),excerpt:el('briefExcerpt').value.trim(),observedAt:date('briefObserved')}};

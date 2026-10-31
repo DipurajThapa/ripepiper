@@ -7,6 +7,8 @@ import { emails } from "../lib/email";
 import { BOOKING_TOKEN_TTL_MS, newBookingToken, hashBookingToken, validBookingToken } from "../lib/booking";
 import { json, bad, readJson, verifyTurnstile } from "./http";
 
+// Same assumptions as the public calculator (site/assets/site.js calc()).
+const CALC_MEETING_RATES = [0.02, 0.06] as const, CALC_MAX_LEADS = 1_000_000, CALC_MAX_DEAL = 1e12;
 const COUNTRY: Record<string, string> = { "United Arab Emirates": "AE", India: "IN", "Saudi Arabia": "SA", Qatar: "QA", Other: "OTHER" };
 
 async function upsertLead(db: Db, row: Record<string, unknown>) {
@@ -65,11 +67,6 @@ export async function postLead(req: Request, env: Env, ctx: ExecutionContext) {
   const now = new Date();
   const slots = freeSlots(now, await busyWithMeetings(env, db, now)).slice(0, 18);
   return json({ ok: true, route, lead_id: lead.id, booking_token: bookingToken, slots });
-}
-
-export async function getSlots(_req: Request, env: Env) {
-  const db = new Db(env), now = new Date();
-  return json({ ok: true, slots: freeSlots(now, await busyWithMeetings(env, db, now)) });
 }
 
 /** Step 2 of booking: reserve the slot, create the Google Meet event, confirm by email. */
@@ -140,9 +137,20 @@ export async function postCalculator(req: Request, env: Env, ctx: ExecutionConte
   const email = cleanEmail(b.email), name = cleanText(b.name, 120), company = cleanText(b.company, 160);
   if (!email || !name || !company) return bad("Please enter your name, work email and company name.");
   if (b.consent !== true) return bad("Please tick the box so we can email you the breakdown.");
-  const db = new Db(env);
-  await upsertLead(db, { source: "calculator", name, email, company, consent_at: new Date().toISOString(), ...pickUtm(b) });
-  const m = emails.calculatorBreakdown(name);
+  const leads = Number(b.leads), deal = Number(b.deal), close = Number(b.close), currency = String(b.currency);
+  const inRange = (v: number, max: number) => Number.isFinite(v) && v >= 0 && v <= max;
+  if (!inRange(leads, CALC_MAX_LEADS) || !inRange(deal, CALC_MAX_DEAL) || !inRange(close, 100) || !["AED", "INR"].includes(currency))
+    return bad("Please check the calculator numbers and try again.");
+  const db = new Db(env), q = `email=eq.${encodeURIComponent(email)}&select=email`;
+  // Verified opt-outs get the same response and no mail, so the endpoint does not reveal suppression state.
+  if ((await Promise.all([db.one("agency_suppression", q), db.one("suppression", q)])).some(Boolean)) return json({ ok: true });
+  const lead = await upsertLead(db, { source: "calculator", name, email, company, consent_at: new Date().toISOString(), ...pickUtm(b) });
+  if (lead.status === "unsubscribed") return json({ ok: true });
+  const meetings: [number, number] = [leads * CALC_MEETING_RATES[0], leads * CALC_MEETING_RATES[1]];
+  const deals: [number, number] = [meetings[0] * close / 100, meetings[1] * close / 100];
+  const m = emails.calculatorBreakdown({ leads, deal, close, currency, meetings, deals, revenue: [deals[0] * deal, deals[1] * deal] });
+  const alert = emails.adminAlert("Calculator breakdown requested", `${name} <${email}>\n${company}\n\n${m.summary}\n\nBreakdown due within one business day.`);
+  ctx.waitUntil(sendEmail(env, env.ADMIN_ALERT_EMAIL, alert.subject, alert.text).catch(() => {}));
   ctx.waitUntil(sendEmail(env, email, m.subject, m.text).catch(() => {}));
   return json({ ok: true });
 }

@@ -16,14 +16,16 @@ function page(title: string, inner: string, site: string) {
 }
 
 /** Client-facing pre-proposal page, opened from the secret link in the email. */
-export async function viewProposal(token: string, env: Env) {
+export async function viewProposal(token: string, env: Env, justPaid = false) {
   if (!tokenOk(token)) return html("Not found", 404);
   const p = await new Db(env).one<any>("proposals", `access_token=eq.${token}&select=*`);
   if (!p || p.status === "superseded") return html(page("Proposal not found", "<h1>This proposal link is no longer valid</h1><p>Please contact us at hello@ripepiper.com.</p>", env.SITE_URL), 404);
   const action = p.status === "sent"
-    ? `<form method="post" action="/p/${token}/approve"><p>By approving, you agree to the scope and fixed-scope price above and to pay the advance of <strong>${money(Number(p.advance_amount), p.currency)}</strong>.</p>
+    ? `<form method="post" action="/p/${token}/approve" onsubmit="this.querySelector('button').disabled=true"><p>By approving, you agree to the scope and fixed-scope price above and to pay the advance of <strong>${money(Number(p.advance_amount), p.currency)}</strong>.</p>
        <button class="btn btn-dark" type="submit">Approve and pay ${money(Number(p.advance_amount), p.currency)}</button></form>`
-    : p.status === "approved" ? `<form method="post" action="/p/${token}/approve"><p class="ok">You approved this pre-proposal. Continue to payment when ready.</p><button class="btn btn-dark" type="submit">Continue to payment</button></form>`
+    // Providers redirect here before their webhook settles the payment; don't offer a second checkout.
+    : p.status === "approved" && justPaid ? `<p class="ok">Thank you. We are confirming your payment with the provider. <a href="/p/${token}?paid">Refresh this page</a> in a minute to see it.</p>`
+    : p.status === "approved" ? `<form method="post" action="/p/${token}/approve" onsubmit="this.querySelector('button').disabled=true"><p class="ok">You approved this pre-proposal. Continue to payment when ready.</p><button class="btn btn-dark" type="submit">Continue to payment</button></form>`
     : p.status === "paid" ? `<p class="ok"><span>Thank you. Your advance has been received. Onboarding is awaiting team review.</span></p>`
     : `<p class="muted">This proposal is ${p.status}.</p>`;
   return html(page("Your pre-proposal", renderMarkdown(p.content_md) + `<div class="formbox">${action}</div>`, env.SITE_URL));
@@ -55,13 +57,18 @@ function checkoutError(error:unknown){
   const e=error instanceof CheckoutReview?error:new CheckoutReview(undefined,"provider_retrieval");
   return json({ok:false,error:"Payment checkout needs operator review. Contact Ripe Piper; the operator must check the existing provider checkout before any replacement is created.",phase:e.phase,...(paymentId(e.paymentRecord)?{payment_id:e.paymentRecord}:{})},503);
 }
+/** The approve form is a plain browser POST, so failures render a page; the JSON shape stays for the portal API. */
+function checkoutPage(error:unknown,token:string,site:string){
+  const e=error instanceof CheckoutReview?error:new CheckoutReview(undefined,"provider_retrieval");
+  return html(page("Payment needs review",`<h1>We could not open payment yet</h1><p>If you have just paid, your payment is being confirmed and this proposal will show it shortly. Otherwise your checkout may already exist: wait a moment, then <a href="/p/${token}">return to your proposal</a> and continue to payment. If this persists, contact hello@ripepiper.com; our team checks the existing checkout before any replacement is created.</p>${paymentId(e.paymentRecord)?`<p class="muted">Reference: ${e.paymentRecord}</p>`:""}`,site),503);
+}
 export async function approveProposal(token: string, env: Env) {
   if(!tokenOk(token))return html("Not found",404);
   const db=new Db(env,15000),p=await db.one<any>("proposals",`access_token=eq.${token}&select=*`);
   if(!p||!["sent","approved"].includes(p.status))return Response.redirect(`${env.SITE_URL}/p/${token}`,303);
   const lead=p.lead_id?await db.one<any>("leads",`id=eq.${p.lead_id}&select=name,company`):null;
-  const request:PaymentRequest={proposalId:p.id,amount:Number(p.advance_amount),currency:p.currency,email:p.client_email,name:lead?.name??p.client_email,description:`Ripe Piper advance (${p.advance_pct}%): ${p.plan==="sprint"?"Revive Sprint":"Monthly engine"}, ${p.package}`,successUrl:`${env.SITE_URL}/p/${token}`,cancelUrl:`${env.SITE_URL}/p/${token}`};
-  try{return Response.redirect((await checkout(env,request,null)).url,303);}catch(error){return checkoutError(error);}
+  const request:PaymentRequest={proposalId:p.id,amount:Number(p.advance_amount),currency:p.currency,email:p.client_email,name:lead?.name??p.client_email,description:`Ripe Piper advance (${p.advance_pct}%): ${p.plan==="sprint"?"Revive Sprint":"Monthly engine"}, ${p.package}`,successUrl:`${env.SITE_URL}/p/${token}?paid`,cancelUrl:`${env.SITE_URL}/p/${token}`};
+  try{return Response.redirect((await checkout(env,request,null)).url,303);}catch(error){return checkoutPage(error,token,env.SITE_URL);}
 }
 
 const rejectedReasons=new Set(["unknown_target","target_binding","unregistered_reference","financial_or_target_binding","legacy_payload_requires_review","legacy_or_refunded_requires_review","target_not_open"]);
@@ -93,6 +100,7 @@ export async function acceptQuote(req:Request,env:Env,id:string){
   const user=await requireUser(req,env);if(!paymentId(id))return bad("Quotation not found.",404);
   const db=new Db(env,15000),q=await db.one<any>("quotes",`id=eq.${id}&select=*`);
   if(!q||!["sent","accepted"].includes(q.status)||q.paid_at)return bad("This quotation is not open for payment.",409);
+  if(!(Number(q.total)>0))return bad("This quotation has no payable amount.",409);
   const owner=await db.one<any>("memberships",`tenant_id=eq.${q.tenant_id}&user_id=eq.${user.id}&role=eq.owner&select=user_id`);
   if(!owner&&!user.is_admin)return bad("Only the account owner can accept a quotation.",403);
   const payReq:PaymentRequest={proposalId:q.proposal_id,quoteId:q.id,amount:Number(q.total),currency:q.currency,email:user.email,name:user.email,description:"Ripe Piper customisation quotation",successUrl:`${env.SITE_URL}/portal/#quotes`,cancelUrl:`${env.SITE_URL}/portal/#quotes`};

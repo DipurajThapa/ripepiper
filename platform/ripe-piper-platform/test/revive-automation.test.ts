@@ -125,9 +125,9 @@ describe('bounded autonomous Revive synthetic coordinator',()=>{
  it('caps new enrolments at ten even with more accepted contacts',async()=>{
   const a=adapter({reviews:Array.from({length:25},()=>({...freshReview(),lead_id:crypto.randomUUID()}))});expect(await runReviveAutomation(env)).toMatchObject({enrolled:10,limited:true});expect(a.actions).toHaveLength(10);
  });
- it('refuses a truncated due-action set instead of hiding the twenty-action capacity boundary',async()=>{
+ it('works the oldest twenty of a larger due set and leaves the remainder queued for the next run',async()=>{
   const actions=Array.from({length:21},()=>({...freshAction(),lead_id:crypto.randomUUID()})),a=adapter({reviews:[],actions,audience:freshAudience(actions.map(a=>a.lead_id))});
-  expect(await runReviveAutomation(env)).toMatchObject({tested:0,limited:true,blocked:1});expect(a.calls.some(c=>c.name)).toBe(false);
+  expect(await runReviveAutomation(env)).toMatchObject({tested:20,limited:true,blocked:0});expect(a.actions.filter(a=>a.state==='queued')).toHaveLength(1);
  });
  it('can process the exact due-action bound through fenced acknowledgements',async()=>{
   const actions=Array.from({length:20},()=>({...freshAction(),lead_id:crypto.randomUUID()})),a=adapter({reviews:[],actions,audience:freshAudience(actions.map(a=>a.lead_id))});

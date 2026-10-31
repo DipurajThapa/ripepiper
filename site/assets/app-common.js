@@ -87,11 +87,13 @@
   RP.api = function (path, body, method) {
     if (RP.demo) return Promise.reject(new Error("Sample mode: connect Supabase and deploy the API to use this action."));
     return RP.sb.auth.getSession().then(function (r) {
+      var s = r.data && r.data.session;
+      if (!s) throw new Error("Your session has expired. Please sign in again.");
       return fetch((cfg.apiBase || "") + path, {
         method: method === "GET" ? "GET" : "POST",
-        headers: { "Content-Type": "application/json", Authorization: "Bearer " + r.data.session.access_token },
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + s.access_token },
         body: method === "GET" ? undefined : JSON.stringify(body || {})
-      }).then(function (res) { return res.json().then(function (j) { if (!res.ok || j.ok === false) throw new Error(j.error || "Request failed."); return j; }); });
+      }).then(function (res) { return res.json().then(function (j) { if (!res.ok || j.ok === false) { var err = new Error(j.error || "Request failed."); err.status = res.status; throw err; } return j; }); });
     });
   };
 

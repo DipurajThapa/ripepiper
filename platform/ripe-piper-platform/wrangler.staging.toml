@@ -29,5 +29,6 @@ REVIVE_AUTOMATION_ENABLED = "false"
 # Existing site copied by the same preview builder, public staging anon key only.
 [assets]
 directory = "../../.staging-site"
+binding = "ASSETS"
 run_worker_first = ["/api/*", "/p/*", "/blog", "/blog/*"]
 not_found_handling = "none"

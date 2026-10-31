@@ -60,6 +60,7 @@ export async function activateTenant(req: Request, env: Env, id: string) {
     if (e instanceof DbError) {
       if (e.body.includes("40001")) return bad("The account or brief changed. Reload before continuing.",409);
       if (e.body.includes("23503")) return bad("Client not found.",404);
+      if (e.body.includes("Revive setup required")) return bad("Activation requires a current reviewed Revive setup. Complete '2 · Revive setup' for this client first.",409);
       if (e.body.includes("22023") || e.body.includes("23514")) return bad("Activation requires an onboarding or paused account and a current reviewed business brief.",409);
     }
     throw e;

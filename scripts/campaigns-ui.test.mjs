@@ -140,6 +140,11 @@ test('strategy uses existing brief needs and approved source inventory; reviewed
  const ui=mount(async()=>strategyData());ui.select('tenant-a');await tick();const n=ui.nodes;
  assert.match(n.strategyNeed.innerHTML,/dormant leads/);assert.match(n.strategyEvidence.innerHTML,/brief:reviewed/);assert.match(n.strategyEvidence.innerHTML,/interview:reviewed/);assert.equal(n.campaignMarket.value,'AE');assert.equal(n.campaignTimezone.value,'Asia/Dubai');assert.equal(n.draftSender.value,'Reviewed Sender');assert.equal(n.draftSender.readOnly,true);assert.match(n.strategyBasis.textContent,/declarations/);
 });
+test('strategy evidence offers only references a strategy can cite and says why others are missing',async()=>{
+ const d=strategyData();d.setupContext.setup.body.sourceInventory.push({type:'file',reference:'CRM export {2025-Q3}',rightsReference:'rights:reviewed'});
+ const ui=mount(async()=>d);ui.select('tenant-a');await tick();const n=ui.nodes;
+ assert.match(n.strategyEvidence.innerHTML,/interview:reviewed/);assert.doesNotMatch(n.strategyEvidence.innerHTML,/CRM export/);assert.match(n.strategyBasis.textContent,/cannot cite/);
+});
 test('saving a strategy sends only explicit reviewed inputs, without resolved server owner/policy fields',async()=>{
  const calls=[],ui=mount(async(path,body)=>{calls.push(body);return body.operation==='list'?strategyData():{id:body.campaign_id};});ui.select('tenant-a');await tick();const n=ui.nodes;
  chooseAudience(n,[contactA]);n.campaignAudienceConfirmed.checked=true;chooseStrategy(n);n.campaignDraft.onsubmit({preventDefault(){}});await tick();

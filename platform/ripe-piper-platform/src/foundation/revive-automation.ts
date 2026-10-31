@@ -76,8 +76,8 @@ export async function runReviveAutomation(env:Env,scope:Scope={}) {
    if(enrolmentUncertain)continue;
    if(!available()){report.limited=true;break;}
    const due=await db().select<Action>('outbound_actions',`tenant_id=eq.${c.tenant_id}&campaign_id=eq.${c.id}&state=eq.queued&due_at=lte.${new Date().toISOString()}&select=${actionFields}&order=due_at,message_step,id&limit=${limits.dispatches+1}`);
-   // Do not quietly act on a truncated work set. Operator can narrow to one campaign.
-   if(due.length>limits.dispatches){report.blocked++;report.limited=true;continue;}
+   // Work the deterministic oldest prefix; later runs pick up the remainder instead of stalling the campaign.
+   if(due.length>limits.dispatches){report.limited=true;due.length=limits.dispatches;}
    for(const a of due) {
     if(!available()||dispatchAttempts>=limits.dispatches){report.limited=true;break;}
     if(a.tenant_id!==c.tenant_id||a.campaign_id!==c.id||a.state!=='queued'||!uuid.test(a.id)||!members.some(m=>m.leadId===a.lead_id)||!validInstant(a.due_at)||Date.parse(a.due_at)>Date.now()){report.blocked++;continue;}

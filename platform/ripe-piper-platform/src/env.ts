@@ -8,7 +8,7 @@ export interface Env {
   // Google (one OAuth client; refresh token of the founder's Workspace account)
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
-  GOOGLE_REFRESH_TOKEN: string;       // scopes: calendar, gmail.send, spreadsheets, meetings.space.readonly, drive.readonly
+  GOOGLE_REFRESH_TOKEN: string;       // scopes: calendar, gmail.send, spreadsheets, meetings.space.readonly, drive.readonly, adwords (only when ADS_SYNC_ENABLED)
   GOOGLE_CALENDAR_ID: string;         // usually "primary"
   CRM_SHEET_ID: string;               // the B2B Outbound Engine spreadsheet
   MAIL_FROM: string;                  // e.g. "Ripe Piper <hello@ripepiper.com>"
@@ -52,4 +52,5 @@ export interface Env {
   REVIVE_AUTOMATION_ENABLED?: string; // default off; bounded approved/accepted synthetic sequences only
   EVENT_REGISTRATION_ENABLED?: string; // default-off, requires synthetic sink flag; .invalid contacts only
   SITE_URL: string;                   // https://ripepiper.com
+  ASSETS?: Fetcher;                   // staging only: a Worker cannot fetch its own workers.dev URL
 }

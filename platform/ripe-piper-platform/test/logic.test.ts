@@ -8,6 +8,7 @@ import { findRow, TABS, gst } from "../src/lib/sheets";
 import { renderMarkdown, fillShell, postPage } from "../src/lib/blog";
 import { toTenantCurrency } from "../src/lib/ads";
 import { buildMime } from "../src/lib/google";
+import { emails } from "../src/lib/email";
 
 async function hmac(secret: string, msg: string) {
   const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
@@ -70,6 +71,10 @@ describe("booking slots (Gulf Standard Time)", () => {
   it("only accepts a start time that is actually offered", () => {
     expect(isOfferedSlot("2026-11-02T06:00:00Z", now, [])).not.toBeNull();
     expect(isOfferedSlot("2026-11-02T06:05:00Z", now, [])).toBeNull();
+  });
+  it("names the GST day in the 24-hour reminder for short-notice bookings", () => {
+    expect(emails.reminder("A", "2026-11-02T10:00:00Z", "https://meet.google.com/x", "24h", new Date("2026-11-02T05:00:00Z")).subject).toBe("Reminder: your Ripe Piper call is today at 14:00 GST");
+    expect(emails.reminder("A", "2026-11-03T06:00:00Z", "https://meet.google.com/x", "24h", new Date("2026-11-02T06:02:00Z")).text).toContain("starts tomorrow, at 2026-11-03 10:00 GST");
   });
   it("sends the 24-hour reminder, then the 1-hour reminder, once each", () => {
     const start = new Date("2026-11-03T06:00:00Z");
@@ -142,6 +147,15 @@ describe("blog rendering", () => {
     const out = renderMarkdown("Hello <script>alert(1)</script>\n\n## Step 1: Clean");
     expect(out).not.toContain("<script>");
     expect(out).toContain('<h2 id="step-1-clean">');
+  });
+  it("neutralises javascript: and data: link and image targets but keeps safe ones", () => {
+    const out = renderMarkdown("[a](javascript:alert(1)) <javascript:x> ![i](data:text/html,x) [b]( JAVA	SCRIPT:y) [ok](https://x.com/a) [m](mailto:a@b.co) [r](/book) [f](#top) [e](&#106;avascript:z) [c](javascript&colon;z) [q](/a?b=1&c=2)");
+    expect(out).not.toMatch(/(href|src)="[^"]*(javascript|data):/i);
+    for (const h of ["https://x.com/a", "mailto:a@b.co", "/book", "#top"]) expect(out).toContain(`href="${h}"`);
+  });
+  it("keeps $ patterns in titles and bodies literal when filling the shell", () => {
+    const out = fillShell("<title>{{TITLE}}</title>{{DESC}}{{JSONLD}}<main>{{BODY}}</main>", { title: "Save $$ now", description: "$&", canonical: "c", body: "a $' b $` c", jsonld: [{ name: "$$" }] });
+    expect(out).toBe(`<title>Save $$ now</title>$&amp;<script type="application/ld+json">{"name":"$$"}</script><main>a $' b $\` c</main>`);
   });
   it("fills the page shell with title, canonical and structured data", () => {
     const page = postPage("https://ripepiper.com", { slug: "a-post", title: "A <b>post</b>", description: "D", body_md: "## One\ntext", cover_path: null, cover_alt: null, author_name: "Dipuraj Thapa", published_at: "2026-10-19T00:00:00Z", updated_at: "2026-10-19T00:00:00Z" });

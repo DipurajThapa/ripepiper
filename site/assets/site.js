@@ -96,8 +96,9 @@
     if (!cfg.turnstileSiteKey) return Promise.reject(new Error("This form is not configured for live submissions. Please contact hello@ripepiper.com."));
     if (!window.turnstile || typeof window.turnstile.execute !== "function") return Promise.reject(new Error("Security verification is not available. Please reload and try again."));
     return new Promise(function (resolve, reject) {
-      var node = document.createElement("div"); node.style.display = "none"; document.body.appendChild(node);
-      var timer = setTimeout(function () { cleanup(); reject(new Error("Security verification timed out. Please try again.")); }, 20000);
+      // Visible but empty: "interaction-only" draws a checkbox here only when Cloudflare needs one.
+      var node = document.createElement("div"); node.style.cssText = "position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:1000"; document.body.appendChild(node);
+      var timer = setTimeout(function () { cleanup(); reject(new Error("Security verification timed out. Please try again.")); }, 120000);
       var widgetId;
       function cleanup() { clearTimeout(timer); if (widgetId !== undefined) try { window.turnstile.remove(widgetId); } catch (_) {} node.remove(); }
       try {

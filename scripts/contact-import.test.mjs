@@ -51,3 +51,9 @@ test('control characters are invalid, untrusted text stays data and no rights/se
  assert.equal(parse(header+'\nfixture@test.invalid,Company,source\u0000,rights,2026-10-22').valid,false);
  assert.doesNotMatch(source,/\bfetch\s*\(|XMLHttpRequest|localStorage|sessionStorage/);
 });
+test('a user ahead of UTC can import their local today, clamped to the current instant',()=>{
+ const tz=process.env.TZ;process.env.TZ='Asia/Dubai';
+ try{const now=Date.parse('2026-10-31T22:00:00Z'),r=parse(header+'\nfixture1@test.invalid,Company,source-1,permitted-use,2026-11-01',{now});assert.equal(r.valid,true);assert.equal(r.rows[0].observed_at,'2026-10-31T22:00:00.000Z');
+  assert.equal(parse(header+'\nfixture1@test.invalid,Company,source-1,permitted-use,2026-11-02',{now}).valid,false);}
+ finally{if(tz===undefined)delete process.env.TZ;else process.env.TZ=tz;}
+});

@@ -6,9 +6,12 @@ const platform = fileURLToPath(new URL('../platform/ripe-piper-platform/', impor
 const transient = /ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|ENETUNREACH|E(?:429|500|502|503|504)|network timeout|audit endpoint returned an error/i;
 
 export function auditDependencies({ run, log = console.log, attempts = 3 } = {}) {
-  run ??= () => spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm',
-    ['audit', '--json', '--audit-level=high', '--fetch-timeout=20000', '--fetch-retries=0'],
-    { cwd: platform, encoding: 'utf8', timeout: 60000, maxBuffer: 4 * 1024 * 1024 });
+  const args = ['audit', '--json', '--audit-level=high', '--fetch-timeout=20000', '--fetch-retries=0'];
+  const options = { cwd: platform, encoding: 'utf8', timeout: 60000, maxBuffer: 4 * 1024 * 1024 };
+  // Windows refuses to spawn npm.cmd without a shell (EINVAL); the command is a fixed constant.
+  run ??= () => process.platform === 'win32'
+    ? spawnSync(`npm ${args.join(' ')}`, { ...options, shell: true })
+    : spawnSync('npm', args, options);
   for (let attempt = 1; attempt <= attempts; attempt++) {
     const result = run();
     let report;

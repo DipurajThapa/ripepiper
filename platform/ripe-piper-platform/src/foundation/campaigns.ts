@@ -130,6 +130,7 @@ export async function campaignPlans(req:Request,env:Env,tenantId:string){
   const args={p_tenant:tenantId,p_campaign:b.campaign_id,p_actor:user.id,p_version:b.version,p_body:b.body??{}};
   const result=b.operation==='save'&&b.body?.draftContext!==undefined?await db.rpc<any>('save_reviewed_revive_draft',args):await db.rpc<any>('manage_campaign_plan',{...args,p_operation:b.operation});
   const ack=campaignAcknowledgement(b.operation,result,b.campaign_id,b.version);
+  if(!ack&&b.operation==='save'&&result?.id===b.campaign_id&&b.version>0&&result.version===b.version&&(result.status==='paused'||result.status==='ended'))return bad(`This campaign is ${result.status} and nothing changed. Edit the messages to save a new draft version for re-approval.`,409);
   if(!ack)return bad('The campaign acknowledgement is uncertain. Reload and inspect the same campaign before approving, queuing or repeating an operation.',503);
   return json({ok:true,...ack,delivery:'not_sent'});
  }catch(e){
