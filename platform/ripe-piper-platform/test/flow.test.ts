@@ -568,6 +568,21 @@ describe("admin delivery of proposals and quotations", () => {
     expect(drafted.proposal.id).toBe(tables.proposals[0].id); expect(tables.proposals).toHaveLength(1);
     expect((await call("POST", `/api/admin/meetings/${mid}/draft-proposal`, { currency: "INR" }, admin)).status).toBe(409);
   });
+  it("supersedes unsent pre-proposal drafts when a corrected transcript is analysed", async () => {
+    const mid = "cccccccc-cccc-4ccc-8ccc-cccccccccccc", admin = { Authorization: "Bearer simulated-admin-token" };
+    Object.assign(env, { PAID_AI_ENABLED: "true", AI_COST_POLICY: JSON.stringify({ model: "m", reference: "fixture-tariff", expiresAt: "2099-01-01T00:00:00Z", inputMicroPerMillion: 1, outputMicroPerMillion: 1 }) });
+    const answer = { summary: "Corrected", notes: {}, minutes: {}, requirements: { recommended_plan: "engine", recommended_package: "signal" } };
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init: RequestInit = {}) => new URL(String(input)).host === "api.anthropic.com"
+      ? Promise.resolve(Response.json({ stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 10 }, content: [{ type: "text", text: JSON.stringify(answer) }] }))
+      : ["/rpc/reserve_build_usage", "/rpc/settle_build_usage"].some(p => String(input).endsWith(p)) ? Promise.resolve(Response.json(true))
+      : String(input).endsWith("/rpc/save_meeting_draft") ? Promise.resolve(Response.json({ meetingId: mid, reviewVersion: 1, attendance: "unknown", notesReady: true })) : fakeFetch(input, init));
+    try {
+      tables.meetings = [defaults("meetings", { id: mid, tenant_id: null, attendee_email: "a@b.ae", start_at: "2026-11-01T10:00:00Z", end_at: "2026-11-01T10:30:00Z", notes: { summary: "Stored" }, requirements: { recommended_plan: "sprint", recommended_package: "revive" } })];
+      tables.proposals = [defaults("proposals", { meeting_id: mid, kind: "pre", plan: "sprint", package: "revive", currency: "AED", content_md: "stale", status: "draft" }), defaults("proposals", { meeting_id: mid, kind: "pre", plan: "sprint", package: "revive", currency: "AED", content_md: "sent", status: "sent" })];
+      expect((await call("POST", `/api/admin/meetings/${mid}/process`, { transcript: "corrected ".repeat(40) }, admin)).status).toBe(200);
+      expect(tables.proposals.map((p: any) => p.status)).toEqual(["superseded", "sent"]);
+    } finally { delete env.PAID_AI_ENABLED; delete env.AI_COST_POLICY; vi.stubGlobal("fetch", fakeFetch); }
+  });
 });
 
 describe("reminders", () => {

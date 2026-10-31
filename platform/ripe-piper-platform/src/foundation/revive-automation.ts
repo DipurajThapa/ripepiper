@@ -37,7 +37,9 @@ export async function runReviveAutomation(env:Env,scope:Scope={}) {
    if(!uuid.test(c.id)||!uuid.test(c.tenant_id)||!uuid.test(c.operator_id)||c.capability!=='revive'||c.status!=='approved'||!Number.isInteger(c.asset_version)||c.asset_version<1||(scope.tenantId&&c.tenant_id!==scope.tenantId)||(scope.campaignId&&c.id!==scope.campaignId)){report.blocked++;continue;}
    if(!await db().one('tenants',`id=eq.${c.tenant_id}&status=eq.active&select=id`)){report.blocked++;continue;}
    report.campaigns++;
-   const actions=await db().select<Action>('outbound_actions',`tenant_id=eq.${c.tenant_id}&campaign_id=eq.${c.id}&select=${actionFields}&order=message_step,id&limit=${limits.actionsPerCampaign+1}`);
+   // Current-version work plus any claim still in flight; older-version history is the database's restart check.
+   const ledger=(filter:string)=>db().select<Action>('outbound_actions',`tenant_id=eq.${c.tenant_id}&campaign_id=eq.${c.id}&${filter}&select=${actionFields}&order=message_step,id&limit=${limits.actionsPerCampaign+1}`);
+   const actions=[...await ledger(`asset_version=eq.${c.asset_version}`),...await ledger(`asset_version=neq.${c.asset_version}&state=eq.claimed`)];
    if(actions.length>limits.actionsPerCampaign||actions.some(a=>a.tenant_id!==c.tenant_id||a.campaign_id!==c.id||!uuid.test(a.id)||!uuid.test(a.lead_id))){report.blocked++;report.limited=true;continue;}
    // An abandoned fence is reconciled to review, never completed/reclaimed by another run.
    let claimed=false;

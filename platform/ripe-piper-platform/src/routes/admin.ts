@@ -51,6 +51,8 @@ export async function processMeeting(req: Request, env: Env, id: string) {
   const a = await paidAI(analyseMeeting(env, transcript!, { company: lead?.company ?? lead?.website, attendee: m.attendee_name }));
   const minutes = minutesMarkdown(a, `Call with ${m.attendee_name ?? m.attendee_email}`, new Date(m.start_at).toISOString().slice(0, 10));
   await saveMeetingDraft(db,m,{transcript,notes:{summary:a.summary,...a.notes},minutes,requirements:{...a.requirements,decisions:a.minutes.decisions,actions:a.minutes.actions}},"transcript_unverified");
+  // A new analysis replaces the basis of any unsent draft, so draftProposal must write a fresh one.
+  await db.update("proposals", `meeting_id=eq.${m.id}&kind=eq.pre&status=eq.draft`, { status: "superseded" });
   return json({ ok: true, analysis: a, minutes });
 }
 

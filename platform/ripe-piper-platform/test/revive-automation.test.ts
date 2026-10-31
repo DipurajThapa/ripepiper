@@ -23,7 +23,7 @@ function adapter(options:any={}) {
   if(table==='revive_reviews')return reviews;
   if(table==='outbound_actions'){
    const params=new URLSearchParams(query),id=params.get('id')?.slice(3),scopeTenant=params.get('tenant_id')?.slice(3),scopeCampaign=params.get('campaign_id')?.slice(3);
-   return actions.filter(a=>(!id||a.id===id)&&(!scopeTenant||a.tenant_id===scopeTenant)&&(!scopeCampaign||a.campaign_id===scopeCampaign)&&(!params.has('state')||(a.state==='queued'&&Date.parse(a.due_at)<=Date.now())));
+   return actions.filter(a=>(!id||a.id===id)&&(!scopeTenant||a.tenant_id===scopeTenant)&&(!scopeCampaign||a.campaign_id===scopeCampaign)&&(!params.has('state')||(params.get('state')==='eq.claimed'?a.state==='claimed':a.state==='queued'&&Date.parse(a.due_at)<=Date.now()))&&(!params.has('asset_version')||(params.get('asset_version')!.startsWith('neq.')?a.asset_version!==Number(params.get('asset_version')!.slice(4)):a.asset_version===Number(params.get('asset_version')!.slice(3)))));
   }
   throw Error('Unexpected table '+table);
  });
@@ -88,6 +88,11 @@ describe('bounded autonomous Revive synthetic coordinator',()=>{
  it('skips a contact with tested older-version history without pausing the edited campaign',async()=>{
   const a=adapter({campaigns:[{id:campaign,tenant_id:tenant,operator_id:admin,capability:'revive',status:'approved',asset_version:2}],assets:[{tenant_id:tenant,campaign_id:campaign,version:2,revive_audience:freshAudience()}],actions:[freshAction('tested')]});
   expect(await runReviveAutomation(env)).toMatchObject({enrolled:0,blocked:1,review:0});expect(a.calls.filter(c=>c.name==='manage_campaign_plan').map(c=>c.args.p_operation)).toEqual(['queue']);
+ });
+ it('keeps processing a campaign whose older versions hold more history than the per-campaign bound',async()=>{
+  const old=Array.from({length:120},()=>({...freshAction('cancelled'),id:crypto.randomUUID(),lead_id:crypto.randomUUID(),error_code:'campaign_paused'}));
+  const a=adapter({campaigns:[{id:campaign,tenant_id:tenant,operator_id:admin,capability:'revive',status:'approved',asset_version:2}],assets:[{tenant_id:tenant,campaign_id:campaign,version:2,revive_audience:freshAudience()}],actions:old});
+  expect(await runReviveAutomation(env)).toMatchObject({enrolled:1,limited:false});expect(a.calls.filter(c=>c.table==='outbound_actions').map(c=>new URLSearchParams(c.query).get('asset_version'))).toEqual(expect.arrayContaining(['eq.2','neq.2']));
  });
  it('parallel runs use one fenced completion for the same existing due action',async()=>{
   const a=adapter({actions:[freshAction()]});const results=await Promise.all([runReviveAutomation(env),runReviveAutomation(env)]);

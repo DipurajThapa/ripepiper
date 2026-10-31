@@ -63,8 +63,9 @@ describe('agency-only manual transcript processing',()=>{
   const one=vi.spyOn(Db.prototype,'one').mockResolvedValueOnce({id,tenant_id:null,lead_id:id,kind:'discovery',start_at:'2026-10-27T08:00:00Z',end_at:'2026-10-27T08:30:00Z',attendee_email:'agency@fixture.invalid',attendee_name:'Agency',transcript}).mockResolvedValueOnce({name:'Agency',company:'Agency Fixture'});
   vi.mocked(analyseMeeting).mockResolvedValue({summary:'Draft',notes:{},requirements:{},minutes:{decisions:[],actions:[]}} as any);
   vi.spyOn(Db.prototype,'rpc').mockResolvedValue({meetingId:id,reviewVersion:1,attendance:'unknown',notesReady:true});
+  const supersede=vi.spyOn(Db.prototype,'update').mockResolvedValue([]);
   const response=await processMeeting(request(),{...env,MEETING_TRANSCRIPTS_ENABLED:'true'},id);
-  expect(response.status).toBe(200);expect(one).toHaveBeenNthCalledWith(1,'meetings',`id=eq.${id}&tenant_id=is.null&select=*`);
+  expect(response.status).toBe(200);expect(supersede).toHaveBeenCalledWith('proposals',`meeting_id=eq.${id}&kind=eq.pre&status=eq.draft`,{status:'superseded'});expect(one).toHaveBeenNthCalledWith(1,'meetings',`id=eq.${id}&tenant_id=is.null&select=*`);
   expect(one).toHaveBeenNthCalledWith(2,'leads',`id=eq.${id}&tenant_id=is.null&select=name,company,website`);
   expect(analyseMeeting).toHaveBeenCalledWith(expect.anything(),transcript,{company:'Agency Fixture',attendee:'Agency'});expect(meetTranscript).not.toHaveBeenCalled();
  });

@@ -22,7 +22,7 @@ function mockApi(){vi.stubGlobal('fetch',async(input:string,init:RequestInit={})
   for(const [field,value] of u.searchParams){
    if(['select','order','limit'].includes(field))continue;
    if(!/^[a-z_]+$/.test(field))throw Error('Unexpected fixture query');
-   const i=value.indexOf('.'),operator={eq:'=',gt:'>',gte:'>=',lt:'<',lte:'<='}[value.slice(0,i)];
+   const i=value.indexOf('.'),operator={eq:'=',neq:'<>',gt:'>',gte:'>=',lt:'<',lte:'<='}[value.slice(0,i)];
    if(!operator)throw Error('Unexpected fixture operator');values.push(value.slice(i+1));where.push(`${field}${operator}$${values.length}`);
   }
   const order=(u.searchParams.get('order')??'').split(',').filter(Boolean).map(term=>{if(!/^[a-z_]+(\.(asc|desc))?$/.test(term))throw Error('Unexpected fixture order');return term.replace('.',' ');});
