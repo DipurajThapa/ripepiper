@@ -264,6 +264,7 @@ try {
    const q={select:()=>q,is:()=>q,order:()=>q,limit:()=>q,eq:()=>q,single:()=>q,then:(resolve,reject)=>Promise.resolve(result()).then(resolve,reject)};return q;
   }};
   RP.api=async(path,body,method)=>{
+   if(path==='/api/admin/platform-overview')return {ok:true,tenants:[]};
    window.reconcileCalls.push({path,body,method});
    if(path.endsWith('/reminder-receipts'))return {version:1,meetingId:window.fixtureMeeting.id,canRetry:false,receipts:[{window:'24h',state:'review',leaseUntil:'2026-01-01T00:00:00Z',acknowledgedAt:null,providerMessageId:null,requiresReview:true,delivery:'unknown'},{window:'1h',state:'absent',leaseUntil:null,acknowledgedAt:null,providerMessageId:null,requiresReview:false,delivery:'not_sent'}]};
    if(path.endsWith('/activate')){window.fixtureTenant.status='active';window.fixtureTenant.execution_version=body.expected_version+1;return {ok:true,tenant:{id:window.fixtureTenant.id,status:'active',version:window.fixtureTenant.execution_version,briefVersion:1},delivery:'not_sent'};}

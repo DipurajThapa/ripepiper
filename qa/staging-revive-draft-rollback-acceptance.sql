@@ -20,6 +20,11 @@ BEGIN
  INSERT INTO auth.users(id,email,email_confirmed_at,raw_user_meta_data) VALUES(a,'qa-revive-staff@example.invalid',now(),'{}');
  UPDATE public.profiles SET is_admin=true WHERE id=a;
  INSERT INTO public.tenants(id,name,slug,country,currency,status,package) VALUES(t,'QA Revive rollback','qa-revive-rollback','AE','AED','onboarding','revive'),(x,'QA foreign rollback','qa-revive-foreign','AE','AED','onboarding','revive');
+ -- Hybrid access: staff act on a tenant only through an operator grant from a separate verified platform admin.
+ INSERT INTO auth.users(id,email,email_confirmed_at,raw_user_meta_data) VALUES('fa500000-0000-4000-8000-000000000009','qa-revive-grantor@example.invalid',now(),'{}');
+ UPDATE public.profiles SET is_admin=true WHERE id='fa500000-0000-4000-8000-000000000009';UPDATE public.profiles SET is_operator=true WHERE id=a;
+ INSERT INTO public.operator_grants(tenant_id,operator_id,capabilities,authority,authorised_by,contract_reference,expires_at)
+  SELECT qa_t,a,'{read,operate,approve}','contract','fa500000-0000-4000-8000-000000000009','QA synthetic contract',now()+interval '1 day' FROM unnest(array[t,x]::uuid[]) qa_t;
  INSERT INTO public.business_briefs(tenant_id,version,body,created_by) VALUES(t,1,jsonb_build_object('offer','Reviewed reactivation','industries',jsonb_build_array('construction'),'markets',jsonb_build_array('AE'),'roles',jsonb_build_array('owner'),'needs',jsonb_build_array('quote follow-up'),'excludedIndustries','[]'::jsonb,'maxAgeDays',90,'source',jsonb_build_object('reference','qa-brief','excerpt','Approved construction offer','observedAt',now()-interval '1 hour')),a);
  INSERT INTO public.leads(id,tenant_id,source,email) VALUES(l,t,'import','qa-revive-contact@example.invalid'),(f,x,'import','qa-revive-foreign@example.invalid');
  INSERT INTO public.lead_observations(id,tenant_id,lead_id,source,external_ref,observed_at,original_purpose,rights_reference,synthetic,assessment_facts,assessment_excerpt,assessment_reviewed_by,product_context)
@@ -101,9 +106,9 @@ BEGIN
  j:=public.review_revive_candidate(t,l,a,2,public.revive_input_snapshot(t,l),1,'accepted','Reviewed exact amended evidence',now()+interval '3 days');
  IF NOT public.revive_candidate_current(t,l,now()) THEN RAISE EXCEPTION 'Amended review unavailable';END IF;
  -- No source claim of fit recomputation: this service-only RPC relies on the reviewed Worker assessment.
- EXECUTE 'RESET ROLE';UPDATE public.profiles SET is_admin=false WHERE id=a;EXECUTE 'SET LOCAL ROLE service_role';
+ EXECUTE 'RESET ROLE';UPDATE public.profiles SET is_operator=false WHERE id=a;EXECUTE 'SET LOCAL ROLE service_role';
  IF public.revive_candidate_current(t,l,now()) THEN RAISE EXCEPTION 'Withdrawn reviewer still authorized';END IF;
- EXECUTE 'RESET ROLE';UPDATE public.profiles SET is_admin=true WHERE id=a;EXECUTE 'SET LOCAL ROLE service_role';
+ EXECUTE 'RESET ROLE';UPDATE public.profiles SET is_operator=true WHERE id=a;EXECUTE 'SET LOCAL ROLE service_role';
  INSERT INTO public.outbound_stops(scope,tenant_id,reason) VALUES('tenant',t,'QA separate manual hold');
  IF NOT public.pause_tenant_execution(t,'QA explicit account pause') THEN RAISE EXCEPTION 'Pause failed';END IF;
  j:=public.activate_tenant_execution(t,a,'paused',2,1,'Reviewed deliberate account resume');

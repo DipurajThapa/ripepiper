@@ -13,7 +13,7 @@
     "rules": {
       "version": 2,
       "assessorSha256": "0eec9bdcd1410e6b26803ce2cdd843b50e32084fc58c97282ce15e2f9777afea",
-      "shortlistModuleSha256": "bde64d496b1eccdee607e8182500afcc0f51445c386b96e4b21d50f29cd0b9a8",
+      "shortlistModuleSha256": "7022c8cfd1ba8021b8935f84b430cadeb16b9d5a5562ce720cf23167bf809b50",
       "ranking": "independent per-tenant candidate-first then lead ID ascending"
     },
     "evaluatorSha256": "4ff2b8d29af7a27ca071fe6bdfbe8c961d8486524e77e2b42623f9b2c56d0acc",

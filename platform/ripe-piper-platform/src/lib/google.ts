@@ -38,6 +38,15 @@ export async function googleToken(env: Env): Promise<string> {
   })();
   try { return await current.pending; } finally { current.pending = undefined; }
 }
+/** Revokes a refresh token and every grant issued under it (RFC 7009 endpoint). A 400 invalid_token means it is already dead. */
+export async function revokeGoogleToken(token: string): Promise<"revoked" | "already_revoked"> {
+  const res = await request("https://oauth2.googleapis.com/revoke", {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ token }),
+  });
+  if (res.ok) return "revoked";
+  if (res.status === 400) { try { if ((await res.json() as any)?.error === "invalid_token") return "already_revoked"; } catch { /* fall through */ } }
+  throw new GoogleError(res.status, "Google token revocation failed");
+}
 async function g<T>(env: Env, url: string, init: RequestInit = {}, beforeRequest?:()=>Promise<void>): Promise<T> {
   const token = await googleToken(env);
   if(beforeRequest)await beforeRequest();
@@ -69,7 +78,7 @@ export async function busyTimes(env: Env, from: Date, to: Date): Promise<{ start
   });
 }
 
-export type MeetingInput = { id: string; start: string; end: string; email: string; name: string; summary: string; description: string };
+export type MeetingInput = { id: string; start: string; end: string; email: string; name: string; summary: string; description: string; timeZone?: string };
 export function calendarEventId(id: string): string {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw new Error("Invalid meeting identifier");
   return "rp" + id.replace(/-/g, "").toLowerCase();
@@ -114,7 +123,7 @@ export async function createMeetEvent(env: Env, p: MeetingInput) {
     ev = await g<any>(env,
       `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(env.GOOGLE_CALENDAR_ID)}/events?conferenceDataVersion=1&sendUpdates=all`, {
         method: "POST", body: JSON.stringify({ id: eventId, summary: p.summary, description: p.description,
-          start: { dateTime: p.start, timeZone: "Asia/Dubai" }, end: { dateTime: p.end, timeZone: "Asia/Dubai" },
+          start: { dateTime: p.start, timeZone: p.timeZone ?? "Asia/Dubai" }, end: { dateTime: p.end, timeZone: p.timeZone ?? "Asia/Dubai" },
           attendees: [{ email: p.email, displayName: p.name }],
           conferenceData: { createRequest: { requestId: p.id, conferenceSolutionKey: { type: "hangoutsMeet" } } },
           reminders: { useDefault: false, overrides: [{ method: "email", minutes: 1440 }, { method: "popup", minutes: 60 }] },
@@ -140,19 +149,43 @@ function b64url(s: string): string {
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-export function buildMime(from: string, to: string, subject: string, text: string, html?: string): string {
-  const encSubject = `=?UTF-8?B?${btoa(unescape(encodeURIComponent(subject)))}?=`;
-  if (!html) {
-    return [`From: ${from}`, `To: ${to}`, `Subject: ${encSubject}`, "MIME-Version: 1.0", "Content-Type: text/plain; charset=UTF-8", "", text].join("\r\n");
+/** RFC 2047 encoded-words, split on code points so each word stays within the 75-character limit, folded so header lines stay under 78. */
+function encodedWords(s: string): string {
+  const words: string[] = []; let chunk = "";
+  for (const ch of s) {
+    if (chunk && new TextEncoder().encode(chunk + ch).length > 45) { words.push(chunk); chunk = ""; }
+    chunk += ch;
   }
+  words.push(chunk);
+  return words.map(w => `=?UTF-8?B?${btoa(unescape(encodeURIComponent(w)))}?=`).join("\r\n ");
+}
+/** A non-ASCII display name is encoded per RFC 2047; an ASCII From (agency MAIL_FROM) is emitted unchanged. */
+function mimeFrom(from: string): string {
+  if (/^[ -~]*$/.test(from)) return from;
+  const m = from.match(/^\s*(?:"((?:[^"\\]|\\.)*)"|([^<>"]*?))\s*<([!-~]+)>\s*$/);
+  if (!m || /[<>]/.test(m[3])) throw new Error("Invalid From header");
+  return `${encodedWords((m[1] ?? m[2]).replace(/\\(.)/g, "$1"))} <${m[3]}>`;
+}
+export type MimeHeaders = Partial<Record<"Reply-To" | "List-Unsubscribe" | "List-Unsubscribe-Post" | "Message-ID", string>>;
+export function buildMime(from: string, to: string, subject: string, text: string, html?: string, headers: MimeHeaders = {}): string {
+  // Header injection guard: every caller (agency or tenant-supplied identity) passes through here.
+  if ([from, to, ...Object.values(headers)].some(v => /[\r\n]/.test(v ?? ""))) throw new Error("Invalid email header value");
+  const extra = Object.entries(headers).filter(([, v]) => v !== undefined).map(([k, v]) => {
+    if (!["Reply-To", "List-Unsubscribe", "List-Unsubscribe-Post", "Message-ID"].includes(k) || !/^[ -~]+$/.test(v!)) throw new Error("Invalid email header value");
+    return `${k}: ${v}`;
+  });
+  const head = [`From: ${mimeFrom(from)}`, `To: ${to}`, ...extra, `Subject: ${encodedWords(subject)}`, "MIME-Version: 1.0"];
+  if (!html) return [...head, "Content-Type: text/plain; charset=UTF-8", "", text].join("\r\n");
   const b = "rp_" + Math.random().toString(36).slice(2);
-  return [`From: ${from}`, `To: ${to}`, `Subject: ${encSubject}`, "MIME-Version: 1.0", `Content-Type: multipart/alternative; boundary="${b}"`, "",
+  return [...head, `Content-Type: multipart/alternative; boundary="${b}"`, "",
     `--${b}`, "Content-Type: text/plain; charset=UTF-8", "", text, `--${b}`, "Content-Type: text/html; charset=UTF-8", "", html, `--${b}--`].join("\r\n");
 }
 
-export async function sendEmail(env: Env, to: string, subject: string, text: string, html?: string, beforeSend?:()=>Promise<void>) {
+/** opts.from defaults to env.MAIL_FROM, so agency flows are unchanged. Tenant sends pass their own provider env and verified identity. */
+export async function sendEmail(env: Env, to: string, subject: string, text: string, html?: string, beforeSend?:()=>Promise<void>, opts: { from?: string; headers?: MimeHeaders } = {}) {
+  const raw = b64url(buildMime(opts.from ?? env.MAIL_FROM, to, subject, text, html, opts.headers));
   const receipt = await g<any>(env, "https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
-    method: "POST", body: JSON.stringify({ raw: b64url(buildMime(env.MAIL_FROM, to, subject, text, html)) }),
+    method: "POST", body: JSON.stringify({ raw }),
   },beforeSend);
   if(typeof receipt?.id!=="string"||!/^[a-zA-Z0-9_-]{1,128}$/.test(receipt.id))throw new GoogleError(0,"Gmail acknowledgement is uncertain");
   return {messageId:receipt.id as string};

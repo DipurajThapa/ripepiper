@@ -11,6 +11,7 @@ import { analyseMeeting, minutesMarkdown } from "./lib/ai";
 import { PaidUseBlocked } from "./lib/build-budget";
 import { googleAdsRows, metaRows, linkedinRows, toTenantCurrency, adsHttpError, redactedAdsError, type AdRow } from "./lib/ads";
 import { runReviveAutomation } from "./foundation/revive-automation";
+import { purgeDue } from "./foundation/offboarding";
 
 /** Default-off consultation reminders. A claim is not delivery; uncertain attempts never retry automatically. */
 export async function sendReminders(env: Env, now = new Date()) {
@@ -145,7 +146,12 @@ async function linkedinCurrency(env: Env, accountId: string): Promise<string> {
 }
 
 export async function runScheduled(cron: string, env: Env) {
-  if (cron === "0 22 * * *") return { ads: env.ADS_SYNC_ENABLED === "true" ? await syncAds(env) : {accounts:0,rows:0,errors:0,disabled:true} };      // 02:00 Gulf Standard Time
+  if (cron === "0 22 * * *") {      // 02:00 Gulf Standard Time
+    const ads = env.ADS_SYNC_ENABLED === "true" ? await syncAds(env) : {accounts:0,rows:0,errors:0,disabled:true};
+    // Retention purge after RETENTION_DAYS; kill switch OFFBOARD_PURGE_ENABLED, default off (then it makes no call at all).
+    const purge = await purgeDue(env);
+    return { ads, ...("disabled" in purge ? {} : { purge }) };
+  }
   // Revive reuses the existing tick only after explicit isolated-environment activation.
   // Its dedicated staff route and direct tests do not execute the founder's other jobs.
   const revive = env.REVIVE_AUTOMATION_ENABLED === "true" ? await runReviveAutomation(env) : undefined;

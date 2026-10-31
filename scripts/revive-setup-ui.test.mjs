@@ -102,3 +102,18 @@ test('an incomplete reviewed save is refused locally with edits kept',async()=>{
  const calls=[],ui=mount(async(path,payload)=>{calls.push(payload);return context('tenant-a',setup());});ui.select('tenant-a');await tick();const n=ui.nodes;n.setupReviewed.checked=true;n.setupSaveReviewed.onclick();
  assert.equal(calls.some(c=>c.operation==='save'),false);assert.match(n.reviveSetupStatus.textContent,/Complete the missing/);assert.equal(n.reviveSetupFields.disabled,false);
 });
+test('brand inputs round-trip as optional keys and the sender badge follows the connected mailbox',async()=>{
+ const b={...body(),replyTo:'replies@example.test',signature:'Kind regards\nDeclared sender',booking:{url:'https://cal.example.com/meet',reference:'booking:reviewed'},legalFooter:{postalAddress:'PO Box 1, Dubai',reference:'footer:reviewed'}};
+ const calls=[],ui=mount(async(path,payload)=>{calls.push({path,payload});if(payload.operation==='connections')return {ok:true,connections:[{id:'conn-a',provider:'google_workspace',identity:'sender@example.test',purposes:['mail_send'],status:'connected',version:1,senderVerified:true}]};return payload.operation==='get'?context('tenant-a',setup(b)):{ok:true,tenantId:'tenant-a',version:3,briefVersion:1,state:'draft',ready:false,delivery:'not_sent'};});
+ ui.select('tenant-a');await tick();const n=ui.nodes;
+ assert.equal(calls.find(c=>c.payload.operation==='connections').path,'/api/admin/tenants/tenant-a/connection');
+ assert.equal(n.setupReplyTo.value,'replies@example.test');assert.equal(n.setupBookingReference.value,'booking:reviewed');assert.equal(n.setupPostalAddress.value,'PO Box 1, Dubai');
+ assert.match(n.setupSenderBadge.textContent,/verified against the connected mailbox/);assert.match(n.connectionsList.innerHTML,/Google Workspace · sender@example.test/);assert.match(n.connectionsList.innerHTML,/data-connection-revoke="conn-a"/);
+ n.reviveSetupForm.onsubmit({preventDefault(){}});await tick();const saved=calls.find(c=>c.payload.operation==='save').payload.body;
+ assert.equal(JSON.stringify([saved.replyTo,saved.signature,saved.booking,saved.legalFooter]),JSON.stringify([b.replyTo,b.signature,b.booking,b.legalFooter]));
+ n.setupPostalReference.value='';n.reviveSetupForm.onsubmit({preventDefault(){}});assert.match(n.reviveSetupStatus.textContent,/postal address and its reference/);
+});
+test('an unverified or failed connection list keeps the sender declared',async()=>{
+ const ui=mount(async(path,payload)=>{if(payload.operation==='connections')throw Error('Not found.');return context('tenant-a',setup());});ui.select('tenant-a');await tick();
+ assert.match(ui.nodes.setupSenderBadge.textContent,/declared, not verified/);assert.equal(ui.nodes.connectionsStatus.textContent,'Not found.');assert.doesNotMatch(ui.nodes.reviveSetupStatus.textContent,/Not found/);
+});

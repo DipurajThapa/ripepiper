@@ -1,6 +1,6 @@
 import type {Env} from '../env';
 import {Db,DbError} from '../lib/db';
-import {bad,json,readJson,requireUser} from '../routes/http';
+import {bad,json,readJson,requireUser,tenantAccess,HttpError} from '../routes/http';
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function meetingSnapshot(m:any){return {id:m.id,tenantId:m.tenant_id??null,leadId:m.lead_id??null,kind:m.kind??'discovery',startAt:new Date(m.start_at).toISOString(),endAt:new Date(m.end_at).toISOString(),email:m.attendee_email,name:m.attendee_name??null,eventId:m.google_event_id??null,meetUrl:m.meet_url??null,meetCode:m.meet_code??null};}
 export async function saveMeetingDraft(db:Db,m:any,draft:{transcript?:string;notes?:any;minutes?:string;requirements?:any},reason:'transcript_unverified'|'attendance_source_unavailable'|'analysis_unavailable'){
@@ -9,7 +9,11 @@ export async function saveMeetingDraft(db:Db,m:any,draft:{transcript?:string;not
  return {meetingId:m.id,reviewVersion:result.reviewVersion,attendance:result.attendance,notesReady:result.notesReady};
 }
 export async function reviewConsultation(req:Request,env:Env,id:string){
- const actor=await requireUser(req,env,true),b=await readJson(req);
+ const actor=await requireUser(req,env),m=uuid.test(id)?await new Db(env).one<{tenant_id:string|null}>('meetings',`id=eq.${id}&select=tenant_id`):null;
+ // Agency consultations (no tenant) stay platform-admin; a tenant meeting needs tenant 'operate'. Denied and missing are the same 404.
+ if(!m||(m.tenant_id===null&&!actor.is_admin))throw new HttpError(404,'Not found.');
+ if(m.tenant_id!==null)await tenantAccess(env,actor,m.tenant_id,'operate');
+ const b=await readJson(req);
  if(!Number.isSafeInteger(b.expected_version)||b.expected_version<0||b.expected_version>2147483646||!b.snapshot||typeof b.snapshot!=='object'||Array.isArray(b.snapshot)||!['held','no_show','unknown'].includes(b.classification)||typeof b.evidence_reference!=='string'||b.evidence_reference.trim().length<8||b.evidence_reference.length>500||typeof b.reason!=='string'||b.reason.trim().length<8||b.reason.length>1000||typeof b.evidence_verified!=='boolean'||typeof b.roster_complete!=='boolean'||!uuid.test(b.request_id??'')||(b.classification!=='unknown'&&!b.evidence_verified)||(b.classification==='no_show'&&!b.roster_complete))return bad('Review the current meeting with authoritative evidence, a reason and the required attendance confirmation.');
  try{
   const receipt=await new Db(env).rpc<any>('review_consultation_attendance',{p_meeting:id,p_actor:actor.id,p_expected:b.expected_version,p_snapshot:b.snapshot,p_classification:b.classification,p_evidence:b.evidence_reference.trim(),p_reason:b.reason.trim(),p_verified:b.evidence_verified,p_roster:b.roster_complete,p_request:b.request_id});

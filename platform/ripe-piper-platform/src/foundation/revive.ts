@@ -1,6 +1,6 @@
 import type {Env} from '../env';
 import {Db,DbError} from '../lib/db';
-import {bad,json,readJson,requireUser} from '../routes/http';
+import {bad,json,readJson,requireTenant} from '../routes/http';
 import {assessProspect,validBrief,validInstant,type Observation,type BusinessBrief} from './prospecting';
 import {productError,reviewProducts} from './products';
 
@@ -39,7 +39,7 @@ export function assessRevive(context:ReviveContext,now=Date.now()) {
 
 /** One explicit staff cohort decision; subsequent queue/claim/completion reuse this exact snapshot. */
 export async function reviveReview(req:Request,env:Env,tenant:string){
- const actor=await requireUser(req,env,true),body=await readJson(req);
+ const actor=await requireTenant(req,env,tenant,'operate'),body=await readJson(req);
  if(!uuid.test(tenant)||!uuid.test(body.lead_id??'')||!['preview','accept','reject'].includes(body.operation))return bad('Choose a contact and a Revive review operation.');
  const db=new Db(env,15000);
  try{

@@ -1,7 +1,7 @@
 /** Approved-source Signal acquisition. Source text is inert evidence, never instructions. */
 import type {Env} from '../env';
 import {Db,DbError} from '../lib/db';
-import {bad,json,readJson,requireUser} from '../routes/http';
+import {bad,json,readJson,requireTenant} from '../routes/http';
 import {validInstant} from './prospecting';
 import {signalDiscovery} from './signal-discovery';
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -75,7 +75,7 @@ export async function readSignalSource(c:SignalSource){
  return {items,excluded};
 }
 export async function signalSource(req:Request,env:Env,tenantId:string){
- const user=await requireUser(req,env,true),b=await readJson(req),db=new Db(env,15000);
+ const user=await requireTenant(req,env,tenantId,'operate'),b=await readJson(req),db=new Db(env,15000);
  if(['discovery-status','discover','analyse-posts'].includes(b.operation))return signalDiscovery(env,tenantId,b.operation,b.body,db);
  if(!['status','preview','import'].includes(b.operation))return bad('Unknown Signal source operation.');
  const tenant=await db.one<any>('tenants',`id=eq.${tenantId}&select=id,status`);if(!tenant)return bad('Client not found.',404);

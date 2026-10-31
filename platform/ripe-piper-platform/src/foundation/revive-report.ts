@@ -1,6 +1,6 @@
 import type {Env} from '../env';
 import {Db} from '../lib/db';
-import {bad,json,requireUser} from '../routes/http';
+import {bad,json,requireTenant} from '../routes/http';
 import {OUTCOMES,productError} from './products';
 import {validInstant} from './prospecting';
 
@@ -88,7 +88,7 @@ export function buildReviveReport(tenant:string,input:ReviveReportInput,now=Date
 
 /** Staff-only bounded report; a capped dataset is rejected rather than presented as a complete funnel. */
 export async function reviveReport(req:Request,env:Env,tenant:string){
- await requireUser(req,env,true);
+ await requireTenant(req,env,tenant,'read');
  if(!uuid.test(tenant))return bad('Invalid client account.');
  const db=new Db(env,15000);
  if(!await db.one('tenants',`id=eq.${tenant}&select=id`))return bad('Client not found.',404);

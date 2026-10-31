@@ -2,9 +2,11 @@ import {beforeAll,afterAll,describe,it,expect} from 'vitest';
 import {PGlite} from '@electric-sql/pglite';
 import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
 import {readFileSync,readdirSync} from 'node:fs';
-import {setupBody,strategyBody,fixtureService} from './helpers/revive-setup';
+import {brandProfile,setupBody,strategyBody,fixtureService} from './helpers/revive-setup';
+import {brandSignoff} from '../src/lib/brand';
 import {validSetupBody,validSetupContext} from '../src/foundation/revive-setup';
 import {assessRevive} from '../src/foundation/revive';
+import {asOperator,asOwner} from './helpers/access';
 const actor='81111111-1111-4111-8111-111111111111',other='82222222-2222-4222-8222-222222222222';
 let db:PGlite;
 const q=async(sql:string,args:any[]=[]) => (await db.query<any>(sql,args)).rows;
@@ -18,6 +20,7 @@ beforeAll(async()=>{
 },30000);afterAll(async()=>db?.close());
 async function fixture(withBrief=true){
  const tenant=(await q(`insert into tenants(name,slug,country,currency) values('Setup fixture',$1,'AE','AED') returning id`,[crypto.randomUUID()]))[0].id;
+ await asOperator(db,{tenantId:tenant,profileId:actor});
  const body={offer:'Reviewed project recovery',industries:['construction'],markets:['AE'],roles:['owner'],needs:['project recovery'],aliases:{need:{'project recovery':['delivery recovery']}},excludedIndustries:[],maxAgeDays:30,source:{reference:'interview:reviewed',excerpt:'Reviewed current business offer',observedAt:new Date(Date.now()-86400000).toISOString()}};
  if(withBrief)await rpc('save_business_brief',[tenant,0,body,actor]);return{tenant,body};
 }
@@ -73,8 +76,8 @@ describe('versioned reviewed setup database contract',()=>{
   expect((await q('select steps from campaign_assets where campaign_id=$1',[campaign]))[0].steps).toEqual(plan.steps);expect((await q('select status from campaigns where id=$1',[campaign]))[0].status).toBe('draft');
  });
  it('records an identical setup re-reviewed by a different current staff actor as a new version',async()=>{
-  const f=await fixture();await save(f.tenant);await q('update profiles set is_admin=true where id=$1',[other]);
-  try{expect(await rpc('save_revive_setup',[f.tenant,other,1,1,'reviewed',setupBody(actor)])).toMatchObject({version:2,ready:true});expect((await q('select created_by from revive_setups where tenant_id=$1 and version=2',[f.tenant]))[0].created_by).toBe(other);}finally{await q('update profiles set is_admin=false where id=$1',[other]);}
+  const f=await fixture();await save(f.tenant);await asOperator(db,{tenantId:f.tenant,profileId:other});
+  try{expect(await rpc('save_revive_setup',[f.tenant,other,1,1,'reviewed',setupBody(actor)])).toMatchObject({version:2,ready:true});expect((await q('select created_by from revive_setups where tenant_id=$1 and version=2',[f.tenant]))[0].created_by).toBe(other);}finally{await q('update profiles set is_operator=false where id=$1',[other]);}
  });
  it('covers current cohort reviewer, distinct setup owner/creator and strategy reviewer in both role/auth tenant-lock predicates',async()=>{
   for(const name of ['public.lock_revive_reviewer()','ripepiper_private.lock_revive_auth_authority()']){
@@ -86,17 +89,17 @@ describe('versioned reviewed setup database contract',()=>{
   // This is executed predicate/trigger coverage, not independent-session race proof.
  });
  it('allows a restricted Auth backend to revoke confirmation while denying API-role direct access to the private lock trigger',async()=>{
-  const f=await fixture();await q('update profiles set is_admin=true where id=$1',[other]);await save(f.tenant,0,setupBody(other));
+  const f=await fixture();await asOperator(db,{tenantId:f.tenant,profileId:other});await save(f.tenant,0,setupBody(other));
   await db.exec('create role fixture_auth_backend;grant usage on schema auth to fixture_auth_backend;grant select(id,email_confirmed_at),update(email_confirmed_at) on auth.users to fixture_auth_backend;set role fixture_auth_backend');
   try{await q('update auth.users set email_confirmed_at=null where id=$1',[other]);}finally{await db.exec('reset role');}
   expect(await rpc('revive_setup_current',[f.tenant,1,new Date().toISOString()])).toBe(false);
   const c=await rpc('revive_setup_context',[f.tenant,actor]);expect(c.missing).toContain('owner_unavailable');expect(validSetupContext(c,f.tenant)).toBe(true);
   for(const role of ['anon','authenticated','service_role']){await db.exec('set role '+role);try{await expect(q('select ripepiper_private.lock_revive_auth_authority()')).rejects.toThrow(/permission/);}finally{await db.exec('reset role');}}
-  await q('update auth.users set email_confirmed_at=now() where id=$1',[other]);await q('update profiles set is_admin=false where id=$1',[other]);
+  await q('update auth.users set email_confirmed_at=now() where id=$1',[other]);await q('update profiles set is_operator=false where id=$1',[other]);
   expect(await rpc('revive_setup_current',[f.tenant,1,new Date().toISOString()])).toBe(false);
  });
  it('allows restricted Auth deletion and its real profiles FK cascade for a distinct setup owner',async()=>{
-  const owner=crypto.randomUUID(),f=await fixture();await q(`insert into auth.users(id,email,email_confirmed_at) values($1,$2,now())`,[owner,owner+'@example.invalid']);await q('update profiles set is_admin=true where id=$1',[owner]);
+  const owner=crypto.randomUUID(),f=await fixture();await q(`insert into auth.users(id,email,email_confirmed_at) values($1,$2,now())`,[owner,owner+'@example.invalid']);await asOwner(db,{tenantId:f.tenant,profileId:owner});
   await save(f.tenant,0,setupBody(owner));
   await db.exec('create role fixture_auth_delete;grant usage on schema auth to fixture_auth_delete;grant select(id),delete on auth.users to fixture_auth_delete;set role fixture_auth_delete');
   try{await q('delete from auth.users where id=$1',[owner]);}finally{await db.exec('reset role');}
@@ -108,5 +111,30 @@ describe('versioned reviewed setup database contract',()=>{
   await expect(q("update revive_setups set body='{}' where tenant_id=$1",[f.tenant])).rejects.toThrow(/append only/);
   await expect(rpc('save_revive_setup',[f.tenant,other,1,1,'draft',unknown()])).rejects.toThrow(/Staff service/);
   for(const role of ['anon','authenticated']){await db.exec('set role '+role);try{await expect(q('select save_revive_setup($1,$2,1,1,$3,$4)',[f.tenant,actor,'draft',unknown()])).rejects.toThrow(/permission/);if(role==='authenticated'){await q(`select set_config('request.jwt.sub',$1,false)`,[other]);expect(await q('select * from revive_setups where tenant_id=$1',[f.tenant])).toHaveLength(0);}}finally{await db.exec('reset role');}}
+ });
+});
+describe('tenant brand profile in the setup body',()=>{
+ const valid=async(body:any)=>(await rpc('revive_setup_body_valid',[body]));
+ it('validates the old 16-key and the new 20-key bodies identically in SQL and the Worker',async()=>{
+  for(const body of [setupBody(actor),setupBody(actor,'interview:fixture',brandProfile()),setupBody(actor,'interview:fixture',{replyTo:null,signature:null,booking:null,legalFooter:null}),setupBody(actor,'interview:fixture',{signature:'Only a signature'})]){
+   expect(await valid(body)).toBe(true);expect(validSetupBody(body)).toBe(true);
+  }
+ });
+ it.each([{replyTo:'a@b.com\nBcc:x@y.com'},{signature:'<b>Signer</b>'},{signature:'Hi {{need}}'},{signature:'x'.repeat(501)},{booking:{url:'http://cal.business.com/book',reference:'r'}},{booking:{url:'https://localhost/book',reference:'r'}},{booking:{url:'https://cal.business.com/book'}},
+  {legalFooter:{postalAddress:'x'.repeat(301),reference:'legal'}},{legalFooter:{postalAddress:'1 [Main] St',reference:'legal'}},{logo:'https://business.com/logo.png'}])('rejects unsafe brand value %j in SQL and the Worker',async patch=>{
+  const body=setupBody(actor,'interview:fixture',patch);expect(await valid(body)).toBe(false);expect(validSetupBody(body)).toBe(false);
+ });
+ it('rejects non-object bodies without raising',async()=>{for(const body of [1,'"x"',[],'null'])expect(await valid(body)).toBe(false);});
+ it('renders the same sign-off in SQL as brandSignoff',async()=>{
+  for(const [setup,name] of [[brandProfile(),'Acme'],[{senderName:'Ana',signature:null,legalFooter:null},'Acme'],[{senderName:' Ana ',signature:'  ',legalFooter:{postalAddress:' 1 Main St\nDubai '}},' Acme '],[{},'Acme']] as [any,string][])
+   expect(await rpc('revive_setup_signoff',[setup,name,'Reply stop.'])).toBe(brandSignoff(setup,name,'Reply stop.'));
+ });
+ it('a brand edit is a new setup version that moves approved Revive campaigns back to draft',async()=>{
+  const f=await fixture();await save(f.tenant);await q("update tenants set status='active' where id=$1",[f.tenant]);
+  const revive=(await q(`insert into campaigns(tenant_id,capability,operator_id,purpose,channel,market,timezone,status,client_authority_ref,owner_authority_ref,cts_profile_ref,expires_at,max_actions) values($1,'revive',$2,'review','email','AE','UTC','approved','client','owner','profile',now()+interval '1 day',3) returning id`,[f.tenant,actor]))[0].id;
+  const before=(await q('select approval_version from campaigns where id=$1',[revive]))[0].approval_version;
+  expect(await save(f.tenant,1,setupBody(actor,'interview:fixture',brandProfile()))).toMatchObject({version:2,ready:true});
+  expect((await q('select status,approval_version from campaigns where id=$1',[revive]))[0]).toEqual({status:'draft',approval_version:before+1});
+  const c=await rpc('revive_setup_context',[f.tenant,actor]);expect(validSetupContext(c,f.tenant)).toBe(true);expect(c.setup.body.legalFooter).toEqual(brandProfile().legalFooter);
  });
 });

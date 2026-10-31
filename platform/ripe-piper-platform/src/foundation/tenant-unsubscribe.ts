@@ -1,7 +1,7 @@
 /** Tenant-only contact stops. No message delivery or retry is performed here. */
 import type {Env} from '../env';
 import {Db,DbError} from '../lib/db';
-import {json,readJson,requireUser,HttpError} from '../routes/http';
+import {json,readJson,requireTenant,HttpError} from '../routes/http';
 import {validInstant} from './prospecting';
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const hex=/^[0-9a-f]{64}$/;
@@ -20,7 +20,7 @@ function dbFailure(e:unknown){
  return failure();
 }
 export async function tenantUnsubscribe(req:Request,env:Env,tenantId:string,leadId:string){
- const user=await requireUser(req,env,true);
+ const user=await requireTenant(req,env,tenantId,'operate');
  if(req.method!=='POST')return failure(405);
  if(!uuid.test(tenantId.toLowerCase())||!uuid.test(leadId.toLowerCase()))return failure(400);
  const b=await readJson(req),db=new Db(env,10000,4096),tenant=tenantId.toLowerCase(),lead=leadId.toLowerCase();
@@ -47,7 +47,9 @@ export async function confirmTenantUnsubscribe(req:Request,env:Env){
  if(!exact(b,['token'])||typeof b.token!=='string'||!hex.test(b.token))return failure(400);
  try{
   const r=await new Db(env,10000,4096).rpc<any>('confirm_tenant_unsubscribe',{p_hash:await hashUnsubscribeToken(b.token)});
-  if(!exact(r,['version','status'])||r.version!==1||!['invalid','confirmed'].includes(r.status))return failure();
+  // A confirmation names only the token's own business; an invalid token names nothing.
+  const valid=r?.version===1&&(r.status==='invalid'?exact(r,['version','status']):r.status==='confirmed'&&exact(r,['version','status','businessName'])&&typeof r.businessName==='string'&&!!r.businessName.trim()&&r.businessName.length<=200);
+  if(!valid)return failure();
   return response(r);
  }catch{return failure();}
 }

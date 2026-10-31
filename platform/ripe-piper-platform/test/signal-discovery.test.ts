@@ -19,6 +19,7 @@ beforeEach(()=>{
  vi.stubGlobal('fetch',async(input:string,init:RequestInit={})=>{
   const url=new URL(input);calls.push({url,init});
   if(url.hostname==='db.supabase.invalid'){
+   if(url.pathname==='/rest/v1/rpc/tenant_access')return Response.json(admin);
    if(init.method&&init.method!=='GET')throw Error('DENIED DATABASE WRITE');
    if(url.pathname==='/auth/v1/user')return Response.json({id:'actor',email:'actor@fixture.invalid'});
    if(url.pathname==='/rest/v1/profiles')return Response.json([{is_admin:admin}]);
@@ -33,7 +34,7 @@ afterEach(()=>{vi.useRealTimers();vi.unstubAllGlobals();});
 describe('real Worker discovery dispatch and read-only isolation',()=>{
  it('requires staff authentication and exact active tenant receipts before source access',async()=>{
   expect((await invoke('discover',undefined,t1,'')).status).toBe(401);
-  admin=false;expect((await invoke()).status).toBe(403);admin=true;
+  admin=false;expect((await invoke()).status).toBe(404);admin=true;
   tenantReceipt=[{id:t2,status:'active'}];expect((await invoke()).status).toBe(403);
   tenantReceipt=[{id:t1,status:'paused'}];expect((await invoke()).status).toBe(403);
   expect(calls.filter(c=>c.url.hostname!=='db.supabase.invalid')).toHaveLength(0);
@@ -53,7 +54,7 @@ describe('real Worker discovery dispatch and read-only isolation',()=>{
   expect(await (await invoke('status',{})).json()).toMatchObject({state:'configured_unverified',sourceId:sid(9)});
   expect(await (await invoke('preview',{})).json()).toMatchObject({items:[],sourceId:sid(9)});
   expect((await invoke('import',{})).status).toBe(400);
-  expect(calls.every(c=>!c.init.method||c.init.method==='GET')).toBe(true);
+  expect(calls.every(c=>c.url.pathname==='/rest/v1/rpc/tenant_access'||!c.init.method||c.init.method==='GET')).toBe(true);
  });
  it('runs all adapters for two tenants without contact invention or publisher attribution bleed',async()=>{
   env.SIGNAL_DISCOVERY_SOURCES=JSON.stringify([source(),source(2,'lever'),source(3,'business_feed'),{...source(4,'lever',t2),company:'Second client board'}]);
@@ -64,7 +65,7 @@ describe('real Worker discovery dispatch and read-only isolation',()=>{
   expect(a.candidates.filter((c:any)=>c.sourceId===sid(3)).every((c:any)=>c.company.startsWith('Member'))).toBe(true);
   expect(a.candidates.find((c:any)=>c.sourceId===sid(1))).toMatchObject({indicator:'job_posting',dateKind:'updated'});
   expect(a.candidates.find((c:any)=>c.sourceId===sid(2))).toMatchObject({sourceDate:null,dateKind:'unknown',intent:'unverified',contactState:'unknown'});
-  expect(JSON.stringify(a)).not.toContain('email');expect(calls.every(c=>!c.init.method||c.init.method==='GET')).toBe(true);
+  expect(JSON.stringify(a)).not.toContain('email');expect(calls.every(c=>c.url.pathname==='/rest/v1/rpc/tenant_access'||!c.init.method||c.init.method==='GET')).toBe(true);
  });
  it.each(['registry','hosts','paused','foreign_receipt','expiry'])('discards results after %s revocation during collection',async kind=>{
   hook=()=>{if(kind==='registry')env.SIGNAL_DISCOVERY_SOURCES='[]';if(kind==='hosts')env.SIGNAL_DISCOVERY_FEED_HOSTS='[]';if(kind==='paused')tenantReceipt=[{id:t1,status:'paused'}];if(kind==='foreign_receipt')tenantReceipt=[{id:t2,status:'active'}];if(kind==='expiry')vi.setSystemTime(new Date('2026-12-02'));};

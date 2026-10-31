@@ -4,6 +4,7 @@ import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
 import {readFileSync,readdirSync} from 'node:fs';
 import {seedReviveSetup,strategyBody} from './helpers/revive-setup';
 import {reviveStrategyError} from '../src/foundation/revive-strategy';
+import {asOperator} from './helpers/access';
 const actor='00111111-1111-4111-8111-111111111111';let db:PGlite;
 const q=async(sql:string,args:any[]=[])=> (await db.query<any>(sql,args)).rows;
 async function rpc(name:string,args:any[]){await db.exec('set role service_role');try{return(await q(`select public.${name}(${args.map((_,i)=>'$'+(i+1)).join(',')}) result`,args))[0].result;}finally{await db.exec('reset role');}}
@@ -20,6 +21,7 @@ async function contact(tenant:string,need='lead follow-up'){
 }
 async function fixture(overrides:Record<string,unknown>={},needs=['lead follow-up']){
  const tenant=(await q(`insert into tenants(name,slug,country,currency,status)values('Strategy fixture',$1,'AE','AED','active')returning id`,['strategy-'+crypto.randomUUID()]))[0].id;
+ await asOperator(db,{tenantId:tenant,profileId:actor});if(typeof overrides.ownerId==='string'&&overrides.ownerId!==actor)await asOperator(db,{tenantId:tenant,profileId:overrides.ownerId});
  await rpc('save_business_brief',[tenant,0,{offer:'Recover reviewed enquiries',industries:['construction'],markets:['AE'],roles:['owner'],needs,excludedIndustries:['gambling'],maxAgeDays:90,source:{reference:'strategy-brief',excerpt:'Reviewed construction offer',observedAt:new Date(Date.now()-3600000).toISOString()}},actor]);
  const setup=await seedReviveSetup(db,tenant,actor,overrides),c=await contact(tenant),id=crypto.randomUUID();return {...c,id,setup,strategy:setup.strategy};
 }
@@ -89,8 +91,8 @@ it('checks rights expiry on every step, not only the first immediate action',asy
  const f=await fixture();await save(f,plan(f,[f.lead],f.strategy,[0,24]));await authorize(f);await q(`update contact_rights set expires_at=now()+interval '12 hours' where tenant_id=$1`,[f.tenant]);await expect(preview(f,new Date(Date.now()+30000).toISOString())).rejects.toThrow('expiry');expect(await q('select id from outbound_actions where tenant_id=$1',[f.tenant])).toHaveLength(0);
 });
 it('binds the approved execution owner and rejects owner revocation and later setup drift',async()=>{
- const owner=crypto.randomUUID();await q(`insert into auth.users(id,email,email_confirmed_at)values($1,$2,now())`,[owner,owner+'@owner.invalid']);await q('update profiles set is_admin=true where id=$1',[owner]);
+ const owner=crypto.randomUUID();await q(`insert into auth.users(id,email,email_confirmed_at)values($1,$2,now())`,[owner,owner+'@owner.invalid']);
  const f=await fixture({ownerId:owner});await save(f);await authorize(f);expect((await q('select operator_id from campaigns where id=$1',[f.id]))[0].operator_id).toBe(owner);
- await q('update profiles set is_admin=false where id=$1',[owner]);await expect(preview(f,new Date(Date.now()+30000).toISOString())).rejects.toThrow();await q('update profiles set is_admin=true where id=$1',[owner]);
+ await q('update profiles set is_operator=false where id=$1',[owner]);await expect(preview(f,new Date(Date.now()+30000).toISOString())).rejects.toThrow();await q('update profiles set is_operator=true where id=$1',[owner]);
  await seedReviveSetup(db,f.tenant,actor,{ownerId:owner,senderName:'Changed reviewed sender'});expect((await q('select status from campaigns where id=$1',[f.id]))[0].status).toBe('draft');expect(await rpc('revive_campaign_strategy_current',[f.tenant,f.id,1,f.lead,new Date().toISOString()])).toBe(false);
 });

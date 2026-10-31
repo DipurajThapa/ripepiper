@@ -8,13 +8,14 @@ Nothing here authorises live outreach, provider connections, paid services or pr
 
 ## 1. Product concept and actors
 
-Ripe Piper is a managed lead-generation service. Operators configure each client after discovery; clients do not build automations or run a self-service product. The same code serves every client from its own configuration and evidence. A sample client (for example Anvukta) must never become an application default for offer, segment, geography, copy or credentials.
+Ripe Piper is a lead-generation service run per client in one of two modes. Managed: Ripe Piper operators configure and run the client under a grant the client (or a contract) gives them. Self-service: the client admin runs the same workflows. The mode is a label (`tenants.ownership`), never an access input, and switching moves no data. Clients do not build their own automations. The same code serves every client from its own configuration and evidence. A sample client (for example Anvukta) must never become an application default for offer, segment, geography, copy or credentials.
 
 | Actor | Authority |
 |---|---|
-| Ripe Piper staff | Platform admin (`profiles.is_admin`). Owns the engagement, verifies evidence, prepares and approves campaigns, operates actions, changes client user roles. |
-| Client owner | The client's own admin: owns its offer, sender identity, permitted sources, audience limits and commercial decisions; accepts and pays quotations, updates deals. No platform administration and no use of another client's provider. |
-| Client viewer | Read-only access to their own organisation's permitted information. |
+| Platform admin | `profiles.is_admin`. Creates, pauses and activates clients, billing, subject requests, global stops, the counts-only overview. Reads no client content and acts on no client without a grant. |
+| Operator | `profiles.is_operator` plus a live `operator_grants` row for that client. Within the granted capabilities (`read`, `operate`, `approve`) verifies evidence, prepares and approves campaigns and operates actions. |
+| Client admin | `memberships.role='owner'`. Owns its offer, sender identity and brand, connections, permitted sources, audience limits, operating envelope, operator grants, mode, member roles, export and end of service; accepts and pays quotations, updates deals. Has every capability in its own client and none elsewhere. |
+| Client user | `memberships.role='viewer'`. Read-only access to their own organisation's permitted information. |
 | Prospect | External person. A target account, a contact and an authenticated client user are different concepts. |
 
 Role rules are in the root [README](../README.md#roles).
@@ -38,12 +39,12 @@ Terms: **implemented** means working code with synthetic test coverage; **partia
 | Execution | `campaigns.ts`, `action-reliability.ts`, `revive-automation.ts`, `outbound_actions` | Fenced synthetic sink only (`SYNTHETIC_SINK_ENABLED`, `.invalid` recipients). Revive automation is default-off (`REVIVE_AUTOMATION_ENABLED`). No live client outbound executor. |
 | Replies and conversations | `conversation-review.ts`, `products.ts` | Implemented reviewed thread ownership, reopening and recorded-reply stops. Question/referral/out-of-office classification, durable ingress and SLA tracking are missing. |
 | Contact stops | `foundation/tenant-unsubscribe.ts`, `site/unsubscribe.html` | Implemented tenant-scoped stops and unsubscribe links (section 9.7). |
-| Email and calendar | `foundation/connections.ts`, `lib/google.ts` | Read-only selected-message import behind durable authority (sections 9.5, 9.8), `canSend:false`. No Gmail/Calendar push, no durable sync cursor. |
-| Meetings | `routes/public.ts`, `lib/booking.ts`, `jobs.ts` | Ripe Piper consultation booking only. Tenant-bound booking, client branding and Signal-to-meeting attribution are missing. |
+| Email and calendar | `foundation/connections.ts`, `connection-oauth.ts`, `tenant-send.ts`, `lib/google.ts`, `lib/microsoft.ts` | Per-client Google or Microsoft 365 connection by OAuth (`OAUTH_ENABLED`), sealed credentials, derived `canSend`/`canBook` (section 9.10). Tenant send adapter built and gated (`TENANT_SEND_ENABLED`) but not called by dispatch. Read-only selected-message import behind durable authority (sections 9.5, 9.8). No Gmail/Calendar push, no durable sync cursor. |
+| Meetings | `routes/public.ts`, `lib/booking.ts`, `jobs.ts`, `tenant-send.ts` | Ripe Piper consultation booking. A client invitation from its own calendar in its setup timezone exists in the tenant send adapter (flag-gated, uncalled). Tenant booking flow and Signal-to-meeting attribution are missing. |
 | Events | `foundation/events.ts`, `products.ts` | Synthetic registration, cancellation and rescheduling (`EVENT_REGISTRATION_ENABLED`, `.invalid` only); registration attendance is always `unknown`. Attendance is a staff-entered Events observation (`attended`, `verified_no_show` or `unknown`, with roster completeness), not reviewed registration attendance. Live identity checks, invitations and attendance ingestion are missing. |
 | Outcomes and reporting | `products.ts`, `revive-report.ts`, `deals` | Scoped outcomes and Revive action attribution. No cross-product funnel or experiment assignment; `abComparison.available` is false. |
 | Privacy requests | `foundation/requests.ts`, `subject_requests` | Request capture and objection stop. Identity checks, fulfilment and retention remain operator work. |
-| Operator/client UI | `site/assets/admin.js` and product admin modules, `portal.js` | Admin CRM and scoped client portal over the same API. |
+| Operator/client UI | `site/assets/admin.js` and product admin modules, `portal.js` | Admin CRM and scoped client portal over the same API. Client admins get grants, mode, envelope, connections, export and end of service; in self-service mode the portal loads the product panels fixed to their own client. |
 
 ## 3. Lifecycle and module ownership
 
@@ -119,7 +120,7 @@ This is the target matrix; section 2 says what exists. Shared profiles:
 | Qualification passed | Supported fit, role, need; no exclusion; signal relevance reviewed | candidate→strategy_review; rights stay separate | Accept with reasons | E; R0; A+versions |
 | Qualification failed or incomplete | Exclusion or missing/conflicting dimension | Research queue or excluded; never invent need or budget | Research or close | E; R0/R1; A+reasons |
 | Campaign ready or readiness lost | G plus message/recipient/source bindings | approved/eligible or held; eligibility never revives cancelled work | Approve the exact asset once; material change needs a new version | E; R0; A+snapshot |
-| Message approved or scheduled | Exact text, recipient, approver, valid schedule | draft→approved→queued, once per step/recipient/version | Operator approves | E and working window (a Revive step is only scheduled where its due time plus 5 minutes is still inside the window, else it moves to the next window, so the 5-minute cron cannot leave it expired); R0; A+content hash |
+| Message approved or scheduled | Exact text, recipient, approver, valid schedule | draft→approved→queued, once per step/recipient/version | Operator or client admin approves; or the client's effective operating envelope approves a Revive campaign built only from its templates (section 9.10), else it escalates | E and working window (a Revive step is only scheduled where its due time plus 5 minutes is still inside the window, else it moves to the next window, so the 5-minute cron cannot leave it expired); R0; A+content hash |
 | Send due | G rechecked after claim and just before the provider | queued→claimed→accepted only with a receipt | Exception owner handles uncertainty | E; R2; A+fence/provider ID; acceptance is not delivery |
 | Send failed or bounced | Provider failure or verified bounce tied to the action | failed; uncertainty→review; hard bounce suppresses the address | Review ambiguous failures | Immediate stop on hard bounce; R2; A |
 | Interested reply or question | Verified inbound sender/thread/tenant, not an automated receipt | Stop prospecting, open conversation | Owner verifies interpretation and answer | Stop on receipt, not on classification; R0; A+inbound ID |
@@ -150,7 +151,7 @@ No new infrastructure or graph database is needed. Keep the Worker, Supabase, CR
 
 | Entity | Reuse | Proposed extension |
 |---|---|---|
-| Client/actor | `tenants`, `profiles`, `memberships` | Shared readiness projection; later scoped operator assignment. |
+| Client/actor | `tenants`, `profiles`, `memberships`, `operator_grants` | Shared readiness projection. |
 | Brief/setup | `business_briefs`, Revive setup | Extract shared readiness checks without breaking Revive. |
 | Account/contact | `leads.company/website/email`, observations | Reviewed domain evidence and manual resolution of ambiguous matches. Domain is not legal identity; never auto-merge personal emails. A separate accounts entity waits until multi-contact account workflows need it. |
 | Evidence | `lead_observations` | Typed claim provenance and conflict/supersession references; never rewrite history. |
@@ -158,12 +159,12 @@ No new infrastructure or graph database is needed. Keep the Worker, Supabase, CR
 | Rights | `contact_rights`, `lead_suppression`, `suppression`, `outbound_stops` | Provider connection permission stays distinct from contact authority. |
 | Execution | `outbound_actions` with fence/lease/receipt fields | Explicit live execution mode with immutable recipient/message/connection snapshot and provider acceptance evidence. |
 | Inbound | Response observations, thread review, `activity_log` | Provider message/thread correlation, automation classification, sync cursor and health. |
-| Meeting/opportunity | `meetings`, reservation protections, `deals` | Tenant-bound campaign/lead/trigger and provider event revision; client sender and branding. Public consultation capabilities are never tenant booking authority. |
+| Meeting/opportunity | `meetings`, reservation protections, `deals` | Tenant-bound campaign/lead/trigger and provider event revision. Client sender and brand come from the reviewed setup. Public consultation capabilities are never tenant booking authority. |
 | Experiments | Campaign/asset/action/outcome records | Predeclared experiment arm and assignment, operator minutes, cost receipts. |
 
 A cross-product handoff carries: schema version, tenant, lead, campaign and asset version, source product, correlation key, source observation IDs, brief/setup/connection versions, actor, occurred/received times, intended action, evidence mode. Receivers re-read authoritative rows. A payload flag such as `approved:true` never grants rights.
 
-**Email sending (missing).** Must verify OAuth mailbox identity, allowed send-as identity, client configuration and revocation. A client must never inherit the platform `MAIL_FROM`. A read-only connection is not upgraded to send because a refresh token exists. Gmail acceptance is not delivery. An uncertain send stays held until reconciled or closed by hand.
+**Email sending (adapter built, not dispatched).** `tenant-send.ts` requires sender = connected mailbox (send-as aliases deferred), a postal footer and an issued unsubscribe link, snapshots the connection version on the action and rechecks it just before the provider. Remaining: call it from dispatch with a delivered receipt (RP-013). Must verify OAuth mailbox identity, client configuration and revocation. A client must never inherit the platform `MAIL_FROM`. A read-only connection is not upgraded to send because a refresh token exists. Gmail acceptance is not delivery. An uncertain send stays held until reconciled or closed by hand.
 
 **Ingress (missing).** Start with bounded, permissioned mailbox sync using existing adapters and a durable cursor. Gmail push can come later: watches need renewal and history can expire, so recover with a bounded resync and hold follow-ups during the gap. Never ingest an unrelated inbox. Calendar notifications require fetching the changed resource and checking tenant/calendar/event identity.
 
@@ -182,7 +183,7 @@ Extend the existing admin workspaces and portal. Primary actions are real backen
 | Meetings/events | Reconcile, change/cancel, verify attendance | Requested/reserved/uncertain/confirmed/cancelled/attendance_unknown/held/no-show; timezone visible. |
 | Exceptions/reporting | Reconcile one effect; explain stalled progress | Failed vs uncertain, next owner action, attempts; test vs provider acceptance vs human engagement vs commercial outcome. |
 
-Viewers get scoped summaries; owners supply corrections and commercial outcomes; staff handle technical exceptions. Never expose another client's data through search, export, counts, cached panels or error text. Async UI must discard responses that arrive after a tenant or selection change, keep safe retry keys and announce loading and errors accessibly. Paused campaigns resume by editing the messages (new version) and re-approving.
+Viewers get scoped summaries; owners supply corrections and commercial outcomes; staff handle technical exceptions. Never expose another client's data through search, export, counts, cached panels or error text. Async UI must discard responses that arrive after a tenant or selection change, keep safe retry keys and announce loading and errors accessibly. Paused campaigns resume by saving a new version, which the operating envelope or a person then approves.
 
 ## 8. Feasibility, privacy and cost
 
@@ -284,7 +285,7 @@ Migration `20261027000003_gmail_pause_fence.sql`. A reviewed Gmail import captur
 
 Migration `20261027190653_safe_bounded_prospect_snapshot.sql`; Worker `prospecting-routes.ts:prospectShortlist`. It replaces separate table reads (which PostgREST could silently cap) with one service-only RPC `review_prospect_snapshot(p_tenant, p_actor, p_synthetic)`. `p_actor` always comes from the authenticated user, never the request body.
 
-- **Actor:** a profile with `is_admin=true`, joined to `auth.users` with a confirmed email that matches case-insensitively. Otherwise `{version:1,status:'unauthorized'}` (403). Missing tenant: `missing` (404). Any capacity gate: `capacity` (409). Anything else: 503, with no fallback to independent reads.
+- **Actor:** a profile with tenant `read` authority (`can_operate`), joined to `auth.users` with a confirmed email that matches case-insensitively. Otherwise `{version:1,status:'unauthorized'}` (403). Missing tenant: `missing` (404). Any capacity gate: `capacity` (409). Anything else: 503, with no fallback to independent reads.
 - **Capacity:** at most 100 contacts (probe 101), 999 observations (probe 1000) and 100 verified owners. Raw admin and tenant-owner candidate probes are capped at 101 each, before email checks.
 - **Byte caps:** per-row raw bytes are lead 8192, observation 65536, brief 262144, profile 4096, with a 1 MiB total. Byte counts come from stored generated `prospect_review_bytes` columns, so the read path checks sizes before fetching wide values. These columns are excluded from Revive and Signal fingerprints.
 - **Success:** `{version:1,status:'complete',tenantId,synthetic,snapshotAt,brief,leads,observations,stoppedLeadIds,owners,leadCount,observationCount,ownerCount}`.
@@ -307,14 +308,14 @@ Migration `20261027194035_tenant_contact_stops.sql`; Worker `foundation/tenant-u
 - `freeze_on_objection` and Response opt-out events use the same scoped stop and no longer create global suppression.
 - Already dispatched requests cannot be recalled. Uncertain receipts stay in review.
 
-**Staff route:** `POST /api/admin/tenants/:tenant/leads/:lead/unsubscribe`. SQL independently requires a current verified admin. Unexpected fields are rejected.
+**Staff route:** `POST /api/admin/tenants/:tenant/leads/:lead/unsubscribe`. SQL independently requires `operate` authority on the tenant. Unexpected fields are rejected.
 - `{operation:'record',reference}`: the reference is 8–240 characters. `record_tenant_unsubscribe` returns `{version:1,status:'stopped',tenantId,leadId,alreadyStopped}`. Activity provenance is logged once per new stop, without the token or email.
 - `{operation:'issue_link'}`: generates 32 random bytes as a 64-character lowercase hex token. Only the SHA-256 of that hex string is stored, in `ripepiper_private.tenant_unsubscribe_tokens`. `issue_tenant_unsubscribe` returns `issued` (201 `{version:1,status:'issued',url,expiresAt,delivery:'not_sent'}`), `limited` or `stopped` (409).
   - Links expire after 90 days; equality counts as expired.
   - Issuance is refused within 60 seconds of the previous link for that lead, or when 20 unexpired unconfirmed links exist.
   - Issuing removes that lead's expired unconfirmed tokens. Already-suppressed contacts get no new link.
   - The URL is `SITE_URL + /unsubscribe.html#token=…`, never built from the request Host. Nothing is sent.
-- Other responses: 403 for a non-admin, 404 for a missing lead, 503 on uncertainty.
+- Other responses: 404 for a caller without authority or a missing lead, 503 on uncertainty.
 
 **Public confirmation:** `site/unsubscribe.html` removes the fragment from history, keeps the token in memory and posts only when the person clicks a button. The page has no third-party assets and uses no-referrer. `POST /api/tenant-unsubscribe/confirm` accepts only `[0-9a-f]{64}`; `confirm_tenant_unsubscribe(p_hash)` locks tenant then token, revalidates the current lead email and applies the stop.
 - A valid token or a confirmed replay returns `{version:1,status:'confirmed'}`. A confirmed replay wins over expiry or a changed email and writes nothing.
@@ -350,6 +351,17 @@ Migration `20261027194016_durable_google_authority.sql`; Worker `foundation/conn
   - `requiresReview` is true for the review state or an expired claimed/dispatching lease.
   - A legacy `reminder_*_at` timestamp without a receipt returns 503. Malformed receipts return 503; a missing or tenant meeting returns 404.
   - Inspection never changes a receipt and is not a retry endpoint. Tokens, recipients and raw errors are never returned.
+
+### 9.10 Hybrid access, operating envelope, connections and offboarding
+
+Migrations `20261101000001` to `20261101000006`. `test/hybrid-acceptance.test.ts` runs the seven owner acceptance tests end to end.
+
+- **Access.** `ripepiper_private.can_operate(tenant, actor, capability)` is the only tenant authority, used by every RPC and by the Worker's `requireTenant` (via `tenant_access`). Owner: all capabilities; viewer: `read`; operator: the capabilities of a live grant. `tenant_id null` (agency) records stay platform-admin. Denied and missing return the same 404. Grants are append-only, capped at 366 days, revocable once and logged visibly to the client. Revoking a grant also stops work that grantee approved; the client admin re-confirms the setup and contacts and re-approves to continue.
+- **Operating envelope.** `manage_operating_envelope` proposes, approves (exact digest) and revokes. An envelope binds the brief and setup versions and lists capabilities, purposes, channels with legal basis, needs, templates, prohibited terms, limits, budget and stop conditions. It is effective when the client admin approved it (and, in managed mode, a granted operator), it is unrevoked and unexpired, and the bound versions are current. `envelope_campaign_fit` returns fixed reason codes; an empty result approves through `manage_campaign_plan` with an `envelope:vN:` authority. Campaign saves and the 5-minute cron offer Revive drafts; anything else escalates (`campaign_escalated`) and stays draft until a person approves it (`campaign_override_approved`). `enforce_envelope_stop_conditions` pauses on opt-out rate, review actions or replies after the minimum sample. Revocation pauses envelope campaigns and cancels their queued steps.
+- **Brand.** Optional `replyTo`, `signature`, `booking`, `legalFooter` in the reviewed setup. A brand edit invalidates approvals like any setup change.
+- **Connections.** `tenant_connections` plus sealed secrets in `ripepiper_private` (AES-GCM, additional data `tenant|connection|provider`). OAuth with PKCE and single-use hashed state; the browser never supplies the tenant. Choosing a channel creates a `pending_consent` row; WhatsApp, LinkedIn and SMS are interest only. `tenant_connection_current` must hold before any provider call.
+- **Shared reference.** `reference_companies` (domain key, no tenant or person fields) is written only by a platform admin; `tenant_reference_facts` returns the rows a client's own leads link to. `learning_outcomes_by_segment` shows a cell only for at least 5 clients and 50 contacts. Paid AI records the tenant in `build_usage`, and a prompt snapshot must belong to one tenant.
+- **Offboarding.** `GET export` (owner or `read`) streams an allowlisted JSON export without token, hash or secret fields. `POST offboard` (needs `approve` and `operate`; staff ending a self-service client need the client's request reference) ends the service and revokes every connection. `purge_ended_tenants` runs 90 days later behind `OFFBOARD_PURGE_ENABLED`, keeping payments, fees and an HMAC suppression record.
 
 ## 10. Validation and measurement
 
@@ -389,9 +401,9 @@ Report a metric with a zero denominator as unavailable. Keep provider acceptance
 
 Deliberate gaps between this spec and the code. Priority and ownership live in [DELIVERY.md](DELIVERY.md).
 
-- **Sending:** there is no live client sender. Execution is synthetic only and `canSend:false` everywhere.
+- **Sending:** no live client mail is sent. The tenant send adapter is built and flag-gated but dispatch still ends in the synthetic sink; autonomous contact rights under an envelope legal basis are deferred (RP-013).
 - **Ingress:** reply classification (question, referral, out-of-office), durable mailbox sync with a cursor, and Gmail/Calendar push are missing.
-- **Booking:** tenant calendar booking, client branding and Signal-to-meeting attribution are missing. Booking is Ripe Piper consultation only.
+- **Booking:** the tenant booking flow and Signal-to-meeting attribution are missing. Booking is Ripe Piper consultation only; client invitations exist only in the uncalled tenant send adapter.
 - **Events:** live identity verification, invitations, reminders and attendance ingestion are missing.
 - **Identity:** organisation resolution, employment checks and cross-email merging are missing. Company is free text.
 - **Signal discovery:** there is no scheduler, distributed rate limit, DNS/egress control, native portal or search adapter, or source health tracking.

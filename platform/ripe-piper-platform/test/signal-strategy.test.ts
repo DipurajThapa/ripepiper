@@ -1,7 +1,7 @@
 import {afterEach,expect,it,vi} from 'vitest';
 import {Db} from '../src/lib/db';
 import {buildSignalProposal,prepareSignalProposal,signalStrategyForSave,signalProposalInput,type SignalSnapshot} from '../src/foundation/signal-strategy';
-import {setupBody} from './helpers/revive-setup';
+import {brandProfile,setupBody} from './helpers/revive-setup';
 const id=(n:number)=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
 const tenant=id(1),lead=id(2),actor=id(3),signal=id(4),fact=id(5),input={leadId:lead,signalId:signal,synthetic:true};
 function fixture():SignalSnapshot {
@@ -38,4 +38,12 @@ it('save normalizes only timestamp fields, accepts offset microseconds and prese
  expect(binding.proposal.claimSources.offer.excerpt).toBe(s.setup.brief!.body.source.excerpt);
  expect(binding.proposal.evidence[0].observedAt).toBe(new Date(instant).toISOString());
  expect(binding.sourceSnapshot.observations[0].observed_at).toBe(instant);
+});
+it('signs with the tenant brand and uses setup.booking as the call to action',()=>{
+ const s=fixture(),stop='Reply stop if you would prefer no further contact.';
+ expect(buildSignalProposal(tenant,input,s).message.body.endsWith(`Would a conversation about workflow ownership be useful?\n\nFixture owner\nClient\n\n${stop}`)).toBe(true);
+ Object.assign(s.setup.setup!.body,brandProfile());const p=buildSignalProposal(tenant,input,s);
+ expect(p.strategy.cta).toBe('If this is relevant, choose a time to discuss it: https://calendar.google.com/calendar/appointments/schedules/fixture');
+ expect(p.message.body.endsWith(`${p.strategy.cta}\n\nFixture owner\nHead of Sales\n\n1 Fixture Street, Dubai, AE\n\n${stop}`)).toBe(true);
+ expect(p.sender).toEqual({name:'Fixture owner',email:'staff@example.invalid'});
 });

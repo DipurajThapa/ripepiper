@@ -10,6 +10,7 @@ it.each([{},'false',1])('does not claim tested on malformed completion receipt %
   const url=new URL(input);if(url.origin!==env.SUPABASE_URL)throw Error('External network forbidden');
   if(url.pathname==='/auth/v1/user')return Response.json({id:staff,email:'staff@example.invalid'});
   if(url.pathname==='/rest/v1/profiles')return Response.json([{is_admin:true}]);
+  if(url.pathname==='/rest/v1/rpc/tenant_access')return Response.json(true);
   if(url.pathname==='/rest/v1/outbound_actions')return Response.json([row]);
   const body=JSON.parse(String(init.body));
   if(url.pathname.endsWith('/claim_fenced_synthetic_action')){row.state='claimed';row.dispatch_token=body.p_token;return Response.json({token:body.p_token,approvalVersion:1,assetVersion:1});}

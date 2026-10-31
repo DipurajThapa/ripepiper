@@ -1,6 +1,7 @@
 import {assessRevive,type ReviveContext} from './revive';
 import {ambiguousExcerpt,validBrief,validDate,validFacts,validInstant} from './prospecting';
 import {productError} from './products';
+import {brandSignoff,type BrandSetup} from '../lib/brand';
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type DraftInput={leadId:string;sourceId:string;messageCount:number;senderName:string;bookingUrl?:string;bookingReference?:string;bookingReviewed?:boolean};
@@ -47,7 +48,8 @@ export function validReviveProposalId(value:unknown):value is string {
  return typeof value==='string'&&/^[1-9][0-9]{0,18}$/.test(value)&&BigInt(value)<=9223372036854775807n;
 }
 /** Deterministic proposals only. Existing save/version/approval operations remain authoritative. */
-export function proposeReviveDraft(context:ReviveContext,company:string,input:DraftInput,now=Date.now()) {
+/** brand is the reviewed setup body: its signature, postal address and default booking link (none: sender and business only). */
+export function proposeReviveDraft(context:ReviveContext,company:string,input:DraftInput,now=Date.now(),brand:BrandSetup&{booking?:{url:string;reference:string}|null}={}) {
  const error=reviveDraftInputError(input);if(error)throw Error(error);
  if(context.lead.id!==input.leadId||!currentReviveDraftContext(context,now)||!context.brief)throw Error('A current accepted Revive review is required before drafting.');
  const brief=context.brief,synthetic=context.lead.email.toLowerCase().endsWith('.invalid');
@@ -60,10 +62,12 @@ export function proposeReviveDraft(context:ReviveContext,company:string,input:Dr
  // Campaign assets are shared by the cohort. Never insert the selected contact's private
  // need/company/history into reusable copy; map only to the reviewed brief's segment label.
  const sender=input.senderName.trim(),offer=brief.body.offer.trim(),name=company.trim();
- const booking=input.bookingUrl?reviewedBookingUrl(input.bookingUrl):null;
+ const supplied=input.bookingUrl?reviewedBookingUrl(input.bookingUrl):null;
+ // A draft-supplied reviewed link wins; otherwise the setup's reviewed default booking link.
+ const bookingSource=supplied?{url:supplied,reference:input.bookingReference!}:brand.booking??null,booking=bookingSource?.url??null;
  const cta=booking?`If this is relevant, choose a time to discuss it: ${booking}`:`Is ${need} relevant for your team?`;
- const signoff=`${sender}\n${name}\n\nTo opt out of follow-up, reply "stop".`;
- const evidenceReference=`brief:v${brief.version};source:${source.id};history:${history.id};review:v${context.review!.version}${booking?`;booking:${input.bookingReference}`:''}`;
+ const signoff=brandSignoff({senderName:sender,signature:brand.signature,legalFooter:brand.legalFooter},name,'To opt out of follow-up, reply "stop".');
+ const evidenceReference=`brief:v${brief.version};source:${source.id};history:${history.id};review:v${context.review!.version}${bookingSource?`;booking:${bookingSource.reference}`:''}`;
  const steps=[
   {offsetHours:0,subject:`A question about ${need}`,body:`Hello,\n\nI'm ${sender} from ${name}. Our offer is ${offer}.\n\n${cta}\n\n${signoff}`,evidenceReference},
   {offsetHours:72,subject:`Following up on ${need}`,body:`Hello,\n\nA brief follow-up on ${need}. At ${name}, our offer is ${offer}.\n\n${cta}\n\n${signoff}`,evidenceReference},
@@ -71,7 +75,7 @@ export function proposeReviveDraft(context:ReviveContext,company:string,input:Dr
  ].slice(0,input.messageCount);
  const expiresAt=new Date(Math.min(Date.parse(context.review!.expires_at),Date.parse(source.observed_at)+brief.body.maxAgeDays*86400000,now+86400000)).toISOString();
  return {product:'revive',steps,draftContext:{leadId:context.lead.id,sourceId:source.id,canonicalNeed:need,briefVersion:brief.version,reviewVersion:context.review!.version,businessName:company,snapshot:context.snapshot,expiresAt},
-  basis:{briefVersion:brief.version,briefReference:brief.body.source.reference,sourceId:source.id,sourceReference:source.external_ref,sourceExcerpt:source.assessment_excerpt,historyId:history.id,reviewVersion:context.review!.version,bookingReference:booking?input.bookingReference:null},
+  basis:{briefVersion:brief.version,briefReference:brief.body.source.reference,sourceId:source.id,sourceReference:source.external_ref,sourceExcerpt:source.assessment_excerpt,historyId:history.id,reviewVersion:context.review!.version,bookingReference:bookingSource?.reference??null},
   strategy:'Reusable cohort copy uses the reviewed tenant offer and brief need only. Selected-contact evidence supports staff review and is not personalized into shared messages. Review cohort appropriateness before saving.',
   requiresReview:true,contactAllowed:false,approvalGranted:false,externalCalls:0,delivery:'not_sent',bookingVerification:booking?'supplied_reviewed_url_only':'not_requested'};
 }

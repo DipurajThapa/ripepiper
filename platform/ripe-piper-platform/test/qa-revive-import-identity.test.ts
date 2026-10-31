@@ -2,12 +2,13 @@ import {beforeAll,afterAll,it,expect} from 'vitest';
 import {PGlite} from '@electric-sql/pglite';
 import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
 import {readFileSync,readdirSync} from 'node:fs';
+import {asOperator} from './helpers/access';
 const actor='a5111111-1111-4111-8111-111111111111';let db:PGlite;
 const q=async(sql:string,args:any[]=[]) => (await db.query<any>(sql,args)).rows;
 async function intake(tenant:string,email:string,ref:string,rights='qa-rights',company='QA company'){
  await db.exec('set role service_role');try{return (await q('select import_review_lead($1,$2,$3,$4,$5,$6,$7,$8) result',[tenant,actor,email,company,ref,rights,'2026-10-22T00:00:00Z',true]))[0].result;}finally{await db.exec('reset role');}
 }
-async function tenant(){return (await q(`insert into tenants(name,slug,country,currency,status)values('QA import',$1,'AE','AED','onboarding')returning id`,[crypto.randomUUID()]))[0].id;}
+async function tenant(){const id=(await q(`insert into tenants(name,slug,country,currency,status)values('QA import',$1,'AE','AED','onboarding')returning id`,[crypto.randomUUID()]))[0].id;await asOperator(db,{tenantId:id,profileId:actor});return id;}
 beforeAll(async()=>{
  db=new PGlite({extensions:{btree_gist}});
  await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;create schema auth;create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,raw_user_meta_data jsonb default '{}');create function auth.uid()returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;grant usage on schema auth to anon,authenticated;grant execute on function auth.uid() to anon,authenticated;`);

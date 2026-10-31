@@ -19,6 +19,14 @@ export interface Env {
   SIGNAL_SOURCE_CONNECTIONS?: string; // server-only approved JSON feeds; no caller-supplied URLs or sending authority
   GOOGLE_TENANT_CONNECTIONS?: string; // server-secret JSON; explicit read-only pilot bindings, never exposed to browser
 
+  // Tenant connections (OAuth registry). Credentials are sealed in the DB with these keys and never leave the Worker.
+  CONNECTION_KEYS?: string;          // server-secret JSON {kid: base64 32-byte AES key}; keep old kids until no row uses them
+  CONNECTION_KEY_CURRENT?: string;   // kid used for new seals and re-seals
+  MS_CLIENT_ID?: string;             // multi-tenant Entra app (Mail.Send, Calendars.ReadWrite, offline_access)
+  MS_CLIENT_SECRET?: string;
+  OAUTH_ENABLED?: string;            // exact true only; default off
+  TENANT_SEND_ENABLED?: string;      // exact true only; default off
+
   // AI
   ANTHROPIC_API_KEY: string;
   PAID_AI_ENABLED?: string;          // default off; never enabled by a development merge

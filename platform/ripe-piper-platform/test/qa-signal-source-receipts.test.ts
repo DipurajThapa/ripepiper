@@ -16,6 +16,7 @@ beforeEach(()=>{
   if(u.host!=='qa.supabase.invalid')throw Error('External request forbidden by QA');
   if(u.pathname==='/auth/v1/user')return Response.json({id:actor,email:'qa@example.invalid'});
   if(u.pathname==='/rest/v1/profiles')return Response.json([{is_admin:true}]);
+  if(u.pathname==='/rest/v1/rpc/tenant_access')return Response.json(true);
   if(u.pathname==='/rest/v1/tenants')return Response.json([{id:tenant,status:'active'}]);
   if(u.pathname.endsWith('/import_review_lead')){writes.push('contact');return Response.json(receipt);}
   if(u.pathname.endsWith('/record_product_event')){writes.push('trigger');return Response.json(trigger);}

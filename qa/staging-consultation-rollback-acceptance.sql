@@ -19,7 +19,8 @@ BEGIN
  SELECT public.consultation_snapshot(m) INTO s FROM public.meetings m WHERE id=past;
  EXECUTE 'SET LOCAL ROLE authenticated'; PERFORM set_config('request.jwt.claim.sub',a::text,true);
  rejected:=false;
- BEGIN UPDATE public.meetings SET status='no_show' WHERE id=past; EXCEPTION WHEN insufficient_privilege THEN rejected:=true; END;
+ -- Staff write policies are gone (hybrid access): RLS now filters the write; the review trigger still guards any visible row.
+ BEGIN UPDATE public.meetings SET status='no_show' WHERE id=past; rejected:=NOT FOUND; EXCEPTION WHEN insufficient_privilege THEN rejected:=true; END;
  IF NOT rejected THEN RAISE EXCEPTION 'Authenticated admin forged no-show'; END IF;
  EXECUTE 'RESET ROLE'; EXECUTE 'SET LOCAL ROLE service_role';
  j:=public.save_meeting_draft(past,s,null,null,null,null,'attendance_source_unavailable');

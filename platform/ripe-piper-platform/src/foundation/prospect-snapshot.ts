@@ -7,7 +7,12 @@ export interface ProspectSnapshot {
  leads:{id:string;company:string|null;email:string;status:string}[];
  observations:Observation[]; stoppedLeadIds:string[]; owners:{id:string;label:string}[];
  leadCount:number; observationCount:number; ownerCount:number;
+ /** Shared reference facts (tenant_reference_facts rows), kept apart from tenant evidence and never merged into assessment_facts. */
+ reference?:ReferenceFact[];
 }
+export interface ReferenceFact {domain:string;legal_name:string|null;industry_code:string|null;industry_scheme:string|null;country:string|null;source:string;licence_reference:string;permitted_purposes:string[];verified_at:string;expires_at:string}
+const REFERENCE_KEYS=['domain','legal_name','industry_code','industry_scheme','country','source','licence_reference','permitted_purposes','verified_at','expires_at'];
+const SNAPSHOT_KEYS=['version','status','tenantId','synthetic','snapshotAt','brief','leads','observations','stoppedLeadIds','owners','leadCount','observationCount','ownerCount'];
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const id=(v:unknown):v is string=>typeof v==='string'&&uuid.test(v);
 const object=(v:any):v is Record<string,any>=>!!v&&typeof v==='object'&&!Array.isArray(v);
@@ -26,7 +31,7 @@ export function validProspectSnapshot(v:any,tenantId:string,synthetic:boolean,as
  try { return validateSnapshot(v,tenantId,synthetic,assessedAt); } catch { return false; }
 }
 function validateSnapshot(v:any,tenantId:string,synthetic:boolean,assessedAt:number):v is ProspectSnapshot {
- if(!keys(v,['version','status','tenantId','synthetic','snapshotAt','brief','leads','observations','stoppedLeadIds','owners','leadCount','observationCount','ownerCount'])||v.version!==1||v.status!=='complete'||!id(v.tenantId)||!same(v.tenantId,tenantId)||v.synthetic!==synthetic||!validInstant(v.snapshotAt))return false;
+ if(!(keys(v,SNAPSHOT_KEYS)||keys(v,[...SNAPSHOT_KEYS,'reference']))||v.version!==1||v.status!=='complete'||!id(v.tenantId)||!same(v.tenantId,tenantId)||v.synthetic!==synthetic||!validInstant(v.snapshotAt))return false;
  const age=assessedAt-Date.parse(v.snapshotAt);if(!Number.isFinite(age)||age< -5000||age>60000)return false;
  if(!Array.isArray(v.leads)||v.leads.length>100||v.leadCount!==v.leads.length||!Array.isArray(v.observations)||v.observations.length>999||v.observationCount!==v.observations.length||!Array.isArray(v.owners)||v.owners.length>100||v.ownerCount!==v.owners.length||!Array.isArray(v.stoppedLeadIds)||v.stoppedLeadIds.length>v.leads.length)return false;
  let total=0;
@@ -48,5 +53,17 @@ function validateSnapshot(v:any,tenantId:string,synthetic:boolean,assessedAt:num
   const b=v.brief;if(!keys(b,['tenant_id','version','body','created_by','created_at'])||!id(b.tenant_id)||!same(b.tenant_id,tenantId)||!Number.isInteger(b.version)||b.version<1||!id(b.created_by)||!validInstant(b.created_at)||!validBrief(b.body,assessedAt))return false;
   const size=jsonBytes(b.body);if(size>262144)return false;total+=size;
  }
+ if(Object.hasOwn(v,'reference')){const size=validReference(v.reference,assessedAt);if(size<0)return false;total+=size;}
  return total<=1048576;
+}
+/** Exact keys, so a tenant_id (or any tenant field) inside the block is rejected. Returns its byte size, or -1. */
+function validReference(r:any,assessedAt:number):number {
+ if(!Array.isArray(r)||r.length>100||!unique(r.map((f:any)=>f?.domain??'')))return -1;
+ const optional=(x:any,n:number)=>x===null||(string(x,n)&&x.length>0);
+ for(const f of r)if(!keys(f,REFERENCE_KEYS)||!string(f.domain,253)||!/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(f.domain)
+  ||!optional(f.legal_name,300)||!optional(f.industry_code,40)||!optional(f.industry_scheme,40)||!(f.country===null||/^[A-Z]{2}$/.test(f.country))
+  ||!string(f.source,200)||!f.source.trim()||!string(f.licence_reference,200)||!f.licence_reference.trim()
+  ||!Array.isArray(f.permitted_purposes)||!f.permitted_purposes.length||!f.permitted_purposes.every((p:any)=>p==='prospect_research'||p==='icp_matching')||!f.permitted_purposes.includes('prospect_research')
+  ||!validInstant(f.verified_at)||!validInstant(f.expires_at)||Date.parse(f.expires_at)<=assessedAt)return -1;
+ return jsonBytes(r);
 }

@@ -2,6 +2,7 @@ import {beforeAll,afterAll,it,expect} from 'vitest';
 import {PGlite} from '@electric-sql/pglite';
 import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
 import {readFileSync,readdirSync} from 'node:fs';
+import {asOperator} from './helpers/access';
 let db:PGlite;const actor='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const q=async(sql:string,args:any[]=[]) => (await db.query<any>(sql,args)).rows;
 beforeAll(async()=>{
@@ -14,6 +15,7 @@ afterAll(async()=>db.close());
 async function fixture(run:(t:string,l:string)=>Promise<void>){
  await db.exec('begin');try{
  const t=(await q(`insert into tenants(name,slug,country,currency) values('Bounded review',$1,'AE','AED') returning id`,[crypto.randomUUID()]))[0].id;
+ await asOperator(db,{tenantId:t,profileId:actor});
  const l=(await q(`insert into leads(tenant_id,source,email) values($1,'import','contact@fixture.invalid') returning id`,[t]))[0].id;await run(t,l);
  }finally{await db.exec('rollback');}
 }

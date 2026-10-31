@@ -118,7 +118,7 @@ describe('staff-only bounded Revive report endpoint',()=>{
  const env={SUPABASE_URL:'https://fixture.example.invalid',SUPABASE_SERVICE_ROLE_KEY:'fixture',SUPABASE_ANON_KEY:'public-fixture'} as Env;
  function request(token='staff'){return new Request('https://fixture.invalid/api',{method:'POST',headers:token?{Authorization:'Bearer '+token}:{},body:'{}'});}
  function provider(data=linkedFixture(),exists=true){const calls:RequestInit[]=[];vi.stubGlobal('fetch',async(input:string,init:RequestInit={})=>{
-  const u=new URL(input);if(u.origin!==env.SUPABASE_URL)throw Error('Provider access forbidden');calls.push(init);
+  const u=new URL(input);if(u.origin!==env.SUPABASE_URL)throw Error('Provider access forbidden');if(u.pathname==='/rest/v1/rpc/tenant_access')return Response.json(JSON.parse(String(init.body)).p_actor===staff);calls.push(init);
   if(u.pathname==='/auth/v1/user')return Response.json({id:(init.headers as any).Authorization==='Bearer viewer'?viewer:staff,email:'fixture@example.invalid'});
   if(u.pathname==='/rest/v1/profiles')return Response.json([{is_admin:u.searchParams.get('id')==='eq.'+staff}]);
   expect(u.searchParams.get('tenant_id')??u.searchParams.get('id')).toBe('eq.'+tenant);
@@ -127,13 +127,13 @@ describe('staff-only bounded Revive report endpoint',()=>{
   if(rows===null)throw Error('Unexpected API operation');return Response.json(rows);
  });return calls;}
  it('requires actual staff and never makes a provider or database mutation',async()=>{
-  const calls=provider();await expect(reviveReport(request(''),env,tenant)).rejects.toThrow('sign in');await expect(reviveReport(request('viewer'),env,tenant)).rejects.toThrow('administrators');
+  const calls=provider();await expect(reviveReport(request(''),env,tenant)).rejects.toThrow('sign in');await expect(reviveReport(request('viewer'),env,tenant)).rejects.toMatchObject({status:404,message:'Not found.'});
   const r=await reviveReport(request(),env,tenant);expect(r.status).toBe(200);expect(await r.json()).toMatchObject({ok:true,delivery:'not_sent'});
   expect(calls.every(c=>!c.method||c.method==='GET')).toBe(true);
  });
  it('rejects missing accounts and invalid scope',async()=>{
   provider(linkedFixture(),false);expect((await reviveReport(request(),env,tenant)).status).toBe(404);
-  expect((await reviveReport(request(),env,'bad-scope')).status).toBe(400);
+  await expect(reviveReport(request(),env,'bad-scope')).rejects.toMatchObject({status:404});
  });
  it.each(['campaigns','leads','actions','assets','observations'] as const)('rejects capped %s instead of returning an incomplete funnel',async table=>{
   const data=linkedFixture(),limit=table==='campaigns'||table==='leads'?101:1000;

@@ -138,7 +138,7 @@ const strategyValue=()=>({setupVersion:4,canonicalNeed:'dormant leads',segment:'
 function chooseStrategy(n){const s=strategyValue();n.strategyNeed.value=s.canonicalNeed;n.strategySegment.value=s.segment;n.strategyRelationship.value=s.relationshipRationale;n.strategyValue.value=s.valueProposition;n.strategyEvidence.value=s.evidenceReference;n.strategyCtaKind.value='reply';n.strategyReplyPrompt.value=s.cta.prompt;n.strategyGoal.value=s.goal;n.strategyConfirmed.checked=true;}
 test('strategy uses existing brief needs and approved source inventory; reviewed sender comes from setup',async()=>{
  const ui=mount(async()=>strategyData());ui.select('tenant-a');await tick();const n=ui.nodes;
- assert.match(n.strategyNeed.innerHTML,/dormant leads/);assert.match(n.strategyEvidence.innerHTML,/brief:reviewed/);assert.match(n.strategyEvidence.innerHTML,/interview:reviewed/);assert.equal(n.campaignMarket.value,'AE');assert.equal(n.campaignTimezone.value,'Asia/Dubai');assert.equal(n.draftSender.value,'Reviewed Sender');assert.equal(n.draftSender.readOnly,true);assert.match(n.strategyBasis.textContent,/declarations/);
+ assert.match(n.strategyNeed.innerHTML,/dormant leads/);assert.match(n.strategyEvidence.innerHTML,/brief:reviewed/);assert.match(n.strategyEvidence.innerHTML,/interview:reviewed/);assert.equal(n.campaignMarket.value,'AE');assert.equal(n.campaignTimezone.value,'Asia/Dubai');assert.equal(n.draftSender.value,'Reviewed Sender');assert.equal(n.draftSender.readOnly,true);assert.match(n.strategyBasis.textContent,/Sender: declared, not verified/);
 });
 test('strategy evidence offers only references a strategy can cite and says why others are missing',async()=>{
  const d=strategyData();d.setupContext.setup.body.sourceInventory.push({type:'file',reference:'CRM export {2025-Q3}',rightsReference:'rights:reviewed'});
@@ -216,4 +216,27 @@ for(const olderFails of [false,true])test('Revive report keeps the newest refres
  const newer=report();newer.generatedAt='2026-10-26T12:00:00Z';newer.notes=['LATEST_RESULT'];pending[1].resolve({report:newer});await tick();
  if(olderFails)pending[0].reject(Error('STALE_FAILURE'));else{const older=report();older.notes=['STALE_RESULT'];pending[0].resolve({report:older});}await tick();
  assert.match(ui.nodes.reviveReportText.textContent,/LATEST_RESULT/);assert.doesNotMatch(ui.nodes.reviveReportText.textContent,/STALE/);assert.match(ui.nodes.reviveReportStatus.textContent,/2026-10-26/);
+});
+test('envelope approval and escalation reasons render in plain language',async()=>{
+ const approved={campaigns:[{id:'campaign-env',capability:'revive',purpose:'fixture',status:'approved',asset_version:2,envelope_version:3}],assets:[],actions:[]};
+ let list=empty();const ui=mount(async(path,body)=>body.operation==='list'?list:{id:body.campaign_id,version:1,status:'draft',envelope:{status:'escalated',reasons:['audience_out_of_scope','prohibited_claim']}});
+ ui.select('tenant-a');await tick();const n=ui.nodes;
+ n.campaignPurpose.value='reactivation';n.campaignMarket.value='AE';n.messageSubject0.value='Fixture';n.messageBody0.value='Body';n.messageEvidence0.value='source:fixture';
+ list={campaigns:[{id:'11111111-1111-4111-8111-111111111111',capability:'revive',purpose:'reactivation',status:'draft',asset_version:1}],assets:[],actions:[]};
+ n.campaignDraft.onsubmit({preventDefault(){}});await tick();await tick();
+ assert.match(n.campaignState.textContent,/Needs approval: the audience is not reviewed or is larger than the envelope allows; the copy uses a prohibited term/);
+ list=approved;ui.select('tenant-a');await tick();n.campaignSelect.value='campaign-env';n.campaignSelect.onchange();assert.match(n.campaignState.textContent,/Approved by envelope v3/);
+});
+test('envelope panel loads only the selected tenant and approves the exact digest shown',async()=>{
+ const calls=[],envelope={version:2,brief_version:3,setup_version:4,digest:'a'.repeat(32),client_approved_at:null,operator_approved_at:null,expires_at:'2026-12-01T00:00:00Z',revoked_at:null,
+  body:{capabilities:['revive'],purposes:['reactivation'],channels:['email'],legalBasis:[{channel:'email',purpose:'reactivation',market:'AE',basis:'existing_customer',noticeReference:'notice:v1'}],needs:['dormant leads'],templates:[{offsetHours:0,subject:'Hi {{business}}',body:'About {{need}}'}],bookingUrl:null,prohibitedTerms:['guarantee'],limits:{perCampaignMaxActions:50,totalActions:300,maxActiveCampaigns:5,maxAudience:25,maxCampaignDays:30},budget:{currency:'AED',maxMinor:0},stopConditions:{minSample:5,maxOptOutPct:10,maxReviewActions:2,maxReplies:0}}};
+ const ui=mount(async(path,body)=>{calls.push({path,body});return body.operation==='list'?empty():body.operation==='status'?{ok:true,tenantId:'tenant-a',ownership:'managed',envelope,problems:['envelope_missing']}:{ok:true,tenantId:'tenant-a'};});
+ ui.select('tenant-a');await tick();const n=ui.nodes;assert.equal(calls.some(c=>c.path.endsWith('/envelope')),false);
+ n.envLoad.onclick();await tick();await tick();
+ assert.equal(calls.find(c=>c.body.operation==='status').path,'/api/admin/tenants/tenant-a/envelope');
+ assert.match(n.envSummary.textContent,/Envelope v2 · brief v3 · setup v4/);assert.match(n.envSummary.textContent,/Operator approval: pending/);assert.match(n.envSummary.textContent,/no approved operating envelope is in effect/);
+ assert.equal(n.envLegalBasis.value,'reactivation | AE | existing_customer | notice:v1');assert.equal(n.envApprove.disabled,false);
+ n.envApprove.onclick();await tick();assert.equal(JSON.stringify(calls.find(c=>c.body.operation==='approve').body),JSON.stringify({operation:'approve',version:2,digest:'a'.repeat(32)}));
+ await tick();await tick();n.envExpiry.value='2026-12-01T00:00';n.envPropose.onclick();await tick();
+ const p=calls.find(c=>c.body.operation==='propose').body;assert.equal(p.version,2);assert.deepEqual(JSON.parse(JSON.stringify(p.body.legalBasis)),envelope.body.legalBasis);assert.equal(p.body.limits.perCampaignMaxActions,50);assert.equal(p.expires_at,'2026-12-01T00:00:00.000Z');
 });

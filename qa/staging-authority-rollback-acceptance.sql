@@ -59,6 +59,11 @@ BEGIN
  UPDATE public.profiles SET is_admin=true WHERE id=a;
  -- Direct fixture setup models active authority only inside this rolled-back transaction.
  INSERT INTO public.tenants(id,name,slug,country,currency,status) VALUES(t,'Audit rollback fixture','audit-rollback','AE','AED','active');
+ -- Hybrid access: staff act on a tenant only through an operator grant from a separate verified platform admin.
+ INSERT INTO auth.users(id,email,email_confirmed_at,raw_user_meta_data) VALUES('fa700000-0000-4000-8000-000000000009','audit-grantor@example.invalid',now(),'{}');
+ UPDATE public.profiles SET is_admin=true WHERE id='fa700000-0000-4000-8000-000000000009';UPDATE public.profiles SET is_operator=true WHERE id=a;
+ INSERT INTO public.operator_grants(tenant_id,operator_id,capabilities,authority,authorised_by,contract_reference,expires_at)
+  SELECT qa_t,a,'{read,operate,approve}','contract','fa700000-0000-4000-8000-000000000009','QA synthetic contract',now()+interval '1 day' FROM unnest(array[t]::uuid[]) qa_t;
  INSERT INTO public.leads(id,tenant_id,source,email,status) VALUES(l,null,'book_form',fixture_email,'qualified'),(tl,t,'import',fixture_email,'qualified');
  INSERT INTO public.meetings(id,tenant_id,lead_id,start_at,end_at,attendee_email) VALUES(m,null,l,anchor,anchor+interval '15 minutes',fixture_email),(tm,t,tl,anchor,anchor+interval '15 minutes',fixture_email);
  INSERT INTO public.proposals(id,tenant_id,lead_id,kind,plan,package,currency,fixed_amount,content_md,client_email) VALUES(proposal,t,tl,'pre','sprint','response','AED',1000,'Synthetic fixture',fixture_email);
@@ -180,7 +185,7 @@ BEGIN
  EXECUTE 'SET LOCAL ROLE service_role';
  receipt:=public.issue_tenant_unsubscribe(t,tl,a,repeat('c',64));
  IF receipt->>'status'<>'issued' OR (SELECT count(*) FROM jsonb_object_keys(receipt))<>3 THEN RAISE EXCEPTION 'Tenant token issuance failed'; END IF;
- IF public.confirm_tenant_unsubscribe(repeat('c',64)) IS DISTINCT FROM '{"version":1,"status":"confirmed"}'::jsonb THEN RAISE EXCEPTION 'Tenant confirmation leaked identifiers or failed'; END IF;
+ IF public.confirm_tenant_unsubscribe(repeat('c',64)) IS DISTINCT FROM '{"version":1,"status":"confirmed","businessName":"Audit rollback fixture"}'::jsonb THEN RAISE EXCEPTION 'Tenant confirmation leaked identifiers or failed'; END IF;
  IF public.confirm_tenant_unsubscribe(repeat('0',64)) IS DISTINCT FROM '{"version":1,"status":"invalid"}'::jsonb THEN RAISE EXCEPTION 'Unknown token receipt failed'; END IF;
  SELECT confirmed_at INTO stop_before FROM ripepiper_private.tenant_unsubscribe_tokens WHERE token_hash=repeat('c',64);
  EXECUTE 'RESET ROLE';
@@ -193,7 +198,7 @@ BEGIN
  UPDATE public.leads SET email='changed@example.invalid' WHERE id=tl;
  UPDATE ripepiper_private.tenant_unsubscribe_tokens SET created_at=now()-interval '2 days',expires_at=now()-interval '1 day' WHERE token_hash=repeat('c',64);
  EXECUTE 'SET LOCAL ROLE service_role';
- IF public.confirm_tenant_unsubscribe(repeat('c',64)) IS DISTINCT FROM '{"version":1,"status":"confirmed"}'::jsonb
+ IF public.confirm_tenant_unsubscribe(repeat('c',64)) IS DISTINCT FROM '{"version":1,"status":"confirmed","businessName":"Audit rollback fixture"}'::jsonb
   OR (SELECT confirmed_at FROM ripepiper_private.tenant_unsubscribe_tokens WHERE token_hash=repeat('c',64)) IS DISTINCT FROM stop_before THEN RAISE EXCEPTION 'Historical confirmation replay changed state'; END IF;
  EXECUTE 'RESET ROLE';
  EXECUTE 'SET LOCAL ROLE authenticated';

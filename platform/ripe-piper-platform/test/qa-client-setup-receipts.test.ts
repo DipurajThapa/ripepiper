@@ -11,6 +11,7 @@ function intercept(receipt:unknown,admin=true){let writes=0;vi.stubGlobal('fetch
  const u=new URL(input);if(u.origin!==env.SUPABASE_URL)throw Error('External network forbidden');
  if(u.pathname==='/auth/v1/user')return Response.json({id:actor,email:'qa-staff@example.invalid'});
  if(u.pathname==='/rest/v1/profiles')return Response.json([{is_admin:admin}]);
+ if(u.pathname==='/rest/v1/rpc/tenant_access')return Response.json(admin);
  if(u.pathname==='/rest/v1/tenants'&&(!init.method||init.method==='GET'))return Response.json([{id:tenant}]);
  if(u.pathname==='/rest/v1/tenants'&&init.method==='POST'){writes++;return Response.json(receipt);}
  if(['/rest/v1/rpc/save_business_brief','/rest/v1/rpc/revive_setup_context','/rest/v1/rpc/save_revive_setup'].includes(u.pathname)){writes++;return Response.json(receipt);}
@@ -45,5 +46,5 @@ it('accepts the complete current setup context without creating another tenant o
  const calls=intercept(context),r=await call(`/api/admin/tenants/${tenant}/revive-setup`,{operation:'get'});expect(r.status).toBe(200);expect(await r.json()).toMatchObject({ok:true,context,delivery:'not_sent'});expect(calls()).toBe(1);
 });
 it('denies anonymous and tenant viewer setup calls before a setup RPC',async()=>{
- for(const token of ['', 'qa-viewer']){const calls=intercept({},false),r=await call(`/api/admin/tenants/${tenant}/revive-setup`,{operation:'get'},token);expect(r.status).toBe(token?403:401);expect(calls()).toBe(0);}
+ for(const token of ['', 'qa-viewer']){const calls=intercept({},false),r=await call(`/api/admin/tenants/${tenant}/revive-setup`,{operation:'get'},token);expect(r.status).toBe(token?404:401);expect(calls()).toBe(0);}
 });

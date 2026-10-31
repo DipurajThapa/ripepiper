@@ -5,6 +5,7 @@ import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
 import {readFileSync,readdirSync} from 'node:fs';
 import worker from '../src/index';
 import type {Env} from '../src/env';
+import {asOperator} from './helpers/access';
 const actor='8accc5b4-069a-4bb9-87f3-2c4bfaaf0244';
 let db:PGlite;
 const q=async(sql:string,args:any[]=[])=> (await db.query<any>(sql,args)).rows;
@@ -35,6 +36,7 @@ beforeAll(async()=>{
 afterEach(()=>{vi.useRealTimers();vi.unstubAllGlobals();});afterAll(async()=>db?.close());
 async function fixture(label='Independent Signal QA'){
  const tenant=(await q(`insert into tenants(name,slug,country,currency,status) values($1,$2,'AE','AED','active') returning id`,[label,crypto.randomUUID()]))[0].id;
+ await asOperator(db,{tenantId:tenant,profileId:actor});
  const lead=(await q(`insert into leads(tenant_id,source,email) values($1,'import',$2) returning id`,[tenant,crypto.randomUUID()+'@example.invalid']))[0].id;
  const observedAt=new Date(Date.now()-3600000).toISOString(),expiry=new Date(Date.now()+86400000).toISOString();
  const brief={offer:'Map workflow ownership',industries:['construction'],markets:['AE'],roles:['COO'],needs:['workflow ownership'],excludedIndustries:[],maxAgeDays:30,source:{reference:'qa-client-interview',excerpt:'Reviewed construction workflow offer',observedAt}};
@@ -66,9 +68,9 @@ it.each(['email','brief','setup','evidence','reply'])('invalidates approved work
  if(kind==='brief')await rpc('save_business_brief',[f.tenant,1,{...f.brief,offer:'Changed offer'},actor]);
  if(kind==='setup')await rpc('save_revive_setup',[f.tenant,actor,1,1,'reviewed',{...f.setup,senderName:'Changed sender'}]);
  if(kind==='evidence')await q("update lead_observations set assessment_excerpt=assessment_excerpt||' changed' where id=$1",[f.fact]);
- if(kind==='reviewer')await q('update profiles set is_admin=false where id=$1',[actor]);
+ if(kind==='reviewer')await q('update profiles set is_operator=false where id=$1',[actor]);
  if(kind==='reply')await q(`insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,rights_reference,synthetic,assessment_reviewed_by,product_context) values($1,$2,'reply','qa-live-mode-reply',now(),'review','qa-only',false,$3,'{"product":"response","kind":"reply"}')`,[f.tenant,f.lead,actor]);
- try{expect((await q('select status from campaigns where id=$1',[f.campaign]))[0].status).toBe('draft');expect((await q('select state from outbound_actions where id=$1',[a.id]))[0].state).toBe('cancelled');expect(await rpc('claim_fenced_synthetic_action',[f.tenant,a.id,crypto.randomUUID(),a.at])).toBeNull();}finally{if(kind==='reviewer')await q('update profiles set is_admin=true where id=$1',[actor]);}
+ try{expect((await q('select status from campaigns where id=$1',[f.campaign]))[0].status).toBe('draft');expect((await q('select state from outbound_actions where id=$1',[a.id]))[0].state).toBe('cancelled');expect(await rpc('claim_fenced_synthetic_action',[f.tenant,a.id,crypto.randomUUID(),a.at])).toBeNull();}finally{if(kind==='reviewer')await q('update profiles set is_operator=true where id=$1',[actor]);}
 });
 async function rawBody(f:any){return {...f.body,signalStrategy:{...f.body.signalStrategy,reviewedBy:actor,sourceSnapshot:await rpc('signal_strategy_context',[f.tenant,f.lead,actor])}};}
 it.each(['cta','message','expiry','canonicalNeed','evidence','reviewer','mode','lead','tenant'])('rejects raw SQL binding forgery: %s',async kind=>{
@@ -87,7 +89,7 @@ it('rejects mismatched approval digest and incomplete explicit reviews',async()=
 });
 it('does not claim expired authority or suppressed/paused work',async()=>{
  for(const condition of ['expiry','suppression','pause']){const f=await fixture(),a=await queued(f);if(condition==='suppression')await q("insert into lead_suppression(tenant_id,lead_id,reason) values($1,$2,'qa stop')",[f.tenant,f.lead]);if(condition==='pause')await q("update tenants set status='paused' where id=$1",[f.tenant]);const at=condition==='expiry'?new Date(Date.now()+2*86400000).toISOString():a.at;expect(await rpc('claim_fenced_synthetic_action',[f.tenant,a.id,crypto.randomUUID(),at])).toBeNull();}
-});
+},20000);
 it('keeps uncertain effects in review and duplicate enrolment cannot revive them',async()=>{
  const f=await fixture(),a=await queued(f),token=crypto.randomUUID();expect(await rpc('claim_fenced_synthetic_action',[f.tenant,a.id,token,a.at])).toMatchObject({token});await q("update outbound_actions set state='review',error_code='qa_uncertain' where id=$1",[a.id]);const replay=await http(f.tenant,'queue',{leadId:f.lead,startAt:a.at},f.campaign,1);if(replay.status===200)expect(replay.value.actionIds).toEqual([a.id]);else expect(replay.status).toBeGreaterThanOrEqual(400);expect((await q('select state from outbound_actions where id=$1',[a.id]))[0].state).toBe('review');expect(await q('select id from outbound_actions where campaign_id=$1',[f.campaign])).toHaveLength(1);expect(await rpc('claim_fenced_synthetic_action',[f.tenant,a.id,crypto.randomUUID(),a.at])).toBeNull();
 });
@@ -102,8 +104,8 @@ it('raw action updates cannot forge a tested or delivered receipt without fenced
  expect((await q('select state,acknowledged_at from outbound_actions where id=$1',[a.id]))[0]).toMatchObject({state:'queued',acknowledged_at:null});
 });
 it('reviewer revocation denies claim and denies completion of an existing fenced claim',async()=>{
- const first=await fixture(),a=await queued(first),second=await fixture(),b=await queued(second),token=crypto.randomUUID();expect(await rpc('claim_fenced_synthetic_action',[second.tenant,b.id,token,b.at])).toMatchObject({token});await q('update profiles set is_admin=false where id=$1',[actor]);
- try{expect(await rpc('claim_fenced_synthetic_action',[first.tenant,a.id,crypto.randomUUID(),a.at])).toBeNull();expect(await rpc('complete_fenced_synthetic_action',[second.tenant,b.id,token,1,1,b.at])).toBe(false);}finally{await q('update profiles set is_admin=true where id=$1',[actor]);}
+ const first=await fixture(),a=await queued(first),second=await fixture(),b=await queued(second),token=crypto.randomUUID();expect(await rpc('claim_fenced_synthetic_action',[second.tenant,b.id,token,b.at])).toMatchObject({token});await q('update profiles set is_operator=false where id=$1',[actor]);
+ try{expect(await rpc('claim_fenced_synthetic_action',[first.tenant,a.id,crypto.randomUUID(),a.at])).toBeNull();expect(await rpc('complete_fenced_synthetic_action',[second.tenant,b.id,token,1,1,b.at])).toBe(false);}finally{await q('update profiles set is_operator=true where id=$1',[actor]);}
 });
 it('changed evidence with unchanged copy requires a new binding digest and version',async()=>{
  const f=await fixture();await save(f);const before=await binding(f);await q("update lead_observations set assessment_excerpt=assessment_excerpt||' verified today' where id=$1",[f.fact]);expect((await http(f.tenant,'save',f.body,f.campaign,1)).status).toBeGreaterThanOrEqual(400);const proposal=(await ok(f.tenant,'signal-proposal',{leadId:f.lead,signalId:f.signal,synthetic:true})).proposal;expect(await ok(f.tenant,'save',{...f.body,signalStrategy:{...f.body.signalStrategy,proposal}},f.campaign,1)).toMatchObject({version:2});expect((await binding(f)).digest).not.toBe(before.digest);
@@ -134,10 +136,10 @@ it('executes the actual Worker synthetic sink endpoint and replays its same rece
  const first=await execute();expect(first.status,JSON.stringify(first.value)).toBe(200);expect(first.value).toMatchObject({ok:true,state:'tested',action_id:a.id});const second=await execute();expect(second.status,JSON.stringify(second.value)).toBe(200);expect(second.value).toMatchObject({state:'tested'});expect((await q('select attempts,provider_ref from outbound_actions where id=$1',[a.id]))[0]).toEqual({attempts:1,provider_ref:'test-sink:'+a.id});
 });
 it('revoking a distinct approval reviewer blocks claim and completion',async()=>{
- const approver='e77dccf7-e305-49da-8c6a-384e8d20ee7d';await q("insert into auth.users(id,email,email_confirmed_at) values($1,'qa-second-reviewer@example.invalid',now()) on conflict do nothing",[approver]);await q('update profiles set is_admin=true where id=$1',[approver]);
- const queuedByOther=async()=>{const f=await fixture();await save(f);const b=await binding(f);await rpc('manage_campaign_plan',[f.tenant,f.campaign,approver,'approve',1,{clientAuthority:'qa',ownerAuthority:'qa',ctsProfile:'qa',maxActions:1,expiresAt:new Date(Date.now()+3600000).toISOString(),signalReview:{digest:b.digest,messageReviewed:true,evidenceReviewed:true}}]);await ok(f.tenant,'rights',{leadId:f.lead,sourceId:f.fact,noticeReference:'qa'},f.campaign,1);const at=new Date(Date.now()+1000).toISOString(),r=await ok(f.tenant,'queue',{leadId:f.lead,startAt:at},f.campaign,1);return {...f,id:r.actionIds[0],at};};
- const a=await queuedByOther(),b=await queuedByOther(),token=crypto.randomUUID();expect(await rpc('claim_fenced_synthetic_action',[b.tenant,b.id,token,b.at])).toMatchObject({token});await q('update profiles set is_admin=false where id=$1',[approver]);
- try{expect(await rpc('claim_fenced_synthetic_action',[a.tenant,a.id,crypto.randomUUID(),a.at])).toBeNull();expect(await rpc('complete_fenced_synthetic_action',[b.tenant,b.id,token,1,1,b.at])).toBe(false);}finally{await q('update profiles set is_admin=true where id=$1',[approver]);}
+ const approver='e77dccf7-e305-49da-8c6a-384e8d20ee7d';await q("insert into auth.users(id,email,email_confirmed_at) values($1,'qa-second-reviewer@example.invalid',now()) on conflict do nothing",[approver]);await q('update profiles set is_operator=true where id=$1',[approver]);
+ const queuedByOther=async()=>{const f=await fixture();await asOperator(db,{tenantId:f.tenant,profileId:approver});await save(f);const b=await binding(f);await rpc('manage_campaign_plan',[f.tenant,f.campaign,approver,'approve',1,{clientAuthority:'qa',ownerAuthority:'qa',ctsProfile:'qa',maxActions:1,expiresAt:new Date(Date.now()+3600000).toISOString(),signalReview:{digest:b.digest,messageReviewed:true,evidenceReviewed:true}}]);await ok(f.tenant,'rights',{leadId:f.lead,sourceId:f.fact,noticeReference:'qa'},f.campaign,1);const at=new Date(Date.now()+1000).toISOString(),r=await ok(f.tenant,'queue',{leadId:f.lead,startAt:at},f.campaign,1);return {...f,id:r.actionIds[0],at};};
+ const a=await queuedByOther(),b=await queuedByOther(),token=crypto.randomUUID();expect(await rpc('claim_fenced_synthetic_action',[b.tenant,b.id,token,b.at])).toMatchObject({token});await q('update profiles set is_operator=false where id=$1',[approver]);
+ try{expect(await rpc('claim_fenced_synthetic_action',[a.tenant,a.id,crypto.randomUUID(),a.at])).toBeNull();expect(await rpc('complete_fenced_synthetic_action',[b.tenant,b.id,token,1,1,b.at])).toBe(false);}finally{await q('update profiles set is_operator=true where id=$1',[approver]);}
 });
 it('raw null approval timestamps cannot create a usable approval receipt',async()=>{
  const f=await fixture();await save(f);await approve(f);await db.exec('set role service_role');try{await expect(q("update campaign_assets set approved_at=null,signal_review=jsonb_set(signal_review,'{reviewedAt}','null') where campaign_id=$1",[f.campaign])).rejects.toThrow();}finally{await db.exec('reset role');}

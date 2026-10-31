@@ -3,6 +3,7 @@ import {Db} from '../src/lib/db';
 import {campaignPlans,planError} from '../src/foundation/campaigns';
 import {strategyBody} from './helpers/revive-setup';
 import type {Env} from '../src/env';
+import {gateRpc} from './helpers/tenant-gate';
 const tenant='11111111-1111-4111-8111-111111111111',campaign='22222222-2222-4222-8222-222222222222',lead='33333333-3333-4333-8333-333333333333',actor='44444444-4444-4444-8444-444444444444';
 const start=new Date(Date.now()+3600000).toISOString();
 const preview=()=>({approvalStatus:'draft',authorityStatus:'not_approved',campaignId:campaign,assetVersion:1,leadId:lead,setupVersion:1,timezone:'UTC',requestedStartAt:start,steps:[{step:0,dueAt:start,localDate:start.slice(0,10),localTime:start.slice(11,19)}],delivery:'not_sent'});
@@ -10,7 +11,7 @@ afterEach(()=>vi.restoreAllMocks());
 async function schedule(value:unknown){
  vi.spyOn(Db.prototype,'userFromToken').mockResolvedValue({id:actor,email:'staff@example.invalid',is_admin:true});
  vi.spyOn(Db.prototype,'one').mockResolvedValue({id:tenant,name:'Fixture'});
- const rpc=vi.spyOn(Db.prototype,'rpc').mockResolvedValue(value);
+ const rpc=gateRpc().mockResolvedValue(value);
  const response=await campaignPlans(new Request('https://fixture.invalid',{method:'POST',headers:{Authorization:'Bearer staff'},body:JSON.stringify({operation:'schedule',campaign_id:campaign,version:1,body:{leadId:lead,startAt:start}})}),{} as Env,tenant);
  return {response,rpc};
 }

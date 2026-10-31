@@ -4,11 +4,12 @@ import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
 import {readFileSync,readdirSync} from 'node:fs';
 import {tenantUnsubscribe,confirmTenantUnsubscribe,hashUnsubscribeToken} from '../src/foundation/tenant-unsubscribe';
 import type {Env} from '../src/env';
+import {asOperator} from './helpers/access';
 let db:PGlite;const actor='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const q=async(sql:string,args:any[]=[]) => (await db.query<any>(sql,args)).rows;
 const env={SUPABASE_URL:'https://fixture.supabase.invalid',SUPABASE_SERVICE_ROLE_KEY:'fixture-service',SUPABASE_ANON_KEY:'fixture-anon',SITE_URL:'https://fixture.invalid'} as Env;
 async function rpc(name:string,args:any[]){await db.exec('set role service_role');try{return(await q(`select public.${name}(${args.map((_,i)=>'$'+(i+1)).join(',')}) receipt`,args))[0].receipt;}finally{await db.exec('reset role');}}
-async function fixture(){const t=(await q(`insert into tenants(name,slug,country,currency,status) values('Stop fixture',$1,'AE','AED','onboarding') returning id`,[crypto.randomUUID()]))[0].id;const l=(await q(`insert into leads(tenant_id,source,email) values($1,'import','shared@fixture.invalid') returning id`,[t]))[0].id;return {t,l};}
+async function fixture(name='Stop fixture'){const t=(await q(`insert into tenants(name,slug,country,currency,status) values($2,$1,'AE','AED','onboarding') returning id`,[crypto.randomUUID(),name]))[0].id;const l=(await q(`insert into leads(tenant_id,source,email) values($1,'import','shared@fixture.invalid') returning id`,[t]))[0].id;await asOperator(db,{tenantId:t,profileId:actor});return {t,l};}
 const hash=(n:number)=>n.toString(16).padStart(64,'0');
 const issue=(t:string,l:string,n=1)=>rpc('issue_tenant_unsubscribe',[t,l,actor,hash(n)]);
 const confirm=(n=1)=>rpc('confirm_tenant_unsubscribe',[hash(n)]);
@@ -50,7 +51,7 @@ it('replaces objection trigger behavior without deleting historical global rows'
  expect(await q(`select * from suppression where email='historical@fixture.invalid'`)).toHaveLength(1);expect(await q(`select * from suppression where email='shared@fixture.invalid'`)).toHaveLength(0);
 });
 it('enforces hash-only scope, 90 days, one per minute, cap20, cleanup and unchanged older links',async()=>{
- const a=await fixture(),b=await fixture();
+ const a=await fixture('Alpha Stops'),b=await fixture('Beta Stops');
  const first=await issue(a.t,a.l,20);expect(first.status).toBe('issued');
  const token=(await q('select * from ripepiper_private.tenant_unsubscribe_tokens where token_hash=$1',[hash(20)]))[0];expect(Date.parse(token.expires_at)-Date.parse(token.created_at)).toBe(90*86400000);
  expect(await issue(a.t,a.l,21)).toEqual({version:1,status:'limited'});
@@ -64,7 +65,7 @@ it('enforces hash-only scope, 90 days, one per minute, cap20, cleanup and unchan
  expect((await issue(a.t,a.l,40)).status).toBe('issued');
  expect(await q('select * from ripepiper_private.tenant_unsubscribe_tokens where token_hash=$1',[hash(39)])).toHaveLength(0);
  expect(await q('select * from ripepiper_private.tenant_unsubscribe_tokens where token_hash=$1',[hash(41)])).toHaveLength(1);
- expect(await confirm(20)).toEqual({version:1,status:'confirmed'});
+ expect(await confirm(20)).toEqual({version:1,status:'confirmed',businessName:'Alpha Stops'});
  expect(await q('select * from lead_suppression where tenant_id=$1',[b.t])).toHaveLength(0);
 },30000);
 it('denies unknown, expiry and changed address but historical replay precedes both with no mutation',async()=>{
@@ -72,18 +73,18 @@ it('denies unknown, expiry and changed address but historical replay precedes bo
  await q(`update leads set email='replacement@fixture.invalid' where id=$1`,[a.l]);expect(await confirm(50)).toEqual({version:1,status:'invalid'});
  await q(`update leads set email='shared@fixture.invalid' where id=$1`,[a.l]);
  await q(`update ripepiper_private.tenant_unsubscribe_tokens set created_at=now()-interval '91 days',expires_at=clock_timestamp() where token_hash=$1`,[hash(50)]);expect(await confirm(50)).toEqual({version:1,status:'invalid'});
- await q(`update ripepiper_private.tenant_unsubscribe_tokens set expires_at=now()+interval '1 day' where token_hash=$1`,[hash(50)]);expect(await confirm(50)).toEqual({version:1,status:'confirmed'});
+ await q(`update ripepiper_private.tenant_unsubscribe_tokens set expires_at=now()+interval '1 day' where token_hash=$1`,[hash(50)]);expect(await confirm(50)).toEqual({version:1,status:'confirmed',businessName:'Stop fixture'});
  await q(`update ripepiper_private.tenant_unsubscribe_tokens set expires_at=now()-interval '1 day' where token_hash=$1`,[hash(50)]);await q(`update leads set email='replacement@fixture.invalid' where id=$1`,[a.l]);
  const before=await q('select * from lead_suppression where tenant_id=$1',[a.t]);const receipt=await q('select * from ripepiper_private.tenant_unsubscribe_tokens where token_hash=$1',[hash(50)]);
- expect(await confirm(50)).toEqual({version:1,status:'confirmed'});expect(await q('select * from lead_suppression where tenant_id=$1',[a.t])).toEqual(before);expect(await q('select * from ripepiper_private.tenant_unsubscribe_tokens where token_hash=$1',[hash(50)])).toEqual(receipt);
+ expect(await confirm(50)).toEqual({version:1,status:'confirmed',businessName:'Stop fixture'});expect(await q('select * from lead_suppression where tenant_id=$1',[a.t])).toEqual(before);expect(await q('select * from ripepiper_private.tenant_unsubscribe_tokens where token_hash=$1',[hash(50)])).toEqual(receipt);
 });
 it('denies foreign leads, unverified/mismatched/nonadmin actors and direct browser access',async()=>{
  const a=await fixture(),b=await fixture();
  await expect(rpc('record_tenant_unsubscribe',[a.t,b.l,actor,'Verified fixture'])).rejects.toThrow('Contact not found');expect(await q('select * from lead_suppression where tenant_id=$1',[a.t])).toHaveLength(0);
- for(const mode of ['email','verification','admin']){
-  if(mode==='email')await q(`update profiles set email='mismatch@fixture.invalid' where id=$1`,[actor]);if(mode==='verification')await q('update auth.users set email_confirmed_at=null where id=$1',[actor]);if(mode==='admin')await q('update profiles set is_admin=false where id=$1',[actor]);
+ for(const mode of ['email','verification','operator']){
+  if(mode==='email')await q(`update profiles set email='mismatch@fixture.invalid' where id=$1`,[actor]);if(mode==='verification')await q('update auth.users set email_confirmed_at=null where id=$1',[actor]);if(mode==='operator')await q('update profiles set is_operator=false where id=$1',[actor]);
   await expect(issue(a.t,a.l,60)).rejects.toThrow('Verified staff required');await expect(rpc('record_tenant_unsubscribe',[a.t,a.l,actor,'Verified fixture'])).rejects.toThrow('Verified staff required');
-  await q(`update profiles set email='staff@fixture.invalid',is_admin=true where id=$1`,[actor]);await q('update auth.users set email_confirmed_at=now() where id=$1',[actor]);
+  await q(`update profiles set email='staff@fixture.invalid',is_operator=true where id=$1`,[actor]);await q('update auth.users set email_confirmed_at=now() where id=$1',[actor]);
  }
  for(const role of ['anon','authenticated']){await db.exec('set role '+role);try{for(const sql of [`select * from ripepiper_private.tenant_unsubscribe_tokens`,`select public.confirm_tenant_unsubscribe('${hash(60)}')`,`select public.issue_tenant_unsubscribe('${a.t}','${a.l}','${actor}','${hash(60)}')`,`select public.record_tenant_unsubscribe('${a.t}','${a.l}','${actor}','Verified fixture')`,`select ripepiper_private.apply_tenant_contact_stop('${a.t}','${a.l}')`])await expect(q(sql)).rejects.toThrow();}finally{await db.exec('reset role');}}
  expect((await q(`select relrowsecurity from pg_class where oid='ripepiper_private.tenant_unsubscribe_tokens'::regclass`))[0].relrowsecurity).toBe(true);
@@ -95,13 +96,13 @@ it('runs Worker issuance and confirmation against real SQL receipts without prov
   if(url.pathname==='/auth/v1/user')return Response.json({id:actor,email:'staff@fixture.invalid'});
   if(url.pathname==='/rest/v1/profiles')return Response.json([{is_admin:true}]);
   const name=url.pathname.split('/').at(-1)!;const b=JSON.parse(init.body);let value;
-  if(name==='issue_tenant_unsubscribe')value=await rpc(name,[b.p_tenant,b.p_lead,b.p_actor,b.p_hash]);else if(name==='confirm_tenant_unsubscribe')value=await rpc(name,[b.p_hash]);else throw Error('Unexpected request');
+  if(name==='issue_tenant_unsubscribe')value=await rpc(name,[b.p_tenant,b.p_lead,b.p_actor,b.p_hash]);else if(name==='confirm_tenant_unsubscribe')value=await rpc(name,[b.p_hash]);else if(name==='tenant_access')value=await rpc(name,[b.p_tenant,b.p_actor,b.p_capability]);else throw Error('Unexpected request');
   return Response.json(value);
  });
  const req=(body:any)=>new Request('https://untrusted.invalid/api',{method:'POST',headers:{Authorization:'Bearer fixture'},body:JSON.stringify(body)});
  const issued=await tenantUnsubscribe(req({operation:'issue_link'}),env,a.t,a.l);expect(issued.status).toBe(201);const receipt:any=await issued.json();expect(receipt.url).toMatch(/^https:\/\/fixture.invalid\/unsubscribe.html#token=[0-9a-f]{64}$/);expect(receipt.delivery).toBe('not_sent');
  const raw=new URL(receipt.url).hash.slice(7);expect((await q('select token_hash from ripepiper_private.tenant_unsubscribe_tokens where tenant_id=$1',[a.t]))[0].token_hash).toBe(await hashUnsubscribeToken(raw));
- const confirmed=await confirmTenantUnsubscribe(req({token:raw}),env);expect(await confirmed.json()).toEqual({version:1,status:'confirmed'});expect(confirmed.headers.get('Referrer-Policy')).toBe('no-referrer');expect(calls).toHaveLength(4);
+ const confirmed=await confirmTenantUnsubscribe(req({token:raw}),env);expect(await confirmed.json()).toEqual({version:1,status:'confirmed',businessName:'Stop fixture'});expect(confirmed.headers.get('Referrer-Policy')).toBe('no-referrer');expect(calls).toEqual(['/auth/v1/user','/rest/v1/profiles','/rest/v1/rpc/tenant_access','/rest/v1/rpc/issue_tenant_unsubscribe','/rest/v1/rpc/confirm_tenant_unsubscribe']);
  vi.unstubAllGlobals();
 },30000);
 it('Response opt-out evidence uses the same scoped stop and preserves other tenants sharing its email',async()=>{

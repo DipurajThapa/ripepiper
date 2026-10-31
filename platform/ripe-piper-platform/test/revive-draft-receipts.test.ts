@@ -4,6 +4,7 @@ import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
 import {readFileSync,readdirSync} from 'node:fs';
 import {assessRevive} from '../src/foundation/revive';
 import {proposeReviveDraft,reviewedReviveDraftSource,validDraftSave} from '../src/foundation/revive-draft';
+import {asOperator} from './helpers/access';
 const actor='91111111-1111-4111-8111-111111111111',otherActor='92222222-2222-4222-8222-222222222222';
 let db:PGlite;
 const q=async(sql:string,args:any[]=[]) => (await db.query<any>(sql,args)).rows;
@@ -16,6 +17,7 @@ beforeAll(async()=>{
 },30000);afterAll(async()=>db?.close());
 async function fixture(needs=['project recovery','quote follow-up']){
  const tenant=(await q(`insert into tenants(name,slug,country,currency,status) values('Receipt fixture',$1,'AE','AED','active') returning id`,[crypto.randomUUID()]))[0].id;
+ await asOperator(db,{tenantId:tenant,profileId:actor});
  const lead=(await q(`insert into leads(tenant_id,source,email) values($1,'import',$2) returning id`,[tenant,crypto.randomUUID()+'@example.invalid']))[0].id;
  const observed=new Date(Date.now()-86400000).toISOString(),body={offer:'project recovery',industries:['construction'],markets:['AE'],roles:['owner'],needs,aliases:{need:{'PROJECT RECOVERY':['schedule recovery']}},excludedIndustries:[],maxAgeDays:90,source:{reference:'review:brief',excerpt:'Approved delivery offer',observedAt:observed}};
  await rpc('save_business_brief',[tenant,0,body,actor]);
@@ -72,10 +74,13 @@ describe('service-owned original draft source receipts',()=>{
   const ordinary=(await q(`insert into activity_log(tenant_id,actor,kind,message,visible_to_client) values($1,$2,'note','ordinary note',false) returning id`,[f.tenant,actor]))[0].id;
   await db.exec(`set role authenticated;select set_config('request.jwt.sub','${actor}',false)`);
   try{
-   await expect(q(`insert into activity_log(tenant_id,actor,kind,message,visible_to_client) values($1,$2,'note',$3,false)`,[f.tenant,actor,message])).rejects.toThrow(/service owned/);
-   await expect(q('update activity_log set message=$1 where id=$2',[message,ordinary])).rejects.toThrow(/service owned/);
-   await expect(q('delete from activity_log where id=$1',[f.receipt.proposalId])).rejects.toThrow(/service owned/);
+   // Hybrid RLS is select-only for staff: the insert is refused and the update/delete raise or match no row.
+   await expect(q(`insert into activity_log(tenant_id,actor,kind,message,visible_to_client) values($1,$2,'note',$3,false)`,[f.tenant,actor,message])).rejects.toThrow();
+   await q('update activity_log set message=$1 where id=$2',[message,ordinary]).catch(()=>undefined);
+   await q('delete from activity_log where id=$1',[f.receipt.proposalId]).catch(()=>undefined);
   }finally{await db.exec('reset role');}
+  expect((await q('select message from activity_log where id=$1',[ordinary]))[0].message).toBe('ordinary note');
+  expect(await q('select id from activity_log where id=$1',[f.receipt.proposalId])).toHaveLength(1);
  });
  it('keeps service receipts immutable while preserving ordinary malformed-text notes and tenant cascade cleanup',async()=>{
   const f=await fixture();
@@ -91,7 +96,7 @@ describe('service-owned original draft source receipts',()=>{
   await db.exec('set role service_role');try{await q('delete from tenants where id=$1',[f.tenant]);expect(await q('select id from activity_log where tenant_id=$1',[f.tenant])).toHaveLength(0);}finally{await db.exec('reset role;revoke delete on activity_log,tenants from service_role');}
  });
  it('requires regeneration for another staff actor and denies public receipt RPCs',async()=>{
-  const f=await fixture();await expect(rpc('assert_revive_draft_context',[f.tenant,otherActor,f.body.draftContext])).rejects.toThrow(/actor or account/);
+  const f=await fixture();await asOperator(db,{tenantId:f.tenant,profileId:otherActor});await expect(rpc('assert_revive_draft_context',[f.tenant,otherActor,f.body.draftContext])).rejects.toThrow(/actor or account/);
   for(const role of ['anon','authenticated']){await db.exec('set role '+role);try{await expect(q('select record_revive_draft_proposal($1,$2,$3)',[f.tenant,actor,f.proposal.draftContext])).rejects.toThrow(/permission/);await expect(q('select assert_revive_draft_context($1,$2,$3)',[f.tenant,actor,f.body.draftContext])).rejects.toThrow(/permission/);}finally{await db.exec('reset role');}}
  });
 });

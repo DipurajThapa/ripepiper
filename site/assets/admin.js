@@ -1,12 +1,21 @@
 /* Admin area: leads, meetings (AI notes and minutes), proposals and quotations, client accounts, blog CMS.
-   Only users with profiles.is_admin = true can read or change anything (enforced by row-level security). */
+   Platform admins (profiles.is_admin) and operators (profiles.is_operator) sign in here. Client records are readable only
+   under the client's grant or a contract grant (row-level security and the Worker's tenant gate); admins also see counts. */
 (function () {
   "use strict";
   var RP = window.RP, $ = function (id) { return document.getElementById(id); };
   var data = { leads: [], meetings: [], proposals: [], tenants: [], posts: [] };
   var cur = { meeting: null, proposal: null, tenant: null, post: null };
   var viewState = { loadedAt: null, partial: {}, limits: {leads:300,meetings:200,proposals:200,tenants:1000,posts:200}, error: false };
-  var fetchGeneration = 0, shellWired = false;
+  var fetchGeneration = 0, shellWired = false, overview = {};
+  /* The Worker answers 404 for a client this account may not work in, identical to a missing client. */
+  var tenantApi = RP.api;
+  RP.api = function (path) {
+    return tenantApi.apply(RP, arguments).catch(function (e) {
+      if (e && e.status === 404 && /^\/api\/admin\/tenants\/[0-9a-f-]{36}\//i.test(path)) e.message = "Not found. Request operator access from the client, or record a contract grant, before working in this account.";
+      throw e;
+    });
+  };
 
   function renderDashboard() {
     var target = $("crmOverview");
@@ -80,6 +89,10 @@
       if(results.some(function(r){return !r||r.error||!Array.isArray(r.data)||r.data.some(function(row){return !row||typeof row!=="object"||Array.isArray(row);});}))throw Error("CRM records could not be loaded. Refresh data to try again.");
       var partial={};keys.forEach(function(k,i){var r=results[i];partial[k]=!Number.isInteger(r.count)||r.count!==r.data.length;});
       keys.forEach(function(k,i){data[k]=results[i].data;});viewState.partial=partial;viewState.loadedAt=new Date().toISOString();viewState.error=false;
+      if (RP.platformAdmin) RP.api("/api/admin/platform-overview", undefined, "GET").then(function (j) {
+        if (ticket !== fetchGeneration || !j || !Array.isArray(j.tenants)) return;
+        overview = {}; j.tenants.forEach(function (o) { if (o && typeof o.tenant_id === "string") overview[o.tenant_id] = o; }); renderTenants();
+      }).catch(function () {});
       dataStatus("Connected records · Updated "+new Date(viewState.loadedAt).toLocaleTimeString("en-GB")+" (your browser time). "+(keys.some(function(k){return partial[k];})?"Limited snapshot: one or more lists are incomplete or their totals are unavailable. Counts use loaded records only.":"Counts use the records loaded in this workspace."),"ready");
       renderDashboard();
     }).catch(function(error){
@@ -277,6 +290,9 @@
   /* ---------------------------------------------------------- clients */
   function renderTenants() {
     $("tenantsTable").innerHTML = RP.table([{ key: "name", label: "Client" }, { key: "currency", label: "Currency" }, { label: "Plan", render: function (t) { return RP.esc(t.plan + ", " + t.package); } },
+      { label: "Mode", render: function (t) { var o = overview[t.id] || t; return o.ownership === "client_owned" ? "Self-service" : o.ownership === "managed" ? "Managed" : "–"; } },
+      { label: "Leads", num: true, render: function (t) { return overview[t.id] ? RP.esc(overview[t.id].lead_count) : "–"; } },
+      { label: "Active grants", num: true, render: function (t) { return overview[t.id] ? RP.esc(overview[t.id].active_grants) : "–"; } },
       { label: "Status", render: function (t) { return RP.badge(t.status); } }], data.tenants, { clickable: true, empty: "No client accounts yet. Prepare one after a consultation." });
   }
   function tenantDetail(t) {
@@ -287,6 +303,8 @@
       (["onboarding", "paused"].indexOf(t.status) !== -1 ? '<form class="stack" data-form="activate"><span class="kicker">' + (t.status === "paused" ? 'Resume account' : 'Activate prepared account') + '</span><p class="hint">Requires the current reviewed business brief. This changes account readiness only. Campaigns, contact rights, provider connections and unrelated stops are not resumed.</p><div class="form-grid"><div class="field"><label for="activationBriefVersion">Current brief version</label><input id="activationBriefVersion" type="number" min="1" readonly required placeholder="Loading current brief"></div><div class="field"><label for="activationReason">Reason for this decision</label><input id="activationReason" type="text" minlength="8" maxlength="500" required></div></div><button class="btn btn-dark" type="submit" id="activateAccount" disabled>' + (t.status === "paused" ? 'Resume account readiness' : 'Activate account readiness') + '</button><p class="hint" id="activationHint">' + (RP.demo ? 'Sample workspace: connect the verified application environment to activate an account.' : 'Loading the current brief…') + '</p><div data-ok hidden></div><p class="err" data-err></p></form>' : '') +
       (t.status === "paused" || t.status === "ended" ? '<p class="hint">This client is ' + RP.esc(t.status) + '. Campaign execution and connected ad reporting are stopped.</p>' :
       '<form class="stack" data-form="pause"><span class="kicker">Emergency stop</span><div class="field"><label for="pauseReason">Reason for pausing</label><input id="pauseReason" type="text" minlength="8" maxlength="500" required></div><button class="btn btn-line" type="submit">Pause client execution</button><div data-ok hidden></div><p class="err" data-err></p></form>') +
+      (t.status === "ended" ? '' : '<form class="stack" data-form="offboard"><span class="kicker">Offboard</span><p class="hint">Ends the service: execution stops and every mailbox connection is revoked. The client can still download its data until the retention purge. A self-service account needs the client\'s written request reference.</p><div class="form-grid"><div class="field"><label for="offboardReason">Reason for ending the service</label><input id="offboardReason" type="text" minlength="8" maxlength="500" required></div><div class="field"><label for="offboardReference">Client request reference (self-service accounts)</label><input id="offboardReference" type="text" maxlength="200"></div></div><button class="btn btn-line" type="submit">Offboard client</button><div data-ok hidden></div><p class="err" data-err></p></form>') +
+      (RP.grantsMarkup && RP.platformAdmin ? '<div class="stack">' + RP.grantsMarkup(true) + '</div>' : '') +
       (t.status === "paused" || t.status === "ended" ? '' :
       '<form class="stack" data-form="invite"><span class="kicker">Invite a person, or change the role of someone already invited</span><div class="form-grid"><div class="field"><label for="iEmail">Email (company email or Gmail)</label><input id="iEmail" type="email"></div>' +
       '<div class="field"><label for="iRole">Role</label><select id="iRole"><option value="owner">Owner: can update deals and accept quotations</option><option value="viewer">Viewer: read only</option></select></div></div><button class="btn btn-dark" type="submit">Save access</button><div data-ok hidden></div><p class="err" data-err></p></form>') +
@@ -305,11 +323,13 @@
       RP.sb.from("business_briefs").select("version").eq("tenant_id", t.id).order("version", { ascending: false }).limit(1).then(function (r) {
         if (!cur.tenant || cur.tenant.id !== t.id || !$("activationBriefVersion")) return;
         var brief = r && r.data && r.data[0];
-        if (!r || r.error || !brief || !Number.isInteger(brief.version) || brief.version < 1) { $("activationHint").textContent = "Save a reviewed business brief, then reopen this client before activation."; return; }
+        // Without a grant the brief is not readable here, so an empty result is not proof that no brief exists.
+        if (!r || r.error || !brief || !Number.isInteger(brief.version) || brief.version < 1) { $("activationHint").textContent = "No reviewed business brief is visible to you. Save one under Brief & evidence, or request operator access if this client has not granted it, then reopen this client before activation."; return; }
         $("activationBriefVersion").value = brief.version; $("activateAccount").disabled = false;
         $("activationHint").textContent = "Version " + brief.version + " will be rechecked with account state at submission. Expired briefs cannot activate an account.";
       }).catch(function () { if (cur.tenant && cur.tenant.id === t.id && $("activationHint")) $("activationHint").textContent = "The brief could not be loaded. Reopen this client before activation."; });
     }
+    if (!RP.demo && RP.platformAdmin && RP.wireGrants) RP.wireGrants(t.id, function () { return !!cur.tenant && cur.tenant.id === t.id; }, true)();
   }
   function tenantSubmit(form) {
     var t = cur.tenant, kind = form.dataset.form, ok = form.querySelector("[data-ok]"), err = form.querySelector("[data-err]"), v = function (id) { return $(id).value; };
@@ -319,12 +339,16 @@
     var p;
     if (kind === "activate") p = RP.api("/api/admin/tenants/" + t.id + "/activate", { expected_status: t.status, expected_version: t.execution_version || 0, brief_version: +v("activationBriefVersion"), reason: v("activationReason") });
     if (kind === "pause") p = RP.api("/api/admin/tenants/" + t.id + "/pause", { reason: v("pauseReason") });
+    if (kind === "offboard") {
+      if (!window.confirm("End the service for " + t.name + "? Execution stops and every connection is revoked. This cannot be undone here.")) return;
+      p = RP.api("/api/admin/tenants/" + t.id + "/offboard", v("offboardReference").trim() ? { reason: v("offboardReason"), requestReference: v("offboardReference").trim() } : { reason: v("offboardReason") });
+    }
     if (kind === "invite") p = RP.demo ? Promise.resolve() : RP.api("/api/admin/tenants/" + t.id + "/invite", { email: v("iEmail"), role: v("iRole") });
     if (kind === "weekly") p = save("outreach_weekly", "upsert", { tenant_id: t.id, week_start: v("wWeek"), sent: +v("wSent") || 0, delivered: +v("wDel") || 0, replies: +v("wRep") || 0, positive_replies: +v("wPos") || 0, icp_match_pct: v("wIcp") === "" ? null : +v("wIcp") }, { onConflict: "tenant_id,week_start" });
     if (kind === "fee") p = save("fees", "insert", { tenant_id: t.id, month: v("fMonth") + "-01", type: v("fType"), amount: +v("fAmt"), currency: t.currency, note: v("fNote") });
     if (kind === "ads") p = save("ad_accounts", "insert", { tenant_id: t.id, platform: v("aPlat"), account_ref: v("aRef").replace(/[^0-9a-zA-Z_-]/g, "") });
     if (kind === "note") p = save("activity_log", "insert", { tenant_id: t.id, actor: "Ripe Piper", kind: v("nKind"), message: v("nMsg").trim(), visible_to_client: true });
-    p.then(function () { if (kind === "pause" || kind === "activate") return fetchAll().then(function () { renderTenants(); var current = data.tenants.find(function (row) { return row.id === t.id; }); if (current && cur.tenant && cur.tenant.id === t.id) tenantDetail(current); }); else done(ok, "Saved."); })
+    p.then(function () { if (kind === "pause" || kind === "activate" || kind === "offboard") return fetchAll().then(function () { renderTenants(); var current = data.tenants.find(function (row) { return row.id === t.id; }); if (current && cur.tenant && cur.tenant.id === t.id) tenantDetail(current); }); else done(ok, "Saved."); })
       .catch(function (e) { err.textContent = e.message; });
   }
 
@@ -426,13 +450,14 @@
     $("whoami").textContent = "Signed in as " + user.email;
     var go = function () { wire(); wireShell(); };
     if (RP.demo) { demo();viewState.loadedAt=new Date().toISOString();go();renderAll();if($("crmRefresh"))$("crmRefresh").disabled=false;dataStatus("Sample records · Illustrative snapshot, not live performance.","sample");return; }
-    RP.sb.from("profiles").select("is_admin").eq("id", user.id).single().then(function (r) {
-      if (!r || r.error || !r.data || r.data.is_admin!==true) {
-        $("whoami").textContent = "Administrator access is required.";
-        dataStatus("Administrator access could not be verified. Sign out and use an invited admin account.","error");
+    RP.sb.from("profiles").select("is_admin,is_operator").eq("id", user.id).single().then(function (r) {
+      if (!r || r.error || !r.data || (r.data.is_admin!==true && r.data.is_operator!==true)) {
+        $("whoami").textContent = "Administrator or operator access is required.";
+        dataStatus("Administrator or operator access could not be verified. Sign out and use an invited staff account.","error");
         document.querySelectorAll("[data-panel],.tabs").forEach(function (p) { p.hidden = true; });
         return;
       }
+      RP.platformAdmin = r.data.is_admin === true;
       go();return fetchAll().then(renderAll).catch(function(){});
     }).catch(function(){dataStatus("Administrator access could not be verified. Sign out and try again.","error");});
   });

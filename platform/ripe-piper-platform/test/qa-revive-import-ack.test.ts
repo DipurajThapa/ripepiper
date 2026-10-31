@@ -11,6 +11,7 @@ function adapter(receipt:unknown){
   const url=new URL(input);if(url.origin!==env.SUPABASE_URL)throw Error('External network forbidden');
   if(url.pathname==='/auth/v1/user')return Response.json({id:actor,email:'qa-staff@example.invalid'});
   if(url.pathname==='/rest/v1/profiles')return Response.json([{is_admin:true}]);
+  if(url.pathname==='/rest/v1/rpc/tenant_access')return Response.json(true);
   if(url.pathname==='/rest/v1/tenants')return Response.json([{id:tenant}]);
   if(url.pathname==='/rest/v1/rpc/import_review_lead'){writes.push(JSON.parse(String(init.body)));return Response.json(receipt);}
   throw Error('Unexpected database or provider operation');

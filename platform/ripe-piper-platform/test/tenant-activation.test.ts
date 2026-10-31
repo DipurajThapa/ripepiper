@@ -5,6 +5,7 @@ import {readFileSync,readdirSync} from 'node:fs';
 import {activateTenant} from '../src/foundation/tenants';
 import type {Env} from '../src/env';
 import {seedReviveSetup} from './helpers/revive-setup';
+import {asOperator} from './helpers/access';
 const admin='11111111-1111-4111-8111-111111111111',other='22222222-2222-4222-8222-222222222222';
 let db:PGlite;
 beforeAll(async()=>{
@@ -21,6 +22,7 @@ afterAll(async()=>db?.close());
 async function service<T>(fn:()=>Promise<T>){await db.exec('set role service_role');try{return await fn();}finally{await db.exec('reset role');}}
 async function tenant(status='onboarding'){
  const id=(await db.query<any>(`insert into tenants(name,slug,country,currency,status) values('Fixture',$1,'AE','AED',$2)returning id`,['activation-'+crypto.randomUUID(),status])).rows[0].id;
+ await asOperator(db,{tenantId:id,profileId:admin});
  await db.query(`insert into business_briefs(tenant_id,version,body,created_by)values($1,1,$2,$3)`,[id,JSON.stringify({offer:'Reviewed project recovery',industries:['construction'],markets:['AE'],roles:['owner'],needs:['project recovery'],excludedIndustries:[],maxAgeDays:30,source:{reference:'fixture:interview',excerpt:'Reviewed current business offer',observedAt:new Date().toISOString()}}),admin]);
  if(status!=='ended')await seedReviveSetup(db,id,admin);return id;
 }

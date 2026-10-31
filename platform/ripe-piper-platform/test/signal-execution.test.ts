@@ -4,6 +4,7 @@ import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
 import {readFileSync,readdirSync} from 'node:fs';
 import {seedReviveSetup,fixtureService} from './helpers/revive-setup';
 import {buildSignalProposal} from '../src/foundation/signal-strategy';
+import {asOperator} from './helpers/access';
 const actor='00000000-0000-4000-8000-000000000031';
 let db:PGlite,tenant:string,lead:string,signal:string,fact:string,body:any;
 const q=async(sql:string,args:any[]=[]) => (await db.query<any>(sql,args)).rows;
@@ -15,6 +16,7 @@ beforeAll(async()=>{
  const directory=new URL('../supabase/migrations/',import.meta.url);for(const file of readdirSync(directory).filter(f=>f.endsWith('.sql')).sort())await db.exec(readFileSync(new URL(file,directory),'utf8'));
  await q(`insert into auth.users(id,email,email_confirmed_at) values($1,'staff@example.invalid',now())`,[actor]);await q('update profiles set is_admin=true where id=$1',[actor]);
  tenant=(await q(`insert into tenants(name,slug,country,currency,status) values('Fictional Signal Client','signal-execution','AE','AED','active') returning id`))[0].id;
+ await asOperator(db,{tenantId:tenant,profileId:actor});
  const observedAt=new Date(Date.now()-3600000).toISOString().slice(0,19)+'.123456+00:00',expiresAt=new Date(Date.now()+86400000).toISOString();
  const brief={offer:'Map workflow ownership',industries:['construction'],markets:['AE'],roles:['COO'],needs:['workflow ownership'],excludedIndustries:['retail'],maxAgeDays:30,source:{reference:'interview:fixture',excerpt:'Reviewed business brief',observedAt}};
  await rpc('save_business_brief',[tenant,0,brief,actor]);await seedReviveSetup(db,tenant,actor);

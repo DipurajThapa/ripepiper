@@ -1,6 +1,7 @@
 import {beforeEach,describe,it,expect,vi} from 'vitest';
 import type {Env} from '../src/env';
-import {googleToken,busyTimes,createMeetEvent,reconcileMeetEvent,calendarEventId,sheetAppend,sheetWrite} from '../src/lib/google';
+import {googleToken,busyTimes,createMeetEvent,reconcileMeetEvent,calendarEventId,sheetAppend,sheetWrite,buildMime,sendEmail} from '../src/lib/google';
+import {brandFrom} from '../src/lib/brand';
 let env:Env;
 const p={id:'11111111-1111-4111-8111-111111111111',start:'2026-11-01T08:00:00Z',end:'2026-11-01T08:15:00Z',email:'fixture@example.invalid',name:'Fixture',summary:'Test',description:'Synthetic'};
 const event=()=>({id:calendarEventId(p.id),status:'confirmed',extendedProperties:{private:{ripe_meeting_id:p.id}},start:{dateTime:p.start},end:{dateTime:p.end},attendees:[{email:p.email}],hangoutLink:'https://meet.google.com/abc-defg-hij'});
@@ -94,4 +95,45 @@ it('rejects a replaced in-flight cache entry even when credentials are later res
  const fetcher=vi.fn().mockImplementationOnce(()=>new Promise<Response>(r=>complete=r)).mockResolvedValue(Response.json({access_token:'new',expires_in:3600}));vi.stubGlobal('fetch',fetcher);
  const pending=googleToken(env);env.GOOGLE_REFRESH_TOKEN='rotated';await googleToken(env);env.GOOGLE_REFRESH_TOKEN=original;
  const rejection=expect(pending).rejects.toThrow('credentials changed');complete(Response.json({access_token:'old',expires_in:3600}));await rejection;
+});
+describe('header-safe MIME and per-send identity',()=>{
+ const decode=(raw:string)=>new TextDecoder().decode(Uint8Array.from(atob(raw.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0)));
+ const words=(h:string)=>h.match(/=\?UTF-8\?B\?([^?]+)\?=/g)!.map(w=>new TextDecoder().decode(Uint8Array.from(atob(w.slice(10,-2)),c=>c.charCodeAt(0)))).join('');
+ it('RFC 2047-encodes a non-ASCII display name in bounded words and keeps ASCII From unchanged',()=>{
+  const name='Zoë Café '.repeat(8)+'"Ltd"',from=buildMime(brandFrom(name,'zoe@client.invalid'),'c@d.invalid','s','b').split('\r\nTo:')[0];
+  expect(from.split('\r\n').every(l=>l.length<=78)).toBe(true);
+  expect(from).toMatch(/^From: (=\?UTF-8\?B\?[A-Za-z0-9+/=]+\?=(\r\n )?)+ <zoe@client\.invalid>$/);expect(from.match(/=\?[^ ]+\?=/g)!.every(w=>w.length<=75)).toBe(true);
+  expect(words(from)).toBe(name);
+  expect(buildMime('Ripe Piper <hello@ripepiper.invalid>','c@d.invalid','s','b').split('\r\n')[0]).toBe('From: Ripe Piper <hello@ripepiper.invalid>');
+ });
+ it('emits Reply-To and RFC 8058 one-click unsubscribe headers',()=>{
+  const mime=buildMime('a@b.invalid','c@d.invalid','s','b',undefined,{'Reply-To':'reply@client.invalid','List-Unsubscribe':'<https://ripepiper.invalid/u?t=x>','List-Unsubscribe-Post':'List-Unsubscribe=One-Click'});
+  const head=mime.split('\r\n\r\n')[0].split('\r\n');
+  expect(head).toEqual(expect.arrayContaining(['Reply-To: reply@client.invalid','List-Unsubscribe: <https://ripepiper.invalid/u?t=x>','List-Unsubscribe-Post: List-Unsubscribe=One-Click']));
+ });
+ it.each([
+  ['from',()=>buildMime('a@b.invalid\r\nBcc: x@y.invalid','c@d.invalid','s','b')],
+  ['to',()=>buildMime('a@b.invalid','c@d.invalid\nBcc: x@y.invalid','s','b')],
+  ['header',()=>buildMime('a@b.invalid','c@d.invalid','s','b',undefined,{'Reply-To':'r@x.invalid\r\nBcc: x@y.invalid'})],
+  ['unlisted header',()=>buildMime('a@b.invalid','c@d.invalid','s','b',undefined,{Bcc:'x@y.invalid'} as any)],
+  ['brand name',()=>brandFrom('Name\r\nBcc: x','a@b.invalid')],
+  ['brand address list',()=>brandFrom('Name','a@b.invalid, x@y.invalid')],
+ ])('rejects header injection via %s',(_n,fn)=>{expect(fn).toThrow();});
+ it('defaults sendEmail to env.MAIL_FROM and honours a per-send identity',async()=>{
+  const calls=mockProvider(()=>Response.json({id:'msg_1'}));const agency={...env,MAIL_FROM:'Ripe Piper <hello@ripepiper.invalid>'} as Env;
+  await sendEmail(agency,'c@d.invalid','s','b');
+  await sendEmail(agency,'c@d.invalid','s','b',undefined,undefined,{from:brandFrom('Client','owner@client.invalid'),headers:{'Reply-To':'owner@client.invalid'}});
+  const raws=calls.filter(c=>c.url.host==='gmail.googleapis.com').map(c=>decode(JSON.parse(String(c.init.body)).raw));
+  expect(raws[0]).toMatch(/^From: Ripe Piper <hello@ripepiper\.invalid>\r\n/);expect(raws[0]).not.toContain('Reply-To');
+  expect(raws[1]).toMatch(/^From: "Client" <owner@client\.invalid>\r\n/);expect(raws[1]).toContain('Reply-To: owner@client.invalid');
+ });
+ it('rejects injected headers before any provider call',async()=>{
+  const calls=mockProvider(()=>Response.json({id:'msg_1'}));
+  await expect(sendEmail(env,'c@d.invalid','s','b',undefined,undefined,{from:'x@y.invalid\nBcc: z@y.invalid'})).rejects.toThrow('Invalid email header');expect(calls).toHaveLength(0);
+ });
+ it('defaults meeting time zone to Asia/Dubai and honours a tenant time zone',async()=>{
+  const calls=mockProvider(()=>Response.json(event()));await createMeetEvent(env,p);await createMeetEvent(env,{...p,timeZone:'Europe/London'});
+  const bodies=calls.filter(c=>c.init.method==='POST'&&c.url.pathname.endsWith('/events')).map(c=>JSON.parse(String(c.init.body)));
+  expect(bodies.map(b=>[b.start.timeZone,b.end.timeZone])).toEqual([['Asia/Dubai','Asia/Dubai'],['Europe/London','Europe/London']]);
+ });
 });
