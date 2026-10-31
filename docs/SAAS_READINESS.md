@@ -59,7 +59,7 @@ Not recommended now: inbox rotation and bulk warm-up networks (they serve volume
 - **M1. Reply detection** from the connected Google or Microsoft mailbox (needs a read scope; Gmail read scopes are restricted and need a security assessment, so start with Microsoft Graph or Gmail metadata only).
 - **M2. Email verification** before enrolment, through one provider within budget.
 - **M3. Per-mailbox daily cap and DNS check** before a campaign can be approved (RP-013 bundle).
-- **M4. Merge pull request #15**, then update DELIVERY.md's hybrid section, which still describes it as uncommitted.
+- **M4. Merge pull request #15**, then update DELIVERY.md's hybrid section (heading, anchor and status lines), which describe it as an unmerged branch.
 - **M5. Grant-expiry warning** for managed clients, so access does not lapse mid-campaign.
 
 ### Later
@@ -76,21 +76,21 @@ Built on this branch: `GET /api/admin/tenants/{id}/onboarding` returns the clien
 | CSV import | Working | Row checks, per-client dedupe | Upload lists they may contact | none | no |
 | Internal record (leads, deals, outcomes) | Working | Storage, isolation, export, deletion | nothing | none | no |
 | Approved JSON signal feeds | Built, needs live source | Host allowlist, preview, expiry | Name entitled sources | none | no |
-| WhatsApp Business | Built for opted-in reminders, off | Template use, opt-in records | Own the WABA and number, approve per-message cost | whatsapp_business_messaging | Meta Business owner |
+| WhatsApp Business | Planned per client; only Ripe Piper's own opted-in consultation reminders exist, off | Template use, opt-in records | Own the WABA and number, approve per-message cost | whatsapp_business_messaging | Meta Business owner |
 | HubSpot, Salesforce, Pipedrive | Planned | Public app per CRM | Install or approve the app | per CRM | yes for Salesforce, HubSpot super admin |
 | Data provider and verification | Planned | Choose a licensed source | nothing, or bring their own key | API key | no |
 | Webhooks, SMS | Planned | Signing and retries; provider account | Receiving URL; sender registration | n/a | no |
 | LinkedIn | Not offered | nothing | Manual use; Ripe Piper stores the profile link | none | n/a |
 
-Credentials: refresh tokens are sealed with AES-GCM bound to tenant, connection and provider; a connection is re-checked just before every send; revocation deletes the sealed secret and revokes the Google token; a failed refresh marks the connection in error and the onboarding step falls back to "to do". Customers never create developer projects or paste secrets.
+Credentials: refresh tokens are sealed with AES-GCM bound to tenant, connection and provider, and a connection is re-checked just before every send. Revocation deletes the sealed secret; offboarding also revokes the Google token, but a client's own disconnect does not yet revoke it at Google (the user can remove access in their Google account). The database can mark a connection in error, which turns the onboarding step back to "to do", but nothing calls that yet; it must be wired into token refresh when dispatch sends through the tenant adapter (RP-013). Customers never create developer projects or paste secrets.
 
 ## 5. Owner action checklist (in order)
 
 1. **Merge pull request #15.** My merge was blocked by a safety rule on this machine; you can merge it on GitHub, or allow it and tell me to.
 2. **Decide the site copy (C1):** soften the score, warm-up, verification and one-hour reply claims, or keep them and accept that they are not yet true.
 3. **Staging secrets** in GitHub Actions (`RIPEPIPER_STAGING_CLOUDFLARE_API_TOKEN`, `RIPEPIPER_STAGING_SERVICE_ROLE_KEY`, `RIPEPIPER_STAGING_ANON_KEY`), then approve applying the eleven migrations to staging and deploying the staging Worker.
-4. **Generate and back up `CONNECTION_KEYS`** (a random 32-byte key in a password manager), and set it as a staging Worker secret yourself.
-5. **Create the Google Cloud OAuth client** for Ripe Piper with the staging callback URL, add your own mailbox as a test user (no Google verification is needed for test users), and set the client id and secret as staging Worker secrets.
+4. **Generate and back up a connection key** (a random 32-byte key, base64, kept in a password manager), then set two staging Worker secrets yourself: `CONNECTION_KEYS` as `{"k1":"<the base64 key>"}` and `CONNECTION_KEY_CURRENT` as `k1`.
+5. **Create the Google Cloud OAuth client** for Ripe Piper with the staging callback URL, add your own mailbox as a test user (no Google verification is needed for test users), and set the client id and secret as staging Worker secrets, plus `OAUTH_ENABLED` set to exactly `true`.
 6. **Choose the pilot mailbox** (the Ripe Piper address you will send from) and confirm SPF, DKIM and DMARC on its domain.
 7. **Reconcile prior spend against the US$20 budget** (RP-018). Nothing on this list needs paid services; Google OAuth test mode, Cloudflare Workers free tier and the existing Supabase project are enough.
 8. **Pilot decisions:** the segment (section 6), where the contacts come from and your legal basis for contacting them, the exact messages, a cap (suggested: 25 contacts, 1 mailbox, 14 days), and written authorisation for that live send.
@@ -124,6 +124,6 @@ No real prospect was contacted and no provider was called.
 - `site/assets/portal.js`: "Getting started" panel with steps and the connector table, for client admins in both modes.
 - Tests: acceptance test 8 in `test/hybrid-acceptance.test.ts`; portal UI test updated for the new call.
 
-Remaining engineering, all blocked on the owner items above or recommended next: RP-013 live send, reply detection, verification provider, per-mailbox cap and DNS check, HubSpot sync, grant-expiry warning.
+Remaining engineering, all blocked on the owner items above or recommended next: RP-013 live send (including marking a connection in error on a failed token refresh), Google token revocation on a client disconnect, reply detection, verification provider, per-mailbox cap and DNS check, HubSpot sync, grant-expiry warning.
 
 Sources: [Apollo pricing (Zeliq)](https://www.zeliq.com/blog/apolloio-pricing), [Apollo vs ZoomInfo](https://apollo.io/insights/apollo-vs-zoominfo), [Clay pricing (Crustdata)](https://crustdata.com/reviews/clay), [Clay pricing change (SyncGTM)](https://www.syncgtm.com/blog/clay-pricing-change), [Instantly vs Smartlead vs lemlist (Valley)](https://www.joinvalley.co/blog/instantly-vs-smartlead-vs-lemlist), [G2 comparison](https://www.g2.com/compare/instantly-vs-smartlead-vs-lemlist), [HubSpot Prospecting Agent](https://www.hubspot.com/products/sales/ai-prospecting-agent?m=1), [Breeze Prospecting Agent guide (Octave)](https://www.octavehq.com/post/hubspot-breeze-prospecting-agent-complete-guide).

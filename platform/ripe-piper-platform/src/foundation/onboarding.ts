@@ -39,9 +39,9 @@ export const CONNECTORS:Connector[]=[
   permissions:[],adminConsent:'Not needed.',validation:'Waiting for a licensed source whose terms allow this use.'},
  {id:'webhooks',name:'Outbound webhooks',category:'Extensibility',status:'planned',method:'Signed HTTPS callbacks',ripePiperManages:'Signing, retries and delivery log.',
   customerDoes:'Gives a receiving URL.',permissions:[],adminConsent:'Not needed.',validation:'Not built.'},
- {id:'whatsapp_cloud',name:'WhatsApp Business',category:'Messaging',status:'testing',method:'Meta Cloud API with an approved template',
-  ripePiperManages:'Template use, opt-in records and webhooks.',customerDoes:'Owns the WhatsApp Business account and number and approves per-message cost.',
-  permissions:['whatsapp_business_messaging'],adminConsent:'Meta Business account owner.',validation:'Consultation reminders only, after the guest opts in; off by default.'},
+ {id:'whatsapp_cloud',name:'WhatsApp Business',category:'Messaging',status:'planned',method:'Meta Cloud API with an approved template',
+  ripePiperManages:'Per-client WhatsApp Business connection, template use, opt-in records and webhooks.',customerDoes:'Owns the WhatsApp Business account and number and approves per-message cost.',
+  permissions:['whatsapp_business_messaging'],adminConsent:'Meta Business account owner.',validation:"Not built for clients. Today WhatsApp sends only Ripe Piper's own consultation reminders from Ripe Piper's number."},
  {id:'sms',name:'Phone and SMS',category:'Messaging',status:'planned',method:'Provider API key',ripePiperManages:'Provider account, consent records and opt-out handling.',
   customerDoes:'Approves sender registration and cost.',permissions:[],adminConsent:'Not needed.',validation:'Not built.'},
  {id:'linkedin',name:'LinkedIn',category:'Social',status:'not_supported',method:'None for messaging',ripePiperManages:'Nothing. LinkedIn offers no permitted API for prospecting messages.',
@@ -52,13 +52,14 @@ export const CONNECTORS:Connector[]=[
 export async function onboardingStatus(req:Request,env:Env,tenantId:string){
  await requireTenant(req,env,tenantId,'read');
  const db=new Db(env,8000),t=tenantId.toLowerCase();
- const [tenant,brief,setup,envelope,campaign,connections]=await Promise.all([
+ const [tenant,brief,setup,campaign,connections]=await Promise.all([
   db.one<any>('tenants',`id=eq.${t}&select=status,ownership`),
   db.one<any>('business_briefs',`tenant_id=eq.${t}&select=version&order=version.desc`),
   db.one<any>('revive_setups',`tenant_id=eq.${t}&select=version&order=version.desc`),
-  db.one<any>('operating_envelopes',`tenant_id=eq.${t}&select=version&order=version.desc`),
   db.one<any>('campaigns',`tenant_id=eq.${t}&status=eq.approved&select=id`),
   registryList(db,t)]);
+ // Same choice as envelope_campaign_fit: the newest fully approved version, so a pending proposal does not hide the one in force.
+ const envelope=await db.one<any>('operating_envelopes',`tenant_id=eq.${t}&client_approved_by=not.is.null${tenant?.ownership==='managed'?'&operator_approved_by=not.is.null':''}&select=version&order=version.desc`);
  const now=new Date().toISOString();
  // A reviewed setup stops counting once a newer brief replaces the one it was reviewed against; the envelope refuses it then too.
  const [setupCurrent,envelopeEffective]=await Promise.all([
