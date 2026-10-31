@@ -16,11 +16,16 @@ it('requires atomic reservation before exactly one provider call and settles val
   if(url.includes('reserve_build_usage'))return Response.json(true);
   if(url.includes('settle_build_usage'))return Response.json(true);
   expect(init.signal).toBeInstanceOf(AbortSignal);
-  return Response.json({usage:{input_tokens:20,output_tokens:10},content:[{type:'text',text:JSON.stringify({summary:'Fixture',notes:{},minutes:{},requirements:{}})}]});
+  return Response.json({usage:{input_tokens:20,output_tokens:10},stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({summary:'Fixture',notes:{},minutes:{},requirements:{}})}]});
  }));
  expect((await analyseMeeting(env(),'synthetic',{})).summary).toBe('Fixture');
  expect(calls.map(c=>c.url.includes('/rpc/')?c.url.split('/').at(-1):'provider')).toEqual(['reserve_build_usage','provider','settle_build_usage']);
  expect(calls[2].body.p_actual_micro).toBe(40);
+});
+it.each(['max_tokens','refusal',undefined])('settles usage but rejects a %s answer so no partial draft is saved',async stop_reason=>{
+ const calls:string[]=[];vi.stubGlobal('fetch',vi.fn(async(url:string)=>{calls.push(url.includes('/rpc/')?url.split('/').at(-1)!:'provider');
+  if(url.includes('/rpc/'))return Response.json(true);return Response.json({usage:{input_tokens:20,output_tokens:10},stop_reason,content:[{type:'text',text:JSON.stringify({summary:'Cut',notes:{},minutes:{},requirements:{}})}]});}));
+ await expect(analyseMeeting(env(),'synthetic',{})).rejects.toThrow('incomplete');expect(calls).toEqual(['reserve_build_usage','provider','settle_build_usage']);
 });
 it('does not call provider if budget reservation is refused',async()=>{
  const fetcher=vi.fn(async()=>Response.json(false));vi.stubGlobal('fetch',fetcher);

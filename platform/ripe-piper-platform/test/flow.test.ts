@@ -6,11 +6,14 @@ import worker from "../src/index";
 import {googleBindingDigest} from "../src/foundation/connections";
 import { syncSheet } from "../src/lib/sheets";
 import { syncAds } from "../src/jobs";
+import { cancelBooking } from "../src/routes/admin";
+import { priceBlock } from "../src/lib/ai";
 
 type Row = Record<string, any>;
 let tables: Record<string, Row[]>;
 let sentEmails: { to: string; raw: string }[];
 let calendarEvents: Row[];
+let deletedEvents: string[] = [], deleteStatus = 204;
 let rpcCalls: string[];
 let rpcBodies: any[];
 const uuid = () => crypto.randomUUID();
@@ -141,6 +144,7 @@ async function fakeFetch(input: RequestInfo | URL, init: RequestInit = {}): Prom
     const ev = JSON.parse(String(init.body)); calendarEvents.push(ev);
     return Response.json({ ...ev, status: "confirmed", hangoutLink: "https://meet.google.com/abc-defg-hij", conferenceData: { conferenceId: "abc-defg-hij", entryPoints: [{ entryPointType: "video", uri: "https://meet.google.com/abc-defg-hij" }] } });
   }
+  if (url.pathname.includes("/calendar/v3/calendars/") && init.method === "DELETE") { deletedEvents.push(decodeURIComponent(url.pathname.split("/").at(-1)!)); return new Response(null, { status: deleteStatus }); }
   if (url.pathname.endsWith("/messages/send")) {
     const raw = atob(JSON.parse(String(init.body)).raw.replace(/-/g, "+").replace(/_/g, "/"));
     sentEmails.push({ to: /To: (.*)\r\n/.exec(raw)![1], raw }); return Response.json({ id: "m" });
@@ -171,7 +175,7 @@ async function sign(secret: string, payload: string) {
 }
 
 beforeEach(() => {
-  tables = {}; sentEmails = []; calendarEvents = []; rpcCalls = []; rpcBodies = []; delete env.GOOGLE_TENANT_CONNECTIONS;
+  tables = {}; sentEmails = []; calendarEvents = []; deletedEvents = []; deleteStatus = 204; rpcCalls = []; rpcBodies = []; delete env.GOOGLE_TENANT_CONNECTIONS;
   vi.stubGlobal("fetch", fakeFetch);
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-11-02T04:00:00Z"));   // Monday 08:00 GST
@@ -197,6 +201,25 @@ describe("inquiry to booked call", () => {
     const other: any = await (await call("POST", "/api/lead", { name: "Raj", email: "raj@punetech.in", website: "punetech.in", package: "signal", country: "India", deal_band: 1, consent: true })).json();
     const r3 = await call("POST", "/api/book", { lead_id: other.lead_id, booking_token: other.booking_token, start: j1.slots[0].start });
     expect(r3.status).toBe(409);
+  });
+
+  it("staff cancel deletes the calendar event, frees the slot and lets the prospect rebook", async () => {
+    const lead: any = await (await call("POST", "/api/lead", { name: "Sara Khan", email: "sara@gulfinteriors.ae", website: "gulfinteriors.ae", deal_band: 2, consent: true })).json();
+    expect((await call("POST", "/api/book", { lead_id: lead.lead_id, booking_token: lead.booking_token, start: lead.slots[0].start })).status).toBe(200);
+    const m = tables.meetings[0], cancel = (auth = "Bearer test-admin") => cancelBooking(new Request("https://ripepiper.com/x", { method: "POST", headers: { Authorization: auth } }), env, m.id);
+    await expect(cancel("Bearer client-token")).rejects.toMatchObject({ status: 403 });
+    deleteStatus = 500;
+    expect((await cancel()).status).toBe(409);
+    expect(m.status).toBe("booked"); expect(tables.leads[0].status).toBe("meeting_booked");
+    deleteStatus = 410;
+    expect((await cancel()).status).toBe(200);
+    expect(deletedEvents).toEqual([m.google_event_id, m.google_event_id]);
+    expect(m.status).toBe("cancelled"); expect(tables.leads[0].status).toBe("qualified");
+    expect(tables.activity_log.at(-1)).toMatchObject({ kind: "note", visible_to_client: false });
+    expect((await cancel()).status).toBe(404);
+    const again: any = await (await call("POST", "/api/lead", { name: "Sara Khan", email: "sara@gulfinteriors.ae", website: "gulfinteriors.ae", deal_band: 2, consent: true })).json();
+    expect(again.route).toBe("calendar"); expect(again.slots[0].start).toBe(lead.slots[0].start);
+    expect((await call("POST", "/api/book", { lead_id: again.lead_id, booking_token: again.booking_token, start: lead.slots[0].start })).status).toBe(200);
   });
 
   it("returns a confirmed retry without provider calls or duplicate emails", async () => {
@@ -534,6 +557,16 @@ describe("admin delivery of proposals and quotations", () => {
     tables.meetings = [defaults("meetings", { id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", tenant_id: null, attendee_email: "a@b.ae", start_at: "2026-11-01T10:00:00Z", end_at: "2026-11-01T10:30:00Z" })];
     const res = await call("POST", "/api/admin/meetings/cccccccc-cccc-4ccc-8ccc-cccccccccccc/process", { transcript: "x".repeat(300) }, { Authorization: "Bearer simulated-admin-token" });
     expect(res.status).toBe(409);expect((await res.json() as any).error).toContain("Paid AI");
+  });
+  it("reuses stored notes and the open pre-proposal draft instead of paying for the model again", async () => {
+    const mid = "cccccccc-cccc-4ccc-8ccc-cccccccccccc", admin = { Authorization: "Bearer simulated-admin-token" };
+    tables.meetings = [defaults("meetings", { id: mid, tenant_id: null, attendee_email: "a@b.ae", start_at: "2026-11-01T10:00:00Z", end_at: "2026-11-01T10:30:00Z", notes: { summary: "Stored" }, minutes: "# Minutes", requirements: { recommended_plan: "sprint", recommended_package: "revive" } })];
+    const processed: any = await (await call("POST", `/api/admin/meetings/${mid}/process`, {}, admin)).json();
+    expect(processed).toMatchObject({ ok: true, analysis: { summary: "Stored" }, minutes: "# Minutes" });
+    tables.proposals = [defaults("proposals", { meeting_id: mid, kind: "pre", plan: "sprint", package: "revive", currency: "AED", fixed_amount: priceBlock("AED", "sprint", "revive").scope.total, content_md: "x", status: "draft" })];
+    const drafted: any = await (await call("POST", `/api/admin/meetings/${mid}/draft-proposal`, { currency: "AED" }, admin)).json();
+    expect(drafted.proposal.id).toBe(tables.proposals[0].id); expect(tables.proposals).toHaveLength(1);
+    expect((await call("POST", `/api/admin/meetings/${mid}/draft-proposal`, { currency: "INR" }, admin)).status).toBe(409);
   });
 });
 

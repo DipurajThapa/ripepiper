@@ -7,7 +7,6 @@
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
-<div class="announce"><div class="wrap">Now booking 14-day Revive sprints for November 2026. <a href="../packages/revive.html">See how a sprint works</a></div></div>
 <header class="site">
   <div class="wrap nav">
     <div class="nav-left">
@@ -23,7 +22,7 @@
 </header>
 <main id="main">
 <section class="page-hero" id="login" hidden><div class="wrap"><div class="copy narrow">
-  <h1>Sign in to your dashboard</h1><p class="lede">Your live results: leads, meetings, ad spend, cost and return on investment. You see only your own company's data.</p>
+  <h1>Sign in to your dashboard</h1><p class="lede">Your live results: leads, meetings, cost and return on investment. You see only your own company's data.</p>
   <div class="formbox">
     <button class="btn btn-dark" type="button" data-login="google"><span class="ms" aria-hidden="true">login</span>Continue with Google</button>
     <p class="muted">Or receive a sign-in link by email. Use the company email address we invited.</p>
@@ -42,13 +41,14 @@
     <div class="app-tools">
       <label class="hint" for="tenantSelect" id="tenantSelectLabel" hidden>Company</label><select id="tenantSelect" hidden></select>
       <label class="hint" for="monthSelect">Month</label><select id="monthSelect"></select>
+      <button class="btn btn-line" type="button" id="downloadCsv">Download your records (CSV)</button>
       <button class="btn btn-line" type="button" id="signOut">Sign out</button>
     </div>
   </div>
-  <p class="note before" id="demoNote" hidden><span class="ms" aria-hidden="true">info</span>You are viewing sample data. Connect Supabase in assets/config.js to show live data.</p>
+  <p class="note before" id="demoNote" hidden><span class="ms" aria-hidden="true">info</span>You are viewing a sample dashboard. Your own results appear here once your account is active.</p>
   <nav class="tabs" aria-label="Dashboard sections">
     <a href="#overview" data-tab="overview" aria-current="page">Overview</a><a href="#funnel" data-tab="funnel">Funnel</a>
-    <a href="#ads" data-tab="ads">Ads</a><a href="#value" data-tab="value">Cost and return</a>
+    <a href="#value" data-tab="value">Cost and return</a>
     <a href="#deals" data-tab="deals">Deals</a><a href="#quotes" data-tab="quotes">Proposals and quotes</a><a href="#activity" data-tab="activity">Activity</a>
   </nav>
 </div></section>
@@ -77,7 +77,7 @@
 
 <section class="tight" data-panel="value" hidden><div class="wrap">
   <div class="sec-head"><span class="kicker">Cost and return</span><h2>What you paid and what it returned.</h2>
-    <p class="muted">Return on investment = (revenue from won deals − total cost) ÷ total cost. Total cost = our fees + your ad spend.</p></div>
+    <p class="muted">Return on investment = (revenue from won deals − total cost) ÷ total cost. Total cost = our fees only. Ad spend is not included while ad account sync is off.</p></div>
   <div class="kpis" id="valueKpis"></div>
   <div class="table-wrap" id="feesTable"></div>
 </div></section>
@@ -106,7 +106,7 @@
       <div class="stack sm">
         <a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>ripe piper</a>
         <p class="muted">We book qualified sales meetings for B2B companies in the UAE and India.</p>
-        <p class="muted">Email: hello@ripepiper.com<br>WhatsApp: +971 00 000 0000</p>
+        <p class="muted">Email: hello@ripepiper.com</p>
       </div>
       <div><h4>Packages</h4><ul>
         <li><a href="../packages/revive.html">Ripe Revive</a></li><li><a href="../packages/signal.html">Ripe Signal</a></li>
@@ -124,7 +124,6 @@
     <div class="fine"><span>© 2026 Ripe Piper. All rights reserved.</span></div>
   </div>
 </footer>
-<a class="btn btn-dark wa" href="../book.html#whatsapp"><span class="ms" aria-hidden="true">chat</span>WhatsApp</a>
 <script src="../assets/site.js"></script><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script><script src="../assets/config.js"></script><script src="../assets/app-common.js"></script><script src="../assets/portal.js"></script>
 </body>
 </html>

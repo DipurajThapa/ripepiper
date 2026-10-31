@@ -58,3 +58,9 @@ export function pickUtm(body: Record<string, unknown>): UtmFields {
   for (const k of keys) { const v = cleanText(body[k], 300); if (v) out[k] = v; }
   return out;
 }
+
+/** WhatsApp number in E.164 (+ then 8-15 digits, no leading zero); spaces, dashes and brackets are ignored. */
+export function e164(v: unknown): string | null {
+  const s = cleanText(v, 40).replace(/[\s().-]/g, "");
+  return /^\+[1-9][0-9]{7,14}$/.test(s) ? s : null;
+}

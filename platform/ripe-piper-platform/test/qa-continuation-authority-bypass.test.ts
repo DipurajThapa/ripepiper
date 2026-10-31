@@ -23,8 +23,8 @@ async function fixture(){
 it('browser roles cannot execute any new authority RPC or core even when a verified admin is signed in',async()=>{
  const a=await fixture();
  await q("select set_config('request.jwt.sub',$1,false)",[actor]);
- const functions=await q("select p.oid::regprocedure::text signature from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('google_authority_admin','tenant_google_probe_current','tenant_google_authority_current','register_tenant_google_authority','revoke_tenant_google_authority','record_product_event_authorized_core','record_authorized_gmail_event','record_gmail_product_event','record_product_event')");
- expect(functions).toHaveLength(9);
+ const functions=await q("select p.oid::regprocedure::text signature from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('google_authority_admin','tenant_google_probe_current','tenant_google_authority_current','register_tenant_google_authority','revoke_tenant_google_authority','record_product_event_authorized_core','record_authorized_gmail_event','record_product_event')");
+ expect(functions).toHaveLength(8);
  for(const role of ['anon','authenticated']){
   for(const f of functions)expect((await q("select has_function_privilege($1,$2,'EXECUTE') allowed",[role,f.signature]))[0].allowed).toBe(false);
   await db.exec('set role '+role);

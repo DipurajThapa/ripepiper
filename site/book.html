@@ -7,7 +7,7 @@
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
-<div class="announce"><div class="wrap">Now booking 14-day Revive sprints for November 2026. <a href="packages/revive.html">See how a sprint works</a></div></div>
+<div class="announce"><div class="wrap">Revive is a fixed 14-day sprint on your old leads. <a href="packages/revive.html">See how a sprint works</a></div></div>
 <header class="site">
   <div class="wrap nav">
     <div class="nav-left">
@@ -42,6 +42,10 @@
       <div class="field full"><label for="fDeal">Average value of one deal</label>
         <select id="fDeal"><option value="0">Less than AED 10,000 (₹2.5 lakh)</option><option value="1" selected>AED 10,000 to 50,000 (₹2.5 to 12 lakh)</option><option value="2">AED 50,000 to 250,000 (₹12 to 60 lakh)</option><option value="3">More than AED 250,000 (₹60 lakh)</option></select></div>
     </div>
+    <div class="stack sm" id="fWaBox" hidden>
+      <div class="field"><label for="fWhatsapp">WhatsApp number for reminders (optional, with country code)</label><input id="fWhatsapp" type="tel" autocomplete="tel" inputmode="tel"></div>
+      <label class="consent"><input type="checkbox" id="fWaConsent"><span>Send my consultation reminder on WhatsApp from Ripe Piper. Reply STOP at any time to end WhatsApp messages.</span></label>
+    </div>
     <label class="consent"><input type="checkbox" id="fConsent"><span>I agree that Ripe Piper may contact me about this request. I have read the <a href="privacy.html">privacy policy</a>.</span></label>
     <p class="err" id="fErr" role="alert"></p>
     <button class="btn btn-dark" type="submit">Check available times<span class="ms" aria-hidden="true">arrow_forward</span></button>
@@ -55,8 +59,8 @@
         <li><span class="ms" aria-hidden="true">check_circle</span>Show you a free sample of 10 companies in your market that show a buying signal</li>
         <li><span class="ms" aria-hidden="true">check_circle</span>Recommend one package, or tell you honestly if none of them fits</li>
       </ul></div>
-    <div id="whatsapp" class="stack sm"><span class="kicker">Prefer WhatsApp or email?</span>
-      <p>Send a WhatsApp message to <strong>+971 00 000 0000</strong> or email <strong>hello@ripepiper.com</strong>. We reply within one business hour, Sunday to Friday, 9:00 to 18:00 Gulf Standard Time.</p></div>
+    <div id="whatsapp" class="stack sm"><span class="kicker">Prefer to write to us?</span>
+      <p>Email <strong>hello@ripepiper.com</strong><span data-wa hidden> or send a WhatsApp message to <a rel="noopener" target="_blank"></a></span>. We reply within one business hour, Sunday to Friday, 9:00 to 18:00 Gulf Standard Time.</p></div>
   </div>
 </div></section>
 
@@ -79,7 +83,7 @@
       <div class="stack sm">
         <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>ripe piper</a>
         <p class="muted">We book qualified sales meetings for B2B companies in the UAE and India.</p>
-        <p class="muted">Email: hello@ripepiper.com<br>WhatsApp: +971 00 000 0000</p>
+        <p class="muted">Email: hello@ripepiper.com<span data-wa hidden><br>WhatsApp: <a rel="noopener" target="_blank"></a></span></p>
       </div>
       <div><h4>Packages</h4><ul>
         <li><a href="packages/revive.html">Ripe Revive</a></li><li><a href="packages/signal.html">Ripe Signal</a></li>
@@ -97,7 +101,6 @@
     <div class="fine"><span>© 2026 Ripe Piper. All rights reserved.</span></div>
   </div>
 </footer>
-<a class="btn btn-dark wa" href="book.html#whatsapp"><span class="ms" aria-hidden="true">chat</span>WhatsApp</a>
 <script src="assets/config.js"></script><script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script><script src="assets/site.js"></script>
 </body>
 </html>

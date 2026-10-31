@@ -5,7 +5,8 @@ import { emails } from "./lib/email";
 import { validInstant } from "./foundation/prospecting";
 import { meetingSnapshot, saveMeetingDraft } from "./foundation/consultation-review";
 import { dueReminder } from "./lib/slots";
-import { syncSheet } from "./lib/sheets";
+import { syncSheet, gst } from "./lib/sheets";
+import { whatsappEnabled, sendWhatsAppTemplate, receiptId } from "./lib/whatsapp";
 import { analyseMeeting, minutesMarkdown } from "./lib/ai";
 import { PaidUseBlocked } from "./lib/build-budget";
 import { googleAdsRows, metaRows, linkedinRows, toTenantCurrency, adsHttpError, redactedAdsError, type AdRow } from "./lib/ads";
@@ -28,11 +29,7 @@ export async function sendReminders(env: Env, now = new Date()) {
       // This fenced authorization rereads the current booking immediately before the provider call.
       const authorized=await db.rpc<any>("authorize_consultation_reminder",args);if(authorized===null){review++;continue;}
       if(!validReminderReceipt(authorized,m,which,token,"dispatching"))throw Error("Authorization acknowledgement uncertain");
-      const email=emails.reminder(m.attendee_name??"there",m.start_at,m.meet_url,which,now);
-      const ack=await sendEmail(env,m.attendee_email,email.subject,email.text,undefined,async()=>{
-        // OAuth refresh may take time; fence the actual Gmail mutation after it completes.
-        if(await db.rpc("confirm_consultation_dispatch",args)!==true)throw Error("Booking changed before provider dispatch");
-      });
+      const ack=useWhatsApp(env,m,which)?await sendWhatsAppReminder(env,db,m,args):await sendEmailReminder(env,db,m,which,args,now);
       const finished=await db.rpc<any>("finish_consultation_reminder",{...args,p_message:ack.messageId});
       if(!validReminderReceipt(finished,m,which,token,"acknowledged")||finished.messageId!==ack.messageId||!validInstant(finished.acknowledgedAt))throw Error("Delivery acknowledgement uncertain");
       sent++;
@@ -43,6 +40,22 @@ export async function sendReminders(env: Env, now = new Date()) {
     }
   }
   return {sent,review};
+}
+/** The 1h reminder goes by WhatsApp only with stored consent, no opt-out and the channel released. */
+const useWhatsApp=(env:Env,m:any,which:string)=>which==="1h"&&whatsappEnabled(env)&&!!env.WHATSAPP_REMINDER_TEMPLATE&&!!m.attendee_whatsapp&&!!m.whatsapp_consent_at&&!!m.whatsapp_notice&&!m.whatsapp_opted_out_at;
+async function sendEmailReminder(env:Env,db:Db,m:any,which:"24h"|"1h",args:object,now:Date){
+  const email=emails.reminder(m.attendee_name??"there",m.start_at,m.meet_url,which,now);
+  return sendEmail(env,m.attendee_email,email.subject,email.text,undefined,async()=>{
+    // OAuth refresh may take time; fence the actual Gmail mutation after it completes.
+    if(await db.rpc("confirm_consultation_dispatch",args)!==true)throw Error("Booking changed before provider dispatch");
+  });
+}
+async function sendWhatsAppReminder(env:Env,db:Db,m:any,args:object){
+  if(await db.rpc("confirm_consultation_dispatch",args)!==true)throw Error("Booking changed before provider dispatch");
+  // A STOP may land after the batch read; recheck immediately before the provider call.
+  if(!await db.one("meetings",`id=eq.${m.id}&tenant_id=is.null&whatsapp_opted_out_at=is.null&whatsapp_consent_at=not.is.null&select=id`))throw Error("WhatsApp opt-out before dispatch");
+  const ack=await sendWhatsAppTemplate(env,m.attendee_whatsapp,env.WHATSAPP_REMINDER_TEMPLATE!,[m.attendee_name??"there",`${gst(m.start_at)} GST`,m.meet_url]);
+  return {messageId:receiptId(ack.messageId)};
 }
 function validReminderReceipt(receipt:any,m:any,window:string,token:string,state:string){
  return !!receipt&&receipt.meetingId===m.id&&receipt.window===window&&receipt.token===token&&receipt.state===state&&validInstant(receipt.leaseUntil)&&(state==="acknowledged"||Date.parse(receipt.leaseUntil)>Date.now())&&sameSnapshot(receipt.snapshot,meetingSnapshot(m));

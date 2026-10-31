@@ -46,6 +46,12 @@ export interface Env {
   SYNTHETIC_SINK_ENABLED?: string;    // explicit development-only action test; never real delivery
   REVIVE_AUTOMATION_ENABLED?: string; // default off; bounded approved/accepted synthetic sequences only
   EVENT_REGISTRATION_ENABLED?: string; // default-off, requires synthetic sink flag; .invalid contacts only
+  WHATSAPP_ENABLED?: string;          // exact true only; default off until the owner approves Meta Cloud API go-live
+  WHATSAPP_TOKEN?: string;            // Meta system user access token (whatsapp_business_messaging)
+  WHATSAPP_PHONE_ID?: string;         // WhatsApp Business phone number id
+  WHATSAPP_APP_SECRET?: string;       // Meta app secret: verifies X-Hub-Signature-256
+  WHATSAPP_VERIFY_TOKEN?: string;     // webhook subscription verify token
+  WHATSAPP_REMINDER_TEMPLATE?: string; // approved utility template: {{1}} name, {{2}} GST time, {{3}} Meet link
   SITE_URL: string;                   // https://ripepiper.com
   ASSETS?: Fetcher;                   // staging only: a Worker cannot fetch its own workers.dev URL
 }

@@ -46,7 +46,6 @@ BEGIN
   'public.reserve_consultation(uuid,text,uuid,text,timestamptz,timestamptz,text,text)',
   'public.confirm_agency_opt_out(text)','public.issue_agency_opt_out(text,text)',
   'public.request_agency_newsletter(text)','public.confirm_agency_newsletter(uuid)',
-  'public.record_gmail_product_event(integer,timestamptz,uuid,uuid,uuid,text,text,text,timestamptz,boolean,jsonb)',
   'public.register_tenant_google_authority(uuid,uuid,integer,integer,uuid,text,text,text,text,timestamptz)',
   'public.revoke_tenant_google_authority(uuid,uuid,integer)',
   'public.tenant_google_authority_current(uuid,uuid,integer,integer,text)',
@@ -90,8 +89,7 @@ BEGIN
  IF NOT rejected THEN RAISE EXCEPTION 'Authenticated consultation RPC permitted'; END IF;
  rejected:=false;BEGIN PERFORM public.confirm_agency_opt_out(repeat('d',64));EXCEPTION WHEN insufficient_privilege THEN rejected:=true;END;
  IF NOT rejected THEN RAISE EXCEPTION 'Authenticated preference RPC permitted'; END IF;
- rejected:=false;BEGIN PERFORM public.record_gmail_product_event(0,expires,t,tl,a,'gmail:audit:denied','synthetic-source','Synthetic message',observed,true,context);EXCEPTION WHEN insufficient_privilege THEN rejected:=true;END;
- IF NOT rejected THEN RAISE EXCEPTION 'Authenticated Gmail RPC permitted'; END IF;
+ IF to_regprocedure('public.record_gmail_product_event(integer,timestamptz,uuid,uuid,uuid,text,text,text,timestamptz,boolean,jsonb)') IS NOT NULL THEN RAISE EXCEPTION 'Authenticated Gmail RPC permitted'; END IF;
  EXECUTE 'RESET ROLE';
 
  -- Preference change affects agency newsletter/suppression only, never tenant lifecycle.
@@ -134,8 +132,7 @@ BEGIN
  IF receipt IS DISTINCT FROM jsonb_build_object('version',1,'status','verified','authorityVersion',1) THEN RAISE EXCEPTION 'Registration receipt mismatch'; END IF;
  rejected:=false;BEGIN PERFORM public.register_tenant_google_authority(t,a,0,version,gc,hash,'staff@example.invalid','calendar@example.invalid','synthetic-source',expires);EXCEPTION WHEN serialization_failure THEN rejected:=true;END;
  IF NOT rejected THEN RAISE EXCEPTION 'Stale registration CAS accepted'; END IF;
- rejected:=false;BEGIN PERFORM public.record_gmail_product_event(version,expires,t,gl,a,'gmail:audit:legacy','synthetic-source','Synthetic message',observed,false,context);EXCEPTION WHEN insufficient_privilege THEN rejected:=true;END;
- IF NOT rejected THEN RAISE EXCEPTION 'Legacy Gmail RPC remained callable'; END IF;
+ IF to_regprocedure('public.record_gmail_product_event(integer,timestamptz,uuid,uuid,uuid,text,text,text,timestamptz,boolean,jsonb)') IS NOT NULL THEN RAISE EXCEPTION 'Legacy Gmail RPC remained callable'; END IF;
  event_id:=public.record_authorized_gmail_event(version,expires,t,gl,a,'gmail:'||gc||':message','synthetic-source','Synthetic message',observed,false,context,1,hash);
  replay_id:=public.record_authorized_gmail_event(version,expires,t,gl,a,'gmail:'||gc||':message','synthetic-source','Synthetic message',observed,false,context,1,hash);
  IF event_id IS NULL OR replay_id IS DISTINCT FROM event_id THEN RAISE EXCEPTION 'Gmail event replay failed'; END IF;

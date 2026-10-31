@@ -91,11 +91,31 @@
     } catch (e) { out = { landing_page: location.pathname }; }
     return out;
   })();
+  /* WhatsApp contact appears only once the owner sets config.whatsappNumber (E.164 digits, e.g. "9715XXXXXXXX"). */
+  var WA = String((window.RP_CONFIG || {}).whatsappNumber || "").replace(/\D/g, "");
+  if (/^[1-9]\d{7,14}$/.test(WA)) {
+    document.querySelectorAll("[data-wa]").forEach(function (el) { var a = el.querySelector("a"); a.href = "https://wa.me/" + WA; a.textContent = "+" + WA; el.hidden = false; });
+    var fab = document.createElement("a"); fab.className = "btn btn-dark wa"; fab.href = "https://wa.me/" + WA; fab.target = "_blank"; fab.rel = "noopener";
+    fab.innerHTML = '<span class="ms" aria-hidden="true">chat</span>WhatsApp'; document.body.appendChild(fab);
+  }
+  // Pages without the Turnstile tag (packages, markets, blog) load it on first protected submit.
+  var tsLoading = null, TS_DOWN = "Security verification is not available. Please reload and try again.";
+  function loadTurnstile() {
+    var ready = function () { return window.turnstile && typeof window.turnstile.execute === "function"; };
+    if (ready()) return Promise.resolve();
+    if (!tsLoading) tsLoading = new Promise(function (resolve, reject) {
+      // Reuse the page's own Turnstile tag while it is still loading instead of adding a second copy.
+      var s = document.querySelector && document.querySelector('script[src^="https://challenges.cloudflare.com/turnstile/"]'), add = !s;
+      if (add) { s = document.createElement("script"); s.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"; s.async = true; }
+      s.onload = resolve; s.onerror = function () { tsLoading = null; reject(new Error(TS_DOWN)); };
+      if (add) document.body.appendChild(s);
+    });
+    return tsLoading.then(function () { if (!ready()) throw new Error(TS_DOWN); });
+  }
   function turnstileToken() {
     var cfg = window.RP_CONFIG || {};
     if (!cfg.turnstileSiteKey) return Promise.reject(new Error("This form is not configured for live submissions. Please contact hello@ripepiper.com."));
-    if (!window.turnstile || typeof window.turnstile.execute !== "function") return Promise.reject(new Error("Security verification is not available. Please reload and try again."));
-    return new Promise(function (resolve, reject) {
+    return loadTurnstile().then(function () { return new Promise(function (resolve, reject) {
       // Visible but empty: "interaction-only" draws a checkbox here only when Cloudflare needs one.
       var node = document.createElement("div"); node.style.cssText = "position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:1000"; document.body.appendChild(node);
       var timer = setTimeout(function () { cleanup(); reject(new Error("Security verification timed out. Please try again.")); }, 120000);
@@ -109,7 +129,7 @@
         });
         window.turnstile.execute(widgetId);
       } catch (e) { cleanup(); reject(e); }
-    });
+    }); });
   }
   function post(path, body) {
     var protectedPaths = ["/api/lead", "/api/calculator", "/api/newsletter", "/api/opt-out"];
@@ -123,12 +143,22 @@
 
   /* Book form: qualify, then show times */
   var book = document.getElementById("bookForm");
+  // Never present simulated availability as a real appointment: replace the form before anyone types into it.
+  if (book && !LIVE) {
+    var notice = document.createElement("div"); notice.className = "formbox";
+    notice.innerHTML = okBox("mail", location.protocol === "file:"
+      ? "Calendar booking requires the deployed Ripe Piper website. This local file cannot access live availability. Open the staging website using its https:// address."
+      : "Calendar booking is not enabled on this website yet. Please email <a href=\"mailto:hello@ripepiper.com\">hello@ripepiper.com</a> to arrange a call.");
+    book.replaceWith(notice); book = null;
+  }
   if (book) {
     var pkg = (location.hash || "").replace("#", "");
     var sel = document.getElementById("fPkg");
     if (sel && ["revive", "signal", "response", "events"].indexOf(pkg) !== -1) sel.value = pkg;
     var err = document.getElementById("fErr"), res = document.getElementById("fResult"), leadId = null, bookingToken = null;
-    var MSG_WORK = "Please use your work email address, so we can review your company before the call. You can also message us on WhatsApp.";
+    var MSG_WORK = "Please use your work email address, so we can review your company before the call. You can also email hello@ripepiper.com.";
+    var waBox = document.getElementById("fWaBox"), waOn = !!(waBox && window.RP_CONFIG.whatsappReminders === true), waNumber = "";
+    if (waOn) waBox.hidden = false;
     var msgNotFit = function (name) { return "Thank you, " + firstName(name) + ". For deals below AED 10,000 (₹2.5 lakh), our service usually costs more than it returns. You can review the calculator and our guide on reactivating old leads before deciding when the timing is right."; };
     book.addEventListener("submit", function (e) {
       e.preventDefault();
@@ -137,27 +167,21 @@
       if (!name || !email || !site) { err.textContent = "Please enter your name, work email and company website."; return; }
       if (!validEmail(email)) { err.textContent = "Please enter a valid email address, for example name@company.com."; return; }
       if (!document.getElementById("fConsent").checked) { err.textContent = "Please tick the box to agree that we may contact you about this request."; return; }
+      waNumber = waOn ? val("fWhatsapp").replace(/[\s().-]/g, "") : "";
+      if (waNumber && !document.getElementById("fWaConsent").checked) { err.textContent = "Please tick the box to receive your reminder on WhatsApp, or leave the number empty."; return; }
+      if (waNumber && !/^\+[1-9]\d{7,14}$/.test(waNumber)) { err.textContent = "Please enter your WhatsApp number with the country code, for example +971 50 123 4567."; return; }
       err.textContent = "";
       var show = function (html) { res.hidden = false; res.innerHTML = html; res.scrollIntoView({ behavior: "smooth", block: "nearest" }); };
-      if (LIVE) {
-        var country = document.getElementById("fCountry").value;
-        post("/api/lead", { name: name, email: email, website: site, package: document.getElementById("fPkg").value, country: country, deal_band: deal, consent: true })
-          .then(function (j) {
-            leadId = j.lead_id;
-            bookingToken = j.booking_token || null;
-            if (j.route === "already_booked") return show(okBox("event_available", "A consultation request already exists for this address. Please email hello@ripepiper.com if you need to change it."));
-            if (j.route === "work_email") return show(okBox("alternate_email", MSG_WORK));
-            if (j.route === "not_fit") return show(okBox("lightbulb", msgNotFit(name)));
-            show(liveSlots(j.slots || []));
-          }).catch(function (x) { err.textContent = x.message; });
-        return;
-      }
-      // Never present simulated availability as a real appointment or claim an invitation was sent.
-      if (location.protocol === "file:") {
-        err.textContent = "Calendar booking requires the deployed Ripe Piper website. This local file cannot access live availability. Open the staging website using its https:// address.";
-      } else {
-        err.textContent = "Calendar booking is not enabled on this website yet. Please email hello@ripepiper.com to arrange a call.";
-      }
+      var country = document.getElementById("fCountry").value;
+      post("/api/lead", { name: name, email: email, website: site, package: document.getElementById("fPkg").value, country: country, deal_band: deal, consent: true })
+        .then(function (j) {
+          leadId = j.lead_id;
+          bookingToken = j.booking_token || null;
+          if (j.route === "already_booked") return show(okBox("event_available", "A consultation request already exists for this address. Please email hello@ripepiper.com if you need to change it."));
+          if (j.route === "work_email") return show(okBox("alternate_email", MSG_WORK));
+          if (j.route === "not_fit") return show(okBox("lightbulb", msgNotFit(name)));
+          show(liveSlots(j.slots || []));
+        }).catch(function (x) { err.textContent = x.message; });
     });
     res.addEventListener("click", function (e) {
       var b = e.target.closest(".slot"); if (!b) return;
@@ -165,18 +189,14 @@
       b.setAttribute("aria-pressed", "true");
       var old = res.querySelector(".ok"); if (old) old.remove();
       var add = function (html) { var d = document.createElement("div"); d.innerHTML = html; res.appendChild(d.firstChild); };
-      if (LIVE) {
-        res.querySelectorAll(".slot").forEach(function (s) { s.disabled = true; });
-        post("/api/book", { lead_id: leadId, booking_token: bookingToken, start: b.getAttribute("data-start") })
-          .then(function (j) { add(okBox("event_available", "<strong>Your call is booked for " + j.label + ".</strong> We have sent a calendar invitation with the Google Meet link to your email. You will receive reminders 24 hours and 1 hour before the call.")); })
-          .catch(function (x) { if (!/complete the form again/i.test(x.message)) res.querySelectorAll(".slot").forEach(function (s) { s.disabled = false; }); b.setAttribute("aria-pressed", "false"); add(okBox("schedule", x.message)); });
-        return;
-      }
-      add(okBox("schedule", "This is a preview only. No booking has been created. Please use the deployed website."));
+      res.querySelectorAll(".slot").forEach(function (s) { s.disabled = true; });
+      post("/api/book", Object.assign({ lead_id: leadId, booking_token: bookingToken, start: b.getAttribute("data-start") }, waNumber ? { whatsapp: waNumber, whatsapp_consent: true } : {}))
+        .then(function (j) { add(okBox("event_available", "<strong>Your call is booked for " + j.label + ".</strong> We have sent a calendar invitation with the Google Meet link to your email. You will receive reminders 24 hours and 1 hour before the call.")); })
+        .catch(function (x) { if (!/complete the form again/i.test(x.message)) res.querySelectorAll(".slot").forEach(function (s) { s.disabled = false; }); b.setAttribute("aria-pressed", "false"); add(okBox("schedule", x.message)); });
     });
   }
   function liveSlots(list) {
-    if (!list.length) return okBox("schedule", "There are no free times in the next two weeks. Please message us on WhatsApp or email hello@ripepiper.com and we will find a time.");
+    if (!list.length) return okBox("schedule", "There are no free times in the next two weeks. Please email hello@ripepiper.com and we will find a time.");
     var h = "<p><strong>Your company is a good fit for a call.</strong> Choose a time below. All times are Gulf Standard Time.</p><div class=\"slots\">";
     list.forEach(function (s) { h += '<button type="button" class="slot" data-start="' + s.start + '" data-slot="' + s.label + '">' + s.label.replace(" GST", "") + "</button>"; });
     return h + "</div>";

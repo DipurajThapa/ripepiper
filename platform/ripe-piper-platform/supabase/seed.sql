@@ -168,7 +168,7 @@ The maximum penalty under the Act is ₹250 crore, for failing to take reasonabl
 ## WhatsApp: opt\-in is required
 
 
-Meta''s rules require a business to have a person''s opt\-in before it messages them on WhatsApp. The person must give their number and agree to receive messages from that named business. For this reason, use WhatsApp only to reply to people who contacted you first. Replies sent within 24 hours of the person''s last message are free. Marketing messages sent outside that window are charged per message.
+Meta''s rules require a business to have a person''s opt\-in before it messages them on WhatsApp. The person must give their number and agree to receive messages from that named business. For this reason, use WhatsApp only to reply to people who contacted you first. From 1 October 2026 Meta charges per message, including replies sent within 24 hours of the person''s last message, so check Meta''s current WhatsApp pricing before you rely on the channel.
 
 
 ## Checklist before you send

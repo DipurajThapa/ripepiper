@@ -120,7 +120,7 @@
     cur.meeting = m;
     var n = m.notes, q = m.requirements, h = '<h3>' + RP.esc(m.attendee_name || m.attendee_email) + "</h3><p class=\"muted\">" + RP.dateTime(m.start_at) + " · " + RP.badge(m.status === "attendance_unknown" ? "Attendance unknown" : m.status) + (m.meet_url ? ' · <a href="' + RP.esc(m.meet_url) + '" rel="noopener">Meet link</a>' : "") + "</p>";
     if (m.status === "booked") {
-      h += (m.meet_url ? '' : '<p>The time remains reserved. Check Google Calendar confirmation before changing this booking.</p>') + '<button class="btn btn-line" type="button" id="reconcileBooking">Check calendar confirmation</button><p id="calendarReview" role="status"></p>';
+      h += (m.meet_url ? '' : '<p>The time remains reserved. Check Google Calendar confirmation before changing this booking.</p>') + '<button class="btn btn-line" type="button" id="reconcileBooking">Check calendar confirmation</button> <button class="btn btn-line" type="button" id="cancelBooking">Cancel consultation</button><p id="calendarReview" role="status"></p>';
     }
     if (n) {
       h += '<div class="prose"><h3>Summary</h3><p>' + RP.esc(n.summary) + "</p><h3>Pains</h3>" + list(n.pains) + "<h3>Goals</h3>" + list(n.goals) +
@@ -165,6 +165,17 @@
         .then(function () { return fetchAll(); })
         .then(function () { renderMeetings(); if (cur.meeting && cur.meeting.id === meetingId) meetingDetail(data.meetings.find(function (x) { return x.id === meetingId; }) || m); })
         .catch(function (e) { result.textContent = e.message; reconcile.disabled = false; });
+    });
+    var cancelBtn = $("cancelBooking");
+    if (cancelBtn) cancelBtn.addEventListener("click", function () {
+      var meetingId = m.id, result = $("calendarReview");
+      if (RP.demo || !RP.sb) { result.textContent = "Cancelling requires the connected admin site."; return; }
+      if (!window.confirm("Cancel this consultation? The calendar invitation is withdrawn and the prospect can book a new time.")) return;
+      cancelBtn.disabled = true;
+      RP.api("/api/admin/meetings/" + meetingId + "/cancel", {})
+        .then(function () { return fetchAll(); })
+        .then(function () { renderMeetings(); if (cur.meeting && cur.meeting.id === meetingId) meetingDetail(data.meetings.find(function (x) { return x.id === meetingId; }) || m); })
+        .catch(function (e) { result.textContent = e.message; cancelBtn.disabled = false; });
     });
     if (q) { $("dPlan").value = q.recommended_plan; $("dPkg").value = q.recommended_package; }
   }
@@ -280,7 +291,7 @@
       '<form class="stack" data-form="invite"><span class="kicker">Invite a person, or change the role of someone already invited</span><div class="form-grid"><div class="field"><label for="iEmail">Email (company email or Gmail)</label><input id="iEmail" type="email"></div>' +
       '<div class="field"><label for="iRole">Role</label><select id="iRole"><option value="owner">Owner: can update deals and accept quotations</option><option value="viewer">Viewer: read only</option></select></div></div><button class="btn btn-dark" type="submit">Save access</button><div data-ok hidden></div><p class="err" data-err></p></form>') +
       '<form class="stack" data-form="weekly"><span class="kicker">Weekly outreach results</span><div class="form-grid">' +
-      [["wWeek", "Week starting (Monday)", "date", monday], ["wSent", "Emails sent", "number", ""], ["wDel", "Delivered", "number", ""], ["wRep", "Replies", "number", ""], ["wPos", "Interested replies", "number", ""], ["wBook", "Meetings booked", "number", ""], ["wHeld", "Meetings held", "number", ""], ["wIcp", "Ideal customer match (%)", "number", ""]]
+      [["wWeek", "Week starting (Monday)", "date", monday], ["wSent", "Emails sent", "number", ""], ["wDel", "Delivered", "number", ""], ["wRep", "Replies", "number", ""], ["wPos", "Interested replies", "number", ""], ["wIcp", "Ideal customer match (%)", "number", ""]]
         .map(function (f) { return '<div class="field"><label for="' + f[0] + '">' + f[1] + '</label><input id="' + f[0] + '" type="' + f[2] + '" value="' + f[3] + '" min="0"></div>'; }).join("") +
       '</div><button class="btn btn-line" type="submit">Save weekly results</button><div data-ok hidden></div><p class="err" data-err></p></form>' +
       '<form class="stack" data-form="fee"><span class="kicker">Record a fee</span><div class="form-grid"><div class="field"><label for="fMonth">Month</label><input id="fMonth" type="month" value="' + today.toISOString().slice(0, 7) + '"></div>' +
@@ -309,7 +320,7 @@
     if (kind === "activate") p = RP.api("/api/admin/tenants/" + t.id + "/activate", { expected_status: t.status, expected_version: t.execution_version || 0, brief_version: +v("activationBriefVersion"), reason: v("activationReason") });
     if (kind === "pause") p = RP.api("/api/admin/tenants/" + t.id + "/pause", { reason: v("pauseReason") });
     if (kind === "invite") p = RP.demo ? Promise.resolve() : RP.api("/api/admin/tenants/" + t.id + "/invite", { email: v("iEmail"), role: v("iRole") });
-    if (kind === "weekly") p = save("outreach_weekly", "upsert", { tenant_id: t.id, week_start: v("wWeek"), sent: +v("wSent") || 0, delivered: +v("wDel") || 0, replies: +v("wRep") || 0, positive_replies: +v("wPos") || 0, meetings_booked: +v("wBook") || 0, meetings_held: +v("wHeld") || 0, icp_match_pct: v("wIcp") === "" ? null : +v("wIcp") }, { onConflict: "tenant_id,week_start" });
+    if (kind === "weekly") p = save("outreach_weekly", "upsert", { tenant_id: t.id, week_start: v("wWeek"), sent: +v("wSent") || 0, delivered: +v("wDel") || 0, replies: +v("wRep") || 0, positive_replies: +v("wPos") || 0, icp_match_pct: v("wIcp") === "" ? null : +v("wIcp") }, { onConflict: "tenant_id,week_start" });
     if (kind === "fee") p = save("fees", "insert", { tenant_id: t.id, month: v("fMonth") + "-01", type: v("fType"), amount: +v("fAmt"), currency: t.currency, note: v("fNote") });
     if (kind === "ads") p = save("ad_accounts", "insert", { tenant_id: t.id, platform: v("aPlat"), account_ref: v("aRef").replace(/[^0-9a-zA-Z_-]/g, "") });
     if (kind === "note") p = save("activity_log", "insert", { tenant_id: t.id, actor: "Ripe Piper", kind: v("nKind"), message: v("nMsg").trim(), visible_to_client: true });

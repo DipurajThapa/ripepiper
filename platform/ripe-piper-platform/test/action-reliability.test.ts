@@ -57,7 +57,7 @@ describe('existing ledger fenced sink acknowledgement',()=>{
   const f=await fixture(),{now,later}=f;
   expect(await rpc('claim_fenced_synthetic_action',[f.tenant,f.id,f.token,now])).toMatchObject({token:f.token,approvalVersion:1,assetVersion:1});
   expect(await rpc('claim_fenced_synthetic_action',[f.tenant,f.id,crypto.randomUUID(),now])).toBeNull();
-  expect(await rpc('complete_synthetic_action',[f.id,now])).toBe(false);
+  await expect(rpc('complete_synthetic_action',[f.id,now])).rejects.toThrow('does not exist');
   for(const args of [[crypto.randomUUID(),f.id,f.token,1,1,now],[f.tenant,f.id,crypto.randomUUID(),1,1,now],[f.tenant,f.id,f.token,2,1,now],[f.tenant,f.id,f.token,1,2,now]])expect(await rpc('complete_fenced_synthetic_action',args)).toBe(false);
   expect(await rpc('complete_fenced_synthetic_action',[f.tenant,f.id,f.token,1,1,now])).toBe(true);
   const first=(await query('select state,provider_ref,acknowledged_at,attempts from outbound_actions where id=$1',[f.id]))[0];
@@ -84,7 +84,7 @@ describe('existing ledger fenced sink acknowledgement',()=>{
   expect(await rpc('expire_fenced_synthetic_action',[f.tenant,f.id,crypto.randomUUID(),later])).toBe(false);
   expect(await rpc('expire_fenced_synthetic_action',[f.tenant,f.id,f.token,later])).toBe(true);
   expect(await rpc('claim_fenced_synthetic_action',[f.tenant,f.id,crypto.randomUUID(),later])).toBeNull();
-  expect(await rpc('complete_synthetic_action',[f.id,later])).toBe(false);
+  await expect(rpc('complete_synthetic_action',[f.id,later])).rejects.toThrow('does not exist');
   expect((await query('select state,error_code from outbound_actions where id=$1',[f.id]))[0]).toEqual({state:'review',error_code:'uncertain_result'});
   expect((await query('select status from campaigns where id=$1',[f.campaign]))[0].status).toBe('paused');
  });

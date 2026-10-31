@@ -8,14 +8,14 @@ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const limits={campaigns:10,reviews:25,actionsPerCampaign:100,enrolments:10,dispatches:20,milliseconds:15000};
 type Scope={tenantId?:string;campaignId?:string};
 type Campaign={id:string;tenant_id:string;operator_id:string;capability:string;status:string;asset_version:number};
-type Action={id:string;tenant_id:string;campaign_id:string;lead_id:string;state:string;due_at:string;lease_until:string|null;dispatch_token:string|null};
+type Action={id:string;tenant_id:string;campaign_id:string;lead_id:string;state:string;due_at:string;lease_until:string|null;dispatch_token:string|null;asset_version:number};
 type AudienceMember={leadId:string;reviewVersion:number;snapshot:string};
 function reviewedMembers(value:any):AudienceMember[]|null {
  if(!value||typeof value!=='object'||!Array.isArray(value.members)||value.members.length<1||value.members.length>limits.reviews||!uuid.test(value.reviewedBy??'')||!validInstant(value.reviewedAt)||Date.parse(value.reviewedAt)>Date.now())return null;
  if(value.members.some((m:any)=>!m||!uuid.test(m.leadId??'')||!Number.isInteger(m.reviewVersion)||m.reviewVersion<1||typeof m.snapshot!=='string'||!/^[a-f0-9]{32}$/.test(m.snapshot))||new Set(value.members.map((m:AudienceMember)=>m.leadId)).size!==value.members.length)return null;
  return value.members;
 }
-const actionFields='id,tenant_id,campaign_id,lead_id,state,due_at,lease_until,dispatch_token';
+const actionFields='id,tenant_id,campaign_id,lead_id,state,due_at,lease_until,dispatch_token,asset_version';
 
 /** Existing ledger only: no real provider, new approval, contact right or learned rule. */
 export async function runReviveAutomation(env:Env,scope:Scope={}) {
@@ -57,15 +57,16 @@ export async function runReviveAutomation(env:Env,scope:Scope={}) {
    let enrolmentUncertain=false;
    for(const member of members) {
     if(!available()||report.enrolled>=limits.enrolments){report.limited=true;break;}
-    if(actions.some(a=>a.lead_id===member.leadId)){report.existing++;continue;}
-    // Persisted enrolments are never rescheduled, including cancelled/blocked/old versions.
-    // Database rechecks current review, history, brief, rights, caps and stops atomically.
+    if(actions.some(a=>a.lead_id===member.leadId&&a.asset_version===c.asset_version)){report.existing++;continue;}
+    // Enrolments on this version are never rescheduled. Older-version history is the database's call:
+    // only work cancelled by pause or edit resumes. It rechecks review, brief, rights, caps and stops atomically.
     try {
      const ack=await db().rpc<any>('manage_campaign_plan',{p_tenant:c.tenant_id,p_campaign:c.id,p_actor:c.operator_id,p_operation:'queue',p_version:c.asset_version,p_body:{leadId:member.leadId,startAt:new Date(Date.now()+5000).toISOString()}});
      if(!ack||!Array.isArray(ack.actionIds)||!ack.actionIds.length||ack.actionIds.length>3||new Set(ack.actionIds).size!==ack.actionIds.length||ack.actionIds.some((id:unknown)=>typeof id!=='string'||!uuid.test(id))||typeof ack.replayed!=='boolean')throw Error('Enrolment acknowledgement uncertain');
      if(ack.replayed)report.existing++;else report.enrolled++;
     }catch(e) {
-     if(e instanceof DbError&&(e.isConflict||e.body.includes('22023')||e.body.includes('23514')||e.body.includes('42501'))){report.blocked++;continue;}
+     // 40001 (e.g. 'Existing enrolment cannot restart') aborted the transaction, so nothing committed.
+     if(e instanceof DbError&&(e.isConflict||e.body.includes('22023')||e.body.includes('23514')||e.body.includes('42501')||e.body.includes('40001'))){report.blocked++;continue;}
      // Unknown completion may have committed. Stop this campaign, not another enrolment attempt.
      report.review++;
      enrolmentUncertain=true;

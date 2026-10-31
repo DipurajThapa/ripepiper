@@ -6,5 +6,7 @@ window.RP_CONFIG = {
   supabaseAnonKey: "",
   live: false, // Set true only after the API, Supabase and security checks are configured
   apiBase: "",           // Must stay same-origin ("" = Worker routes on this host); the API sends no CORS headers
-  turnstileSiteKey: ""   // Public Cloudflare Turnstile site key; required for live public forms
+  turnstileSiteKey: "",  // Public Cloudflare Turnstile site key; required for live public forms
+  whatsappNumber: "",    // E.164 digits without + (e.g. "9715XXXXXXXX"); empty hides every WhatsApp contact link
+  whatsappReminders: false // Show the booking-form WhatsApp reminder opt-in; enable with the Worker WHATSAPP_ENABLED flag
 };

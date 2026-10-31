@@ -1,7 +1,7 @@
 import { saveMeetingDraft } from "../foundation/consultation-review";
 import type { Env } from "../env";
 import { Db, DbError } from "../lib/db";
-import { meetTranscript, sendEmail, reconcileMeetEvent, GoogleError } from "../lib/google";
+import { meetTranscript, sendEmail, reconcileMeetEvent, cancelEvent, GoogleError } from "../lib/google";
 import { PaidUseBlocked } from "../lib/build-budget";
 import { analyseMeeting, minutesMarkdown, draftPreProposal, priceBlock, type MeetingAnalysis } from "../lib/ai";
 import { quoteTotal, money } from "../lib/pricing";
@@ -27,6 +27,8 @@ async function claimAndSend(env: Env, table: string, id: string, claim: Record<s
   }
 }
 
+const storedAnalysis = (m: any): MeetingAnalysis => ({ summary: m.notes?.summary ?? "", notes: m.notes, minutes: { decisions: m.requirements?.decisions ?? [], actions: m.requirements?.actions ?? [] }, requirements: m.requirements });
+
 /** Fetch the Meet transcript (or use an uploaded one) and produce notes, minutes and requirements with AI. */
 export async function processMeeting(req: Request, env: Env, id: string) {
   await requireUser(req, env, true);
@@ -35,7 +37,10 @@ export async function processMeeting(req: Request, env: Env, id: string) {
   const db = new Db(env);
   const m = await db.one<any>("meetings", `id=eq.${id}&tenant_id=is.null&select=*`);
   if (!m || m.tenant_id !== null) return bad("Meeting not found.", 404);
-  let transcript = typeof b.transcript === "string" && b.transcript.trim().length > 200 ? b.transcript : m.transcript;
+  const posted = typeof b.transcript === "string" && b.transcript.trim().length > 200;
+  // Notes already exist and nothing new was posted: return them instead of paying for the model again.
+  if (!posted && m.notes) return json({ ok: true, analysis: storedAnalysis(m), minutes: m.minutes });
+  let transcript = posted ? b.transcript : m.transcript;
   if (!transcript) {
     if (!m.meet_code) return bad("This meeting has no Google Meet code. Paste the transcript instead.");
     const t = await meetTranscript(env, m.meet_code);
@@ -54,15 +59,18 @@ export async function draftProposal(req: Request, env: Env, meetingId: string) {
   await requireUser(req, env, true);
   const b = await readJson(req).catch(() => ({} as Record<string, any>));
   const db = new Db(env);
-  const m = await db.one<any>("meetings", `id=eq.${meetingId}&select=*`);
+  const m = await db.one<any>("meetings", `id=eq.${meetingId}&tenant_id=is.null&select=*`);
   if (!m?.requirements) return bad("Process the meeting first, so the proposal is based on the call.");
-  const lead = m.lead_id ? await db.one<any>("leads", `id=eq.${m.lead_id}&select=*`) : null;
+  const lead = m.lead_id ? await db.one<any>("leads", `id=eq.${m.lead_id}&tenant_id=is.null&select=*`) : null;
   const currency = b.currency === "INR" || (!b.currency && lead?.country === "IN") ? "INR" : "AED";
   const plan = ["sprint", "engine"].includes(b.plan) ? b.plan : m.requirements.recommended_plan;
   const pkg = ["revive", "signal", "response", "events"].includes(b.package) ? b.package : m.requirements.recommended_package;
-  const analysis: MeetingAnalysis = { summary: m.notes?.summary ?? "", notes: m.notes, minutes: { decisions: m.requirements.decisions ?? [], actions: m.requirements.actions ?? [] }, requirements: { ...m.requirements, recommended_plan: plan, recommended_package: pkg } };
-  const content = await paidAI(draftPreProposal(env, analysis, { company: lead?.company ?? lead?.website ?? "your company", contact: m.attendee_name ?? "", currency, singleEvent: b.single_event === true }));
   const { scope } = priceBlock(currency, plan, pkg, b.single_event === true);
+  // A retry or double click reuses the open draft for the same choices instead of paying for the model again.
+  const same = await db.one<any>("proposals", `meeting_id=eq.${m.id}&kind=eq.pre&status=eq.draft&plan=eq.${encodeURIComponent(plan)}&package=eq.${encodeURIComponent(pkg)}&currency=eq.${currency}&fixed_amount=eq.${scope.total}&select=*`);
+  if (same) return json({ ok: true, proposal: same });
+  const analysis: MeetingAnalysis = { ...storedAnalysis(m), requirements: { ...m.requirements, recommended_plan: plan, recommended_package: pkg } };
+  const content = await paidAI(draftPreProposal(env, analysis, { company: lead?.company ?? lead?.website ?? "your company", contact: m.attendee_name ?? "", currency, singleEvent: b.single_event === true }));
   const [p] = await db.insert<any>("proposals", { lead_id: m.lead_id, meeting_id: m.id, kind: "pre", plan, package: pkg, currency, fixed_amount: scope.total, content_md: content, client_email: m.attendee_email, status: "draft" });
   return json({ ok: true, proposal: p });
 }
@@ -172,4 +180,22 @@ export async function reconcileBooking(req: Request, env: Env, id: string) {
     message: `Calendar event verified for consultation ${m.id}; reservation updated without sending an invitation.` });
   if (m.lead_id) await db.update("leads", `id=eq.${m.lead_id}&tenant_id=is.null&status=eq.qualified`, { status: "meeting_booked" });
   return json({ ok: true, meeting_id: m.id, meet_url: ev.meetUrl, delivery: "not_sent" });
+}
+
+/** Cancel a booked consultation: delete the calendar event, free the slot and let the prospect rebook through the public flow. */
+export async function cancelBooking(req: Request, env: Env, id: string) {
+  const user = await requireUser(req, env, true);
+  const db = new Db(env);
+  const m = await db.one<any>("meetings", `id=eq.${id}&tenant_id=is.null&status=eq.booked&select=*`);
+  if (!m) return bad("No booked consultation was found.", 404);
+  // 404/410: the event is already gone. Any other failure changes nothing, so the calendar and the booking never disagree.
+  if (m.google_event_id) try { await cancelEvent(env, m.google_event_id); }
+  catch (e) { if (!(e instanceof GoogleError && (e.status === 404 || e.status === 410))) return bad("The calendar event could not be cancelled. The booking is unchanged; try again.", 409); }
+  // The guard trigger moves any in-flight reminder to review when the status changes.
+  const changed = await db.update("meetings", `id=eq.${id}&tenant_id=is.null&status=eq.booked`, { status: "cancelled" });
+  if (!changed.length) return bad("The booking changed. Reload before continuing.", 409);
+  if (m.lead_id && !(await db.select("meetings", `lead_id=eq.${m.lead_id}&tenant_id=is.null&status=in.(booked,rescheduled,held)&id=neq.${id}&select=id&limit=1`)).length)
+    await db.update("leads", `id=eq.${m.lead_id}&tenant_id=is.null&status=eq.meeting_booked`, { status: "qualified" });
+  await db.insert("activity_log", { actor: user.id, kind: "note", visible_to_client: false, message: `Consultation ${m.id} cancelled by staff; calendar event removed and the prospect can rebook.` });
+  return json({ ok: true, meeting_id: m.id, status: "cancelled" });
 }

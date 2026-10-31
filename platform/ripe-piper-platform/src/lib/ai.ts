@@ -21,8 +21,10 @@ async function claude(env: Env, system: string, user: string, maxTokens = 2500):
     body: JSON.stringify({ model: env.AI_MODEL, max_tokens: maxTokens, system, messages: [{ role: "user", content: user }] }),
   });
   if (!res.ok) throw new Error(`AI request failed (${res.status}); budget reservation retained for reconciliation.`);
-  const j = (await res.json()) as { usage: unknown; content: { type: string; text?: string }[] };
+  const j = (await res.json()) as { usage: unknown; stop_reason?: string; content: { type: string; text?: string }[] };
   await settleAI(env,reservation,j.usage);
+  // A cut-off (max_tokens) or refused answer must never become a draft a client could receive.
+  if (j.stop_reason !== "end_turn") throw new Error(`AI answer was incomplete (${j.stop_reason ?? "unknown"}).`);
   return j.content.filter(c => c.type === "text").map(c => c.text).join("");
 }
 

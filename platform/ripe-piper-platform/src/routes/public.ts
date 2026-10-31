@@ -1,6 +1,7 @@
 import type { Env } from "../env";
 import { Db, DbError } from "../lib/db";
-import { cleanEmail, cleanText, cleanWebsite, routeLead, scoreLead, isFreeEmail, pickUtm } from "../lib/validate";
+import { cleanEmail, cleanText, cleanWebsite, routeLead, scoreLead, isFreeEmail, pickUtm, e164 } from "../lib/validate";
+import { whatsappEnabled } from "../lib/whatsapp";
 import { freeSlots, isOfferedSlot, BOOKING } from "../lib/slots";
 import { busyTimes, calendarEventId, createMeetEvent, sendEmail } from "../lib/google";
 import { emails } from "../lib/email";
@@ -9,6 +10,7 @@ import { json, bad, readJson, verifyTurnstile } from "./http";
 
 // Same assumptions as the public calculator (site/assets/site.js calc()).
 const CALC_MEETING_RATES = [0.02, 0.06] as const, CALC_MAX_LEADS = 1_000_000, CALC_MAX_DEAL = 1e12;
+const WHATSAPP_NOTICE = "book-form-v1";
 const COUNTRY: Record<string, string> = { "United Arab Emirates": "AE", India: "IN", "Saudi Arabia": "SA", Qatar: "QA", Other: "OTHER" };
 
 async function upsertLead(db: Db, row: Record<string, unknown>) {
@@ -96,6 +98,9 @@ export async function postBook(req: Request, env: Env) {
       meet_url: existing.meet_url });
   }
   if (lead.status !== "qualified") return bad("Please complete the booking form again.", 403);
+  // Optional WhatsApp reminder: only with explicit consent, and ignored entirely while the channel is off.
+  const whatsapp = whatsappEnabled(env) && b.whatsapp_consent === true ? e164(b.whatsapp) : null;
+  if (whatsappEnabled(env) && b.whatsapp_consent === true && !whatsapp) return bad("Please enter your WhatsApp number with the country code, for example +971 50 123 4567.");
   const slot = isOfferedSlot(String(b.start), now, await busyWithMeetings(env, db, now));
   if (!slot) return bad("That time is no longer available. Please choose another time.", 409);
   const meetingId = crypto.randomUUID();
@@ -118,6 +123,9 @@ export async function postBook(req: Request, env: Env) {
     });
     const saved = await db.update("meetings", `id=eq.${meeting.id}&tenant_id=is.null&status=eq.booked&google_event_id=eq.${ev.eventId}`, { meet_url: ev.meetUrl, meet_code: ev.meetCode });
     if (!saved.length) throw new Error("Reservation changed during confirmation");
+    // The booking stands without it; the reminder then falls back to email.
+    if (whatsapp) await db.update("meetings", `id=eq.${meeting.id}&tenant_id=is.null&status=eq.booked`, { attendee_whatsapp: whatsapp, whatsapp_consent_at: new Date().toISOString(), whatsapp_notice: WHATSAPP_NOTICE })
+      .catch(() => console.error("WhatsApp consent not saved", meeting.id));
     await db.update("leads", `id=eq.${lead.id}&tenant_id=is.null&status=eq.qualified`, { status: "meeting_booked" });
     const m = emails.bookingConfirmed(lead.name ?? "there", slot.start, ev.meetUrl ?? "");
     try { await sendEmail(env, lead.email, m.subject, m.text); }
