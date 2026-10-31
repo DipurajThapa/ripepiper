@@ -33,7 +33,7 @@ test('a pre-brief draft preserves unknowns as null and does not create duplicate
  assert.equal(calls.some(c=>/activate|campaigns|revive-run|\/test$/.test(c.path)),false);
 });
 test('reviewed setup sends its exact loaded version/current brief only after explicit review',async()=>{
- const calls=[],ui=mount(async(path,payload)=>{calls.push(payload);return payload.operation==='get'?context('tenant-a',setup()):{ok:true,tenantId:'tenant-a',version:3,briefVersion:1,state:'reviewed',ready:true,delivery:'not_sent'};});
+ const calls=[],ui=mount(async(path,payload)=>{calls.push(payload);return payload.operation==='get'?context('tenant-a',setup({...body(),relationshipSummary:{text:'Reviewed relationship',reference:'crm:reviewed'}})):{ok:true,tenantId:'tenant-a',version:3,briefVersion:1,state:'reviewed',ready:true,delivery:'not_sent'};});
  ui.select('tenant-a');await tick();const n=ui.nodes;n.setupSaveReviewed.onclick();assert.equal(calls.some(c=>c.operation==='save'),false);assert.match(n.reviveSetupStatus.textContent,/review confirmation/);
  n.setupReviewed.checked=true;n.reviveSetupForm.oninput({target:{id:'setupSenderName'}});assert.equal(n.setupReviewed.checked,false);
  n.setupReviewed.checked=true;n.reviveSetupForm.oninput({target:{id:'setupReviewed'}});assert.equal(n.setupReviewed.checked,true);
@@ -85,4 +85,20 @@ test('untrusted client names, owner labels and saved values are escaped or assig
  const b=body();b.senderName='<script>PRIVATE</script>';const c=context('tenant-a',setup(b));c.context.owners[0].label='Owner <img onerror="bad()">';
  const ui=mount(async()=>c);ui.select('<img onerror="bad()">');c.context.tenantId='<img onerror="bad()">';await tick();
  assert.doesNotMatch(ui.nodes.reviveSetupPanel.innerHTML,/<img /);assert.doesNotMatch(ui.nodes.setupOwner.innerHTML,/<img /);assert.equal(ui.nodes.setupSenderName.value,'<script>PRIVATE</script>');
+});
+test('deterministic format errors are caught before saving and keep the operator edits',async()=>{
+ const calls=[],ui=mount(async(path,payload)=>{calls.push(payload);return payload.operation==='get'?context('tenant-a',setup()):{ok:true,tenantId:'tenant-a',version:3,briefVersion:1,state:'draft',ready:false,delivery:'not_sent'};});
+ ui.select('tenant-a');await tick();const n=ui.nodes;n.setupTimezone.value='Not/AZone';n.reviveSetupForm.onsubmit({preventDefault(){}});assert.equal(calls.some(c=>c.operation==='save'),false);assert.match(n.reviveSetupStatus.textContent,/IANA timezone/);assert.equal(n.reviveSetupFields.disabled,false);assert.equal(n.setupTimezone.value,'Not/AZone');
+ n.setupMarket.value='ae';n.setupTimezone.value='asia/dubai';n.reviveSetupForm.onsubmit({preventDefault(){}});await tick();const write=calls.find(c=>c.operation==='save');assert.equal(write.body.market,'AE');assert.equal(write.body.timezone,'Asia/Dubai');
+});
+test('a definitive server rejection keeps the form editable while an uncertain failure still locks it',async()=>{
+ for(const [status,locked] of [[409,false],[400,false],[503,true],[undefined,true]]){
+  const ui=mount(async(path,payload)=>{if(payload.operation==='get')return context('tenant-a',setup());throw Object.assign(Error('Rejected.'),{status});});
+  ui.select('tenant-a');await tick();ui.nodes.setupSenderName.value='Unsaved edit';ui.nodes.reviveSetupForm.onsubmit({preventDefault(){}});await tick();
+  assert.equal(ui.nodes.reviveSetupFields.disabled,locked);assert.equal(ui.nodes.setupSenderName.value,'Unsaved edit');assert.match(ui.nodes.reviveSetupStatus.textContent,locked?/Reload saved setup/:/edits are kept/);
+ }
+});
+test('an incomplete reviewed save is refused locally with edits kept',async()=>{
+ const calls=[],ui=mount(async(path,payload)=>{calls.push(payload);return context('tenant-a',setup());});ui.select('tenant-a');await tick();const n=ui.nodes;n.setupReviewed.checked=true;n.setupSaveReviewed.onclick();
+ assert.equal(calls.some(c=>c.operation==='save'),false);assert.match(n.reviveSetupStatus.textContent,/Complete the missing/);assert.equal(n.reviveSetupFields.disabled,false);
 });

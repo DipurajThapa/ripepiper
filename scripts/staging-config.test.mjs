@@ -13,6 +13,6 @@ test('provider jobs stay default-off in production and staging configuration',()
  for(const flag of ['MEETING_TRANSCRIPTS_ENABLED','SHEETS_SYNC_ENABLED','ADS_SYNC_ENABLED'])for(const source of [production,staging])assert.match(source,new RegExp(flag+' = "false"'));
 });
 test('public unsubscribe static pages use no-store and no-referrer',()=>{
- const headers=readFileSync(new URL('../site/_headers',import.meta.url),'utf8');
+ const headers=readFileSync(new URL('../site/_headers',import.meta.url),'utf8').replace(/\r\n/g,'\n');
  for(const path of ['/unsubscribe.html','/unsubscribe'])assert.ok(headers.includes(path+'\n  Cache-Control: no-store\n  Referrer-Policy: no-referrer'));
 });

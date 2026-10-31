@@ -128,7 +128,7 @@
         "<h3>Requirements</h3><p>Recommended: <strong>" + RP.esc(q.recommended_plan) + ", " + RP.esc(q.recommended_package) + "</strong>. Ideal customer: " + RP.esc(q.icp) + "</p><h3>Customisations to quote</h3>" + list(q.customisations) +
         "<h3>Minutes</h3>" + RP.markdown(m.minutes || "") + "</div>";
       h += '<form id="draftForm" class="stack"><span class="kicker">Draft the pre-proposal</span><div class="form-grid">' +
-        '<div class="field"><label for="dCur">Currency</label><select id="dCur"><option>AED</option><option>INR</option></select></div>' +
+        '<div class="field"><label for="dCur">Currency</label><select id="dCur"><option value="">Auto (from lead country)</option><option>AED</option><option>INR</option></select></div>' +
         '<div class="field"><label for="dPlan">Plan</label><select id="dPlan"><option value="sprint">Revive Sprint</option><option value="engine">Monthly engine</option></select></div>' +
         '<div class="field"><label for="dPkg">Package</label><select id="dPkg"><option>revive</option><option>signal</option><option>response</option><option>events</option></select></div>' +
         '<label class="consent"><input type="checkbox" id="dEvent"><span>Single event only (Ripe Events)</span></label></div>' +
@@ -277,19 +277,19 @@
       (t.status === "paused" || t.status === "ended" ? '<p class="hint">This client is ' + RP.esc(t.status) + '. Campaign execution and connected ad reporting are stopped.</p>' :
       '<form class="stack" data-form="pause"><span class="kicker">Emergency stop</span><div class="field"><label for="pauseReason">Reason for pausing</label><input id="pauseReason" type="text" minlength="8" maxlength="500" required></div><button class="btn btn-line" type="submit">Pause client execution</button><div data-ok hidden></div><p class="err" data-err></p></form>') +
       (t.status === "paused" || t.status === "ended" ? '' :
-      '<form class="stack" data-form="invite"><span class="kicker">Invite a person to the dashboard</span><div class="form-grid"><div class="field"><label for="iEmail">Email (company email or Gmail)</label><input id="iEmail" type="email"></div>' +
-      '<div class="field"><label for="iRole">Role</label><select id="iRole"><option value="owner">Owner: can update deals and accept quotations</option><option value="viewer">Viewer: read only</option></select></div></div><button class="btn btn-dark" type="submit">Save invitation</button><div data-ok hidden></div><p class="err" data-err></p></form>') +
+      '<form class="stack" data-form="invite"><span class="kicker">Invite a person, or change the role of someone already invited</span><div class="form-grid"><div class="field"><label for="iEmail">Email (company email or Gmail)</label><input id="iEmail" type="email"></div>' +
+      '<div class="field"><label for="iRole">Role</label><select id="iRole"><option value="owner">Owner: can update deals and accept quotations</option><option value="viewer">Viewer: read only</option></select></div></div><button class="btn btn-dark" type="submit">Save access</button><div data-ok hidden></div><p class="err" data-err></p></form>') +
       '<form class="stack" data-form="weekly"><span class="kicker">Weekly outreach results</span><div class="form-grid">' +
       [["wWeek", "Week starting (Monday)", "date", monday], ["wSent", "Emails sent", "number", ""], ["wDel", "Delivered", "number", ""], ["wRep", "Replies", "number", ""], ["wPos", "Interested replies", "number", ""], ["wBook", "Meetings booked", "number", ""], ["wHeld", "Meetings held", "number", ""], ["wIcp", "Ideal customer match (%)", "number", ""]]
         .map(function (f) { return '<div class="field"><label for="' + f[0] + '">' + f[1] + '</label><input id="' + f[0] + '" type="' + f[2] + '" value="' + f[3] + '" min="0"></div>'; }).join("") +
       '</div><button class="btn btn-line" type="submit">Save weekly results</button><div data-ok hidden></div><p class="err" data-err></p></form>' +
       '<form class="stack" data-form="fee"><span class="kicker">Record a fee</span><div class="form-grid"><div class="field"><label for="fMonth">Month</label><input id="fMonth" type="month" value="' + today.toISOString().slice(0, 7) + '"></div>' +
       '<div class="field"><label for="fType">Type</label><select id="fType"><option value="retainer">Monthly fee</option><option value="setup">Setup</option><option value="performance">Performance fee</option><option value="quote">Customisation</option></select></div>' +
-      '<div class="field"><label for="fAmt">Amount (' + t.currency + ')</label><input id="fAmt" type="number" min="0"></div><div class="field"><label for="fNote">What it covers</label><input id="fNote" type="text"></div></div><button class="btn btn-line" type="submit">Save fee</button><div data-ok hidden></div><p class="err" data-err></p></form>' +
+      '<div class="field"><label for="fAmt">Amount (' + t.currency + ')</label><input id="fAmt" type="number" min="0" step="0.01" required></div><div class="field"><label for="fNote">What it covers</label><input id="fNote" type="text"></div></div><button class="btn btn-line" type="submit">Save fee</button><div data-ok hidden></div><p class="err" data-err></p></form>' +
       (t.status === "active" ? '<form class="stack" data-form="ads"><span class="kicker">Connect an ad account (read-only reporting)</span><div class="form-grid"><div class="field"><label for="aPlat">Platform</label><select id="aPlat"><option value="google_ads">Google Ads (customer ID)</option><option value="meta">Meta (ad account ID)</option><option value="linkedin">LinkedIn (ad account ID)</option></select></div>' +
       '<div class="field"><label for="aRef">Account ID</label><input id="aRef" type="text"></div></div><p class="hint">The client must first give our business account read access to this ad account.</p><button class="btn btn-line" type="submit">Connect</button><div data-ok hidden></div><p class="err" data-err></p></form>' : '') +
       '<form class="stack" data-form="note"><span class="kicker">Add an update to the client\'s activity timeline</span><div class="field"><label for="nKind">Type</label><select id="nKind"><option value="note">Note</option><option value="change">Change we made</option><option value="milestone">Milestone</option><option value="alert">Alert</option></select></div>' +
-      '<div class="field"><label for="nMsg">Message (what changed, why, and what happens next)</label><textarea id="nMsg"></textarea></div><button class="btn btn-line" type="submit">Publish update</button><div data-ok hidden></div><p class="err" data-err></p></form>';
+      '<div class="field"><label for="nMsg">Message (what changed, why, and what happens next)</label><textarea id="nMsg" required maxlength="2000"></textarea></div><button class="btn btn-line" type="submit">Publish update</button><div data-ok hidden></div><p class="err" data-err></p></form>';
     if (!RP.demo && ["onboarding", "paused"].indexOf(t.status) !== -1) {
       RP.sb.from("business_briefs").select("version").eq("tenant_id", t.id).order("version", { ascending: false }).limit(1).then(function (r) {
         if (!cur.tenant || cur.tenant.id !== t.id || !$("activationBriefVersion")) return;
@@ -303,6 +303,8 @@
   function tenantSubmit(form) {
     var t = cur.tenant, kind = form.dataset.form, ok = form.querySelector("[data-ok]"), err = form.querySelector("[data-err]"), v = function (id) { return $(id).value; };
     err.textContent = "";
+    if (kind === "fee" && !(v("fAmt") !== "" && +v("fAmt") >= 0)) { err.textContent = "Enter the fee amount."; return; }
+    if (kind === "note" && !v("nMsg").trim()) { err.textContent = "Write the update before publishing."; return; }
     var p;
     if (kind === "activate") p = RP.api("/api/admin/tenants/" + t.id + "/activate", { expected_status: t.status, expected_version: t.execution_version || 0, brief_version: +v("activationBriefVersion"), reason: v("activationReason") });
     if (kind === "pause") p = RP.api("/api/admin/tenants/" + t.id + "/pause", { reason: v("pauseReason") });
@@ -310,7 +312,7 @@
     if (kind === "weekly") p = save("outreach_weekly", "upsert", { tenant_id: t.id, week_start: v("wWeek"), sent: +v("wSent") || 0, delivered: +v("wDel") || 0, replies: +v("wRep") || 0, positive_replies: +v("wPos") || 0, meetings_booked: +v("wBook") || 0, meetings_held: +v("wHeld") || 0, icp_match_pct: v("wIcp") === "" ? null : +v("wIcp") }, { onConflict: "tenant_id,week_start" });
     if (kind === "fee") p = save("fees", "insert", { tenant_id: t.id, month: v("fMonth") + "-01", type: v("fType"), amount: +v("fAmt"), currency: t.currency, note: v("fNote") });
     if (kind === "ads") p = save("ad_accounts", "insert", { tenant_id: t.id, platform: v("aPlat"), account_ref: v("aRef").replace(/[^0-9a-zA-Z_-]/g, "") });
-    if (kind === "note") p = save("activity_log", "insert", { tenant_id: t.id, actor: "Ripe Piper", kind: v("nKind"), message: v("nMsg"), visible_to_client: true });
+    if (kind === "note") p = save("activity_log", "insert", { tenant_id: t.id, actor: "Ripe Piper", kind: v("nKind"), message: v("nMsg").trim(), visible_to_client: true });
     p.then(function () { if (kind === "pause" || kind === "activate") return fetchAll().then(function () { renderTenants(); var current = data.tenants.find(function (row) { return row.id === t.id; }); if (current && cur.tenant && cur.tenant.id === t.id) tenantDetail(current); }); else done(ok, "Saved."); })
       .catch(function (e) { err.textContent = e.message; });
   }
@@ -399,7 +401,7 @@
       if (id === "useT") { var t = $("pasteT").value.trim(); if (t.length < 200) { $("tErr").textContent = "Please paste at least a few paragraphs."; return; } processMeeting(t); }
       if (id === "qAdd") addQuoteItem();
       if (id === "propSave") save("proposals", "update", { content_md: $("propMd").value }, cur.proposal.id).then(function () { cur.proposal.content_md = $("propMd").value; $("propPreview").innerHTML = RP.markdown(cur.proposal.content_md); done($("propOk"), "Saved."); }).catch(function (er) { $("propErr").textContent = er.message; });
-      if (id === "propSend") RP.api("/api/admin/proposals/" + cur.proposal.id + "/send").then(function () { return fetchAll(); }).then(function () { renderProposals(); done($("propOk"), "Sent. The client received an email with a secure link."); }).catch(function (er) { $("propErr").textContent = er.message; });
+      if (id === "propSend") { var md = $("propMd").value, pid = cur.proposal.id; (md !== cur.proposal.content_md ? save("proposals", "update", { content_md: md }, pid).then(function () { cur.proposal.content_md = md; }) : Promise.resolve()).then(function () { return RP.api("/api/admin/proposals/" + pid + "/send"); }).then(function () { return fetchAll(); }).then(function () { renderProposals(); done($("propOk"), "Sent. The client received an email with a secure link."); }).catch(function (er) { $("propErr").textContent = er.message; }); }
     });
     document.addEventListener("input", function (e) {
       if (e.target.id === "propMd") $("propPreview").innerHTML = RP.markdown(e.target.value);

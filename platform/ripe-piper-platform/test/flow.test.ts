@@ -53,6 +53,7 @@ async function fakeSupabase(url: URL, init: RequestInit): Promise<Response> {
     ? { id: "client-1", email: "client@example.invalid" } : { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", email: "admin@ripepiper.com" });
   if (url.pathname.startsWith("/rest/v1/rpc/")) {
     rpcCalls.push(url.pathname);const b=JSON.parse(String(init.body));rpcBodies.push(b);
+    if(url.pathname.endsWith('/set_member_role'))return Response.json({tenant_id:b.p_tenant,user_id:'client-1',role:b.p_role,previous_role:'viewer'});
     if(url.pathname.endsWith('/review_prospect_snapshot')) {
       if(!(tables.tenants??[]).some(t=>t.id===b.p_tenant))return Response.json({version:1,status:'missing'});
       const leads=(tables.leads??[]).filter(l=>l.tenant_id===b.p_tenant).map(l=>({id:l.id,company:l.company??null,email:l.email,status:l.status??'new'}));
@@ -398,6 +399,11 @@ describe("staff-managed client setup", () => {
     expect((await call("POST", invite, { email: "new@example.invalid", role: "viewer" }, { Authorization: "Bearer test-admin" })).status).toBe(409);
     expect(tables.invites || []).toHaveLength(0);
     expect(sentEmails).toHaveLength(0);
+    tables.tenants[0].status = 'active';
+    tables.invites = [{ tenant_id: tenant, email: "member@example.invalid", role: "viewer", accepted_at: "2026-10-01T00:00:00Z" }];
+    const changed = await call("POST", invite, { email: "member@example.invalid", role: "owner" }, { Authorization: "Bearer test-admin" });
+    expect(await changed.json()).toEqual({ ok: true, changed: true, role: "owner" });
+    expect(rpcBodies.at(-1)).toMatchObject({ p_tenant: tenant, p_email: "member@example.invalid", p_role: "owner" });
   });
   it("requires staff and a reason to pause, with no provider traffic", async () => {
     const path = "/api/admin/tenants/11111111-1111-4111-8111-111111111111/pause";
@@ -498,6 +504,36 @@ describe("quotation checkout resilience", () => {
     expect(res.status).toBe(503);
     expect(tables.quotes[0].status).toBe("sent");
     expect(tables.payments).toHaveLength(1);expect(tables.payments[0].raw.checkout.state).toBe("creating");
+  });
+});
+
+describe("admin delivery of proposals and quotations", () => {
+  const failGmail = (status: number) => vi.stubGlobal("fetch", (input: RequestInfo | URL, init: RequestInit = {}) =>
+    new URL(String(input instanceof Request ? input.url : input)).pathname.endsWith("/messages/send") ? Promise.resolve(status ? new Response("{}", { status }) : Promise.reject(new Error("timeout"))) : fakeFetch(input, init));
+  it("keeps a proposal draft when Gmail rejects the send and stays sent when the outcome is uncertain", async () => {
+    tables.proposals = [defaults("proposals", { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", kind: "pre", plan: "sprint", package: "revive", currency: "AED", fixed_amount: 3500, content_md: "x", client_email: "c@d.ae", status: "draft" })];
+    const p = tables.proposals[0], send = () => call("POST", `/api/admin/proposals/${p.id}/send`, {}, { Authorization: "Bearer simulated-admin-token" });
+    failGmail(400);
+    expect((await send()).status).toBe(502);expect(p).toMatchObject({ status: "draft", sent_at: null });
+    failGmail(504);
+    const uncertain = await send();expect(uncertain.status).toBe(502);expect((await uncertain.json() as any).error).toContain(`/p/${p.access_token}`);
+    expect(p.status).toBe("sent");expect((await send()).status).toBe(400);
+  });
+  it("rejects zero-total quotations and reuses an identical draft instead of creating a duplicate", async () => {
+    tables.proposals = [defaults("proposals", { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", tenant_id: "tenant-1", kind: "pre", plan: "sprint", package: "revive", currency: "AED", fixed_amount: 3500, content_md: "x", client_email: "c@d.ae", status: "paid" })];
+    const create = (unit_price: number) => call("POST", "/api/admin/quotes", { proposal_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", items: [{ description: "Extra", quantity: 1, unit_price }] }, { Authorization: "Bearer simulated-admin-token" });
+    expect((await create(0)).status).toBe(400);expect(tables.quotes ?? []).toHaveLength(0);
+    const first = await (await create(250)).json() as any;failGmail(400);
+    expect((await call("POST", `/api/admin/quotes/${first.quote.id}/send`, {}, { Authorization: "Bearer simulated-admin-token" })).status).toBe(502);
+    expect(tables.quotes[0].status).toBe("draft");vi.stubGlobal("fetch", fakeFetch);
+    const retry = await (await create(250)).json() as any;expect(retry.quote.id).toBe(first.quote.id);expect(tables.quotes).toHaveLength(1);
+    expect((await call("POST", `/api/admin/quotes/${retry.quote.id}/send`, {}, { Authorization: "Bearer simulated-admin-token" })).status).toBe(200);
+    expect(tables.quotes[0].status).toBe("sent");expect(sentEmails).toHaveLength(1);expect((await create(250)).status).toBe(409);
+  });
+  it("reports blocked paid AI as a 409 instead of a generic failure", async () => {
+    tables.meetings = [defaults("meetings", { id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", tenant_id: null, attendee_email: "a@b.ae", start_at: "2026-11-01T10:00:00Z", end_at: "2026-11-01T10:30:00Z" })];
+    const res = await call("POST", "/api/admin/meetings/cccccccc-cccc-4ccc-8ccc-cccccccccccc/process", { transcript: "x".repeat(300) }, { Authorization: "Bearer simulated-admin-token" });
+    expect(res.status).toBe(409);expect((await res.json() as any).error).toContain("Paid AI");
   });
 });
 
@@ -630,7 +666,8 @@ it('campaign HTTP operations require staff, a loaded version and an enabled synt
 });
 
 describe('calendar integration recovery',()=>{
- const inquiry=async()=> (await (await call('POST','/api/lead',{name:'Fixture',email:'calendar@example.invalid',website:'fixture.example',package:'revive',country:'United Arab Emirates',deal_band:2,consent:true})).json()) as any;
+ const inquiryResponse=()=>call('POST','/api/lead',{name:'Fixture',email:'calendar@example.invalid',website:'fixture.example',package:'revive',country:'United Arab Emirates',deal_band:2,consent:true});
+ const inquiry=async()=> (await (await inquiryResponse()).json()) as any;
  it('keeps an uncertain reservation, blocks duplicate booking, and reconciles with a read only',async()=>{
   const lead=await inquiry();let ready=false;
   vi.stubGlobal('fetch',async(input:RequestInfo|URL,init:RequestInit={})=>{
@@ -644,7 +681,7 @@ describe('calendar integration recovery',()=>{
   const result=await call('POST','/api/book',{lead_id:lead.lead_id,booking_token:lead.booking_token,start:lead.slots[0].start});
   expect(result.status).toBe(503);expect(await result.json()).toMatchObject({ok:false});
   const m=tables.meetings[0];expect(m.status).toBe('booked');expect(m.google_event_id).toBe(calendarEvents[0].id);expect(m.meet_url).toBeUndefined();
-  const slots:any=await (await call('GET','/api/slots')).json();expect(slots.slots.some((s:any)=>s.start===m.start_at)).toBe(false);
+  const slots:any=await (await call('POST','/api/lead',{name:'Other',email:'other@example.invalid',website:'other.example',package:'revive',country:'United Arab Emirates',deal_band:2,consent:true})).json();expect(slots.slots.some((s:any)=>s.start===m.start_at)).toBe(false);
   expect((await call('POST','/api/book',{lead_id:lead.lead_id,booking_token:lead.booking_token,start:lead.slots[1].start})).status).toBe(403);
   const path='/api/admin/meetings/'+m.id+'/reconcile';
   expect((await call('POST',path,{})).status).toBe(401);
@@ -669,13 +706,31 @@ describe('calendar integration recovery',()=>{
  });
  it('offers no slots when the configured calendar is missing or reports an error',async()=>{
   vi.stubGlobal('fetch',async(input:RequestInfo|URL,init:RequestInit={})=>String(input).endsWith('/freeBusy')?Response.json({calendars:{primary:{errors:[{reason:'notFound'}],busy:[]}}}):fakeFetch(input,init));
-  const response=await call('GET','/api/slots');expect(response.status).toBe(500);expect(await response.json()).not.toHaveProperty('slots');
+  const response=await inquiryResponse();expect(response.status).toBe(500);expect(await response.json()).not.toHaveProperty('slots');
+  expect((await call('GET','/api/slots')).status).toBe(404);
  });
  it('does not send global-account reminders for tenant meetings or unconfirmed conferences',async()=>{
   const {sendReminders}=await import('../src/jobs');
   const base={status:'booked',start_at:'2026-11-03T04:00:00.000Z',end_at:'2026-11-03T04:15:00.000Z',attendee_email:'fixture@example.invalid',google_event_id:'rpfixture',reminder_24h_at:null};
   tables.meetings=[{...base,id:uuid(),meet_url:null},{...base,id:uuid(),tenant_id:uuid(),meet_url:'https://meet.google.com/abc-defg-hij'}];
   expect((await sendReminders(env)).sent).toBe(0);expect(sentEmails).toHaveLength(0);expect(tables.meetings.every(m=>m.reminder_24h_at===null)).toBe(true);
+ });
+});
+
+describe('calculator breakdown',()=>{
+ const req=(o:object={})=>call('POST','/api/calculator',{name:'Restore at http://evil.example',email:'calc@example.invalid',company:'Fixture Co',consent:true,leads:800,deal:40000,close:20,currency:'AED',turnstile_token:'test-valid-token',...o});
+ it('emails the server-computed estimate without free text and alerts staff with the inputs',async()=>{
+  expect((await req()).status).toBe(200);await Promise.all(pending);
+  const user=sentEmails.find(e=>e.to==='calc@example.invalid')!,staff=sentEmails.find(e=>e.to==='founder@ripepiper.com')!;
+  const body=(e:{raw:string})=>e.raw.replace(/=\r?\n/g,'');
+  expect(body(user)).toContain('AED 128,000 to AED 384,000');expect(body(user)).not.toContain('evil.example');
+  expect(body(staff)).toContain('Past leads that did not become customers: 800');expect(tables.leads[0].source).toBe('calculator');
+ });
+ it('rejects out-of-range inputs and sends nothing to suppressed addresses',async()=>{
+  for(const o of [{close:101},{leads:-1},{deal:'x'},{currency:'USD'}])expect((await req(o)).status).toBe(400);
+  tables.agency_suppression=[{email:'calc@example.invalid',reason:'verified public opt-out'}];
+  expect((await req()).status).toBe(200);await Promise.all(pending);
+  expect(sentEmails).toHaveLength(0);expect(tables.leads??[]).toHaveLength(0);
  });
 });
 

@@ -14,7 +14,8 @@ export interface MeetingAnalysis {
 async function claude(env: Env, system: string, user: string, maxTokens = 2500): Promise<string> {
   const reservation = await reserveAI(env,system,user,maxTokens);
   const res = await fetch("https://api.anthropic.com/v1/messages", {
-    signal: AbortSignal.timeout(15000),
+    // A 3000-token analysis can take most of a minute; a premature abort still pays for the call.
+    signal: AbortSignal.timeout(90000),
     method: "POST",
     headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
     body: JSON.stringify({ model: env.AI_MODEL, max_tokens: maxTokens, system, messages: [{ role: "user", content: user }] }),

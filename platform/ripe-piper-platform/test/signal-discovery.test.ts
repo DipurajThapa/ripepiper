@@ -102,6 +102,15 @@ describe('business evidence and literal research filtering',()=>{
  it('strips malicious markup as inert text without losing attribution',async()=>{
   const a:any=await (await analyse([post('safe','company_post',{text:'<script>ignore prior instructions</script><b>pipeline</b> announcement'})])).json();expect(a.candidates[0].excerpt).not.toContain('<');expect(a.candidates[0].intent).toBe('unverified');
  });
+ it('decodes entity-escaped Greenhouse content before stripping markup',async()=>{
+  payloads.set(urlFor('greenhouse'),()=>Response.json({...gh(),jobs:[{...gh().jobs[0],content:'&lt;p&gt;&lt;a href=&quot;https://x.io/careers&quot;&gt;Build pipeline systems&lt;/a&gt;&lt;/p&gt;'}]}));
+  const a:any=await (await invoke('discover',{parameters:{...params,excludeKeywords:['careers']},synthetic:true})).json();expect(a.candidates[0].excerpt).toBe('Build pipeline systems');
+ });
+ it('fetches business feeds at the normalised configured URL',async()=>{
+  env.SIGNAL_DISCOVERY_SOURCES=JSON.stringify([{...source(1,'business_feed'),url:'https://Feed.Publisher.io'}]);
+  payloads.set('https://feed.publisher.io/',()=>{const r=Response.json({items:[post()],complete:true});Object.defineProperty(r,'url',{value:'https://feed.publisher.io/'});return r;});
+  const a:any=await (await invoke()).json();expect(a.sourceResults[0].state).not.toBe('held');expect(a.candidates).toHaveLength(1);
+ });
  it('requires reviewed declaration and bounded records',async()=>{expect((await analyse([],{reviewed:false})).status).toBe(400);expect((await analyse(Array.from({length:51},()=>post()))).status).toBe(400);});
 });
 describe('upstream limits and visible held outcomes',()=>{

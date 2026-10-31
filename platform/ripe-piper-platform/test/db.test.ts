@@ -30,7 +30,7 @@ async function as(user: string, sql: string) {
 beforeAll(async () => {
   db = new PGlite({ extensions: { btree_gist } });
   await db.exec(STUB);
-  for (const f of ["0001_core.sql", "0002_security_and_views.sql", "20261022082304_tenant_identity_foundation.sql", "20261022083018_consultation_booking_capability.sql", "20261022083835_lead_provenance_and_rights.sql", "20261022084845_campaign_execution_core.sql", "20261022090405_verified_invite_acceptance.sql", "20261022090907_tenant_pause_control.sql", "20261023011051_business_brief_versions.sql", "20261023013112_product_review_workflows.sql", "20261023015506_campaign_message_versions.sql", "20261027000001_atomic_consultation_reservation.sql", "20261027000002_agency_opt_out.sql"]) {
+  for (const f of ["0001_core.sql", "0002_security_and_views.sql", "20261022082304_tenant_identity_foundation.sql", "20261022083018_consultation_booking_capability.sql", "20261022083835_lead_provenance_and_rights.sql", "20261022084845_campaign_execution_core.sql", "20261022090405_verified_invite_acceptance.sql", "20261022090907_tenant_pause_control.sql", "20261023011051_business_brief_versions.sql", "20261023013112_product_review_workflows.sql", "20261023015506_campaign_message_versions.sql", "20261027000001_atomic_consultation_reservation.sql", "20261027000002_agency_opt_out.sql", "20261031000001_staff_member_role_change.sql"]) {
     await db.exec(readFileSync(new URL(`../supabase/migrations/${f}`, import.meta.url), "utf8"));
   }
   T1 = (await db.query<any>(`insert into tenants (name, slug, country, currency, created_at) values ('Gulf Interiors','gulf-interiors','AE','AED', now() - interval '40 days') returning id`)).rows[0].id;
@@ -84,6 +84,26 @@ describe("tenant isolation (row-level security)", () => {
     expect((await db.query<any>(`select accepted_at from invites where tenant_id=$1 and lower(email)='late@example.invalid'`, [T2])).rows[0].accepted_at).toBeNull();
     await expect(as(U1, `select public.accept_verified_invites('${id}')`)).rejects.toThrow();
     await db.query(`update tenants set status='onboarding' where id=$1`, [T2]);
+  });
+  it("lets only staff change an accepted member's role and keeps the last owner", async () => {
+    const id = '00000000-0000-0000-0000-0000000000c5', role = (sql: string, args: any[]) => db.query<any>(sql, args);
+    await db.query(`insert into auth.users (id,email,email_confirmed_at) values ($1,'deputy@gulfinteriors.ae',now())`, [id]);
+    await db.query(`insert into invites (tenant_id,email,role) values ($1,'deputy@gulfinteriors.ae','viewer')`, [T1]);
+    const call = "select public.set_member_role($1,$2,$3,$4) as r";
+    await db.exec('set role service_role');
+    try {
+      await db.query(`select public.accept_verified_invites($1)`, [id]);
+      await expect(role(call, [T1, 'OWNER@gulfinteriors.ae', 'viewer', ADMIN])).rejects.toThrow('Last owner');
+      await expect(role(call, [T1, 'deputy@gulfinteriors.ae', 'owner', U1])).rejects.toThrow('Staff required');
+      await expect(role(call, [T1, 'nobody@gulfinteriors.ae', 'owner', ADMIN])).rejects.toThrow('Member not found');
+      expect((await role(call, [T1, 'deputy@gulfinteriors.ae', 'owner', ADMIN])).rows[0].r).toMatchObject({ role: 'owner', previous_role: 'viewer' });
+      expect((await role(call, [T1, 'owner@gulfinteriors.ae', 'viewer', ADMIN])).rows[0].r).toMatchObject({ role: 'viewer', previous_role: 'owner' });
+      await role(call, [T1, 'owner@gulfinteriors.ae', 'owner', ADMIN]);
+      await role(call, [T1, 'deputy@gulfinteriors.ae', 'viewer', ADMIN]);
+    } finally { await db.exec('reset role'); }
+    expect((await db.query<any>(`select role from invites where tenant_id=$1 and email='deputy@gulfinteriors.ae'`, [T1])).rows[0].role).toBe('viewer');
+    await expect(as(ADMIN, `select public.set_member_role('${T1}','deputy@gulfinteriors.ae','owner','${ADMIN}')`)).rejects.toThrow();
+    await db.query(`delete from memberships where user_id=$1`, [id]);
   });
   it("a client sees only its own leads", async () => {
     const rows = await as(U1, `select email from leads order by email`);

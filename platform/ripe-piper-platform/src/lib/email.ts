@@ -10,16 +10,27 @@ export const emails = {
       `Please bring three things: a description of your ideal customer, a rough count of your past leads, and the outreach tools you use today.\n\n` +
       `To change the time, reply to this email.${sign}`,
   }),
-  reminder: (name: string, startIso: string, meetUrl: string, which: "24h" | "1h") => ({
-    subject: which === "24h" ? `Reminder: your Ripe Piper call is tomorrow at ${gst(startIso).slice(11)} GST` : `Your Ripe Piper call starts in one hour`,
-    text: `Hi ${name},\n\nThis is a reminder that your call with Ripe Piper starts ${which === "24h" ? "tomorrow" : "in one hour"}, at ${gst(startIso)} GST.\n\n` +
-      `Join with Google Meet: ${meetUrl}\n\nIf you can no longer attend, please reply to this email so we can offer you another time.${sign}`,
-  }),
-  calculatorBreakdown: (name: string) => ({
-    subject: "Your dormant lead revenue breakdown",
-    text: `Hi ${name},\n\nThank you for using the Ripe Piper calculator. Your one-page breakdown will follow within one business day.\n\n` +
-      `To stop receiving these emails, reply with "unsubscribe".${sign}`,
-  }),
+  reminder: (name: string, startIso: string, meetUrl: string, which: "24h" | "1h", now = new Date()) => {
+    // The 24h window opens minutes after a short-notice booking, so name the GST calendar day.
+    const day = gst(startIso).slice(0, 10) === gst(now.toISOString()).slice(0, 10) ? "today" : "tomorrow";
+    return {
+      subject: which === "24h" ? `Reminder: your Ripe Piper call is ${day} at ${gst(startIso).slice(11)} GST` : `Your Ripe Piper call starts in one hour`,
+      text: `Hi ${name},\n\nThis is a reminder that your call with Ripe Piper starts ${which === "24h" ? day : "in one hour"}, at ${gst(startIso)} GST.\n\n` +
+        `Join with Google Meet: ${meetUrl}\n\nIf you can no longer attend, please reply to this email so we can offer you another time.${sign}`,
+    };
+  },
+  // No free-text name or company: this goes to an address the visitor typed, so only validated numbers are echoed.
+  calculatorBreakdown: (c: { leads: number; deal: number; close: number; currency: string; meetings: [number, number]; deals: [number, number]; revenue: [number, number] }) => {
+    const n = (x: number) => Math.round(x).toLocaleString(c.currency === "INR" ? "en-IN" : "en-US"), money = (x: number) => `${c.currency} ${n(x)}`;
+    const d = (x: number) => (x < 10 ? x.toFixed(1) : n(x));
+    const summary = `Past leads that did not become customers: ${n(c.leads)}\nAverage deal value: ${money(c.deal)}\nMeetings that become deals: ${c.close}%\n\n` +
+      `Estimated meetings: ${n(c.meetings[0])} to ${n(c.meetings[1])}\nEstimated new deals: ${d(c.deals[0])} to ${d(c.deals[1])}\n` +
+      `Estimated revenue: ${money(c.revenue[0])} to ${money(c.revenue[1])}`;
+    return { summary, subject: "Your dormant lead revenue breakdown",
+      text: `Hi,\n\nThank you for using the Ripe Piper calculator. Here is the estimate for the numbers you entered.\n\n${summary}\n\n` +
+        `The estimate assumes 2% to 6% of past leads agree to a meeting.\n\n` +
+        `This is a one-time email. We will not email you again unless you ask. To talk it through, reply to this email or book a call at ripepiper.com/book.${sign}` };
+  },
   newsletterConfirm: (url: string) => ({
     subject: "Please confirm your Ripe Piper newsletter subscription",
     text: `Please confirm that you want to receive the Ripe Piper newsletter, one email each month.\n\nConfirm here: ${url}\n\nIf you did not sign up, ignore this email and you will not be added.${sign}`,

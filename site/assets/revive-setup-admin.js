@@ -57,18 +57,28 @@
   for(var j=0;j<claimCount;j++)if(value('setupClaimText'+j)||value('setupClaimReference'+j)){if(!value('setupClaimText'+j)||!value('setupClaimReference'+j))throw Error('Claim row '+(j+1)+' needs both the supported claim and its reference, or leave the row blank.');claims.push({text:value('setupClaimText'+j),reference:value('setupClaimReference'+j)});}
   if(!!value('setupWebsite')!==!!value('setupWebsiteReference'))throw Error('Add both the supplied website URL and its reference, or leave both blank in a draft.');
   if(!!value('setupRelationship')!==!!value('setupRelationshipReference'))throw Error('Add both the relationship summary and its reference, or leave both blank in a draft.');
-  return {website:value('setupWebsite')||value('setupWebsiteReference')?{url:value('setupWebsite'),reference:value('setupWebsiteReference')}:null,supportedClaims:claims,sourceInventory:sources,relationshipSummary:value('setupRelationship')||value('setupRelationshipReference')?{text:value('setupRelationship'),reference:value('setupRelationshipReference')}:null,senderName:nullable('setupSenderName'),senderEmail:nullable('setupSenderEmail'),ownerId:nullable('setupOwner'),market:nullable('setupMarket'),language:nullable('setupLanguage'),timezone:nullable('setupTimezone'),salesCapacityPerWeek:number('setupSalesCapacity'),outcomeWindowDays:number('setupOutcomeWindow'),workingDays:value('setupWorkingDays')?value('setupWorkingDays').split(',').map(function(d){return Number(d.trim());}):null,startMinute:minute('setupStart'),endMinute:minute('setupEnd'),dailyContactCap:number('setupDailyCap')};
+  var b={website:value('setupWebsite')||value('setupWebsiteReference')?{url:value('setupWebsite'),reference:value('setupWebsiteReference')}:null,supportedClaims:claims,sourceInventory:sources,relationshipSummary:value('setupRelationship')||value('setupRelationshipReference')?{text:value('setupRelationship'),reference:value('setupRelationshipReference')}:null,senderName:nullable('setupSenderName'),senderEmail:nullable('setupSenderEmail'),ownerId:nullable('setupOwner'),market:nullable('setupMarket'),language:nullable('setupLanguage'),timezone:nullable('setupTimezone'),salesCapacityPerWeek:number('setupSalesCapacity'),outcomeWindowDays:number('setupOutcomeWindow'),workingDays:value('setupWorkingDays')?value('setupWorkingDays').split(',').map(function(d){return Number(d.trim());}):null,startMinute:minute('setupStart'),endMinute:minute('setupEnd'),dailyContactCap:number('setupDailyCap')};
+  // Mirror the Worker's deterministic format checks so a rejection never costs the operator's edits.
+  if(b.market!==null)b.market=b.market.toUpperCase();if(b.market!==null&&!/^[A-Z]{2}$/.test(b.market))throw Error('Use a two-letter market code, e.g. AE.');
+  if(b.language!==null&&!/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,3}$/.test(b.language))throw Error('Use a language tag such as en-AE.');
+  if(b.timezone!==null){try{var tz=new Intl.DateTimeFormat('en',{timeZone:b.timezone}).resolvedOptions().timeZone;if(tz.toLowerCase()===b.timezone.toLowerCase())b.timezone=tz;}catch(e){throw Error('Use an IANA timezone such as Asia/Dubai.');}}
+  if(b.workingDays!==null&&(new Set(b.workingDays).size!==b.workingDays.length||!b.workingDays.every(function(d){return Number.isInteger(d)&&d>=1&&d<=7;})))throw Error('Use distinct working days 1–7, comma-separated.');
+  return b;
  }
  function save(state){
   if(!ready||!context){notice('Load the current client setup before saving.');return;}
   if(state==='reviewed'&&!el('setupReviewed').checked){notice('Review these exact details and select the review confirmation before saving as reviewed.');return;}
   var payload;try{payload={operation:'save',expectedVersion:context.setup?context.setup.version:0,briefVersion:context.currentBriefVersion,state:state,body:body()};}catch(e){notice(e.message);return;}
+  if(state==='reviewed'&&(!payload.body.sourceInventory.length||['relationshipSummary','senderName','senderEmail','ownerId','market','language','timezone','outcomeWindowDays','startMinute','endMinute','dailyContactCap'].some(function(k){return payload.body[k]===null;})||!(payload.body.salesCapacityPerWeek>=1)||!payload.body.workingDays||!payload.briefVersion)){notice('Complete the missing setup fields and current business brief before saving as reviewed.');return;}
   var ticket=generation,req=++request,tenantId=tenant.id;ready=false;lock(true);notice('Saving '+state+' setup…');
   api(payload).then(function(j){
    if(ticket!==generation||req!==request)return;
    if(!j||j.ok!==true||j.tenantId!==tenantId||!Number.isInteger(j.version)||j.version<1||![payload.expectedVersion,payload.expectedVersion+1].includes(j.version)||j.briefVersion!==payload.briefVersion||j.state!==state||j.ready!==(state==='reviewed')||j.delivery!=='not_sent')throw Error('The setup acknowledgement is uncertain. Reload before another save; no activation or send was requested.');
    window.dispatchEvent(new CustomEvent('rp:revive-setup-changed',{detail:{tenantId:tenantId}}));return load();
-  }).catch(function(e){if(ticket===generation&&req===request){ready=false;context=null;notice(e.message+' Reload saved setup before another change.');lock(true);}});
+  }).catch(function(e){if(ticket!==generation||req!==request)return;
+   // A definitive 4xx rejection saved nothing; stale versions are re-rejected server-side, so edits stay usable.
+   if([400,403,404,409].includes(e.status)){ready=true;lock(false);notice(e.message+' Nothing was saved; your edits are kept.');return;}
+   ready=false;context=null;notice(e.message+' Reload saved setup before another change.');lock(true);});
  }
  window.addEventListener('rp:tenant-selected',function(e){++generation;++request;tenant=e.detail;ready=false;dirty=false;context=null;render();});
  window.addEventListener('rp:business-brief-changed',function(e){if(tenant&&e.detail&&e.detail.tenantId===tenant.id){++generation;++request;ready=false;context=null;lock(true);notice('The business brief changed. Reload setup and review it against the current brief before continuing.');}});

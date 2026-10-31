@@ -4,7 +4,14 @@ import { Marked } from "marked";
 
 const md = new Marked({ gfm: true, breaks: false });
 // Raw HTML in posts is shown as text, so a post can never inject scripts into the page.
-md.use({ renderer: { html: (token: any) => escapeHtml(typeof token === "string" ? token : token.text ?? "") } });
+// Link and image URLs with a scheme other than http(s) or mailto (javascript:, data:, ...) are replaced with "#".
+// Browsers ignore control characters and spaces in a scheme and decode entities (&#106;avascript:, javascript&colon;) in the
+// attribute, so after stripping the former, any ":" or "&" before the first "/", "?" or "#" counts as a scheme.
+const unsafeUrl = (href: string) => { const h = href.replace(/[\u0000- ]/g, ""); return /[:&]/.test(h.split(/[/?#]/)[0]) && !/^(https?|mailto):/i.test(h); };
+md.use({
+  renderer: { html: (token: any) => escapeHtml(typeof token === "string" ? token : token.text ?? "") },
+  walkTokens: (t: any) => { if ((t.type === "link" || t.type === "image") && unsafeUrl(String(t.href ?? ""))) t.href = "#"; },
+});
 
 export function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -31,11 +38,11 @@ const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day
 /** Fill the shell exported by the website build (blog-shell.html) with page-specific content. */
 export function fillShell(shell: string, p: { title: string; description: string; canonical: string; body: string; jsonld: object[] }): string {
   return shell
-    .replace(/\{\{TITLE\}\}/g, escapeHtml(p.title))
-    .replace(/\{\{DESC\}\}/g, escapeHtml(p.description))
-    .replace(/\{\{CANONICAL\}\}/g, p.canonical)
-    .replace("{{JSONLD}}", p.jsonld.map(j => `<script type="application/ld+json">${JSON.stringify(j).replace(/</g, "\\u003c")}</script>`).join(""))
-    .replace("{{BODY}}", p.body);
+    .replace(/\{\{TITLE\}\}/g, () => escapeHtml(p.title))
+    .replace(/\{\{DESC\}\}/g, () => escapeHtml(p.description))
+    .replace(/\{\{CANONICAL\}\}/g, () => p.canonical)
+    .replace("{{JSONLD}}", () => p.jsonld.map(j => `<script type="application/ld+json">${JSON.stringify(j).replace(/</g, "\\u003c")}</script>`).join(""))
+    .replace("{{BODY}}", () => p.body);
 }
 
 export function postPage(site: string, post: Post): { title: string; description: string; canonical: string; body: string; jsonld: object[] } {

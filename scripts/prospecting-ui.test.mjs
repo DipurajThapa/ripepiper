@@ -47,6 +47,7 @@ test('brief UI sends loaded version and selected tenant, then reloads',async()=>
   ui.select('tenant-a');await tick();
   ui.nodes.briefOffer.value='Corrected offer';ui.nodes.briefForm.onsubmit({preventDefault(){}});await tick();
   const save=calls.find(c=>c.path.endsWith('/brief'));assert.equal(save.path,'/api/admin/tenants/tenant-a/brief');assert.equal(save.body.expected_version,3);assert.equal(save.body.brief.offer,'Corrected offer');
+  assert.match(save.body.brief.source.observedAt,/^2026-10-22T00:00:00[+-]\d\d:\d\d$/);assert.equal(Date.parse(save.body.brief.source.observedAt),new Date(2026,9,22).getTime());
   assert.equal(calls.filter(c=>c.path.endsWith('/shortlist')).length,2);
 });
 test('late result from previous tenant cannot overwrite the current brief',async()=>{

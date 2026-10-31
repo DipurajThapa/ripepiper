@@ -5,6 +5,6 @@ window.RP_CONFIG = {
   supabaseUrl: "",       // e.g. "https://abcd1234.supabase.co"
   supabaseAnonKey: "",
   live: false, // Set true only after the API, Supabase and security checks are configured
-  apiBase: "",           // Same-origin Worker routes; set explicitly for a different API origin
+  apiBase: "",           // Must stay same-origin ("" = Worker routes on this host); the API sends no CORS headers
   turnstileSiteKey: ""   // Public Cloudflare Turnstile site key; required for live public forms
 };

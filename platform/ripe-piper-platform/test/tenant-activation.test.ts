@@ -76,12 +76,13 @@ describe('activation HTTP contract',()=>{
    const url=new URL(input);if(url.origin!==env.SUPABASE_URL)throw Error('Unrelated network forbidden');
    if(url.pathname==='/auth/v1/user')return Response.json({id:admin,email:'staff@example.invalid'});
    if(url.pathname==='/rest/v1/profiles')return Response.json([{is_admin:true}]);
-   if(url.pathname.endsWith('/activate_tenant_execution')){const body=JSON.parse(String(init.body));expect(body).toMatchObject({p_actor:admin,p_tenant:other,p_status:'onboarding',p_version:0,p_brief:1});calls++;return Response.json(receipt);}
+   if(url.pathname.endsWith('/activate_tenant_execution')){if(receipt==='revive')return Response.json({code:'23514',message:'Reviewed current Revive setup required before activation'},{status:400});const body=JSON.parse(String(init.body));expect(body).toMatchObject({p_actor:admin,p_tenant:other,p_status:'onboarding',p_version:0,p_brief:1});calls++;return Response.json(receipt);}
    throw Error('Unexpected operation');
   });
   function req(extra={}){return new Request('https://fixture.invalid/api',{method:'POST',headers:{Authorization:'Bearer staff'},body:JSON.stringify({expected_status:'onboarding',expected_version:0,brief_version:1,reason:'Reviewed readiness for this account',...extra})});}
   expect((await activateTenant(req(),env,other)).status).toBe(200);
   receipt={ok:true};expect((await activateTenant(req(),env,other)).status).toBe(503);
   expect((await activateTenant(req({expected_status:'ended'}),env,other)).status).toBe(400);expect(calls).toBe(2);
+  receipt='revive';const blocked=await activateTenant(req(),env,other);expect(blocked.status).toBe(409);expect((await blocked.json()).error).toMatch(/Revive setup/);
  });
 });

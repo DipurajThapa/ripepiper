@@ -48,8 +48,11 @@
   function date(value, now) {
     var m = /^(\d{4})-(\d\d)-(\d\d)$/.exec(value);
     if (!m || +m[1] < 1000 || +m[2] < 1 || +m[2] > 12 || +m[3] < 1 || +m[3] > new Date(Date.UTC(+m[1], +m[2], 0)).getUTCDate()) return null;
+    // "Today" is the user's calendar day; a date ahead of UTC is clamped to now so the server's not-after-now check holds.
+    var d = new Date(now), local = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    if (value > local) return null;
     var instant = value + "T00:00:00Z";
-    return Date.parse(instant) <= now ? instant : null;
+    return Date.parse(instant) <= now ? instant : d.toISOString();
   }
   function parse(text, options) {
     options = options || {};

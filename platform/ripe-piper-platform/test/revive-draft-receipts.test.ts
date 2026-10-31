@@ -14,10 +14,10 @@ beforeAll(async()=>{
  const dir=new URL('../supabase/migrations/',import.meta.url);for(const file of readdirSync(dir).filter(f=>f.endsWith('.sql')).sort())await db.exec(readFileSync(new URL(file,dir),'utf8'));
  await q(`insert into auth.users(id,email,email_confirmed_at) values($1,'receipt-staff@example.invalid',now()),($2,'other-staff@example.invalid',now())`,[actor,otherActor]);await q('update profiles set is_admin=true where id in($1,$2)',[actor,otherActor]);
 },30000);afterAll(async()=>db?.close());
-async function fixture(){
+async function fixture(needs=['project recovery','quote follow-up']){
  const tenant=(await q(`insert into tenants(name,slug,country,currency,status) values('Receipt fixture',$1,'AE','AED','active') returning id`,[crypto.randomUUID()]))[0].id;
  const lead=(await q(`insert into leads(tenant_id,source,email) values($1,'import',$2) returning id`,[tenant,crypto.randomUUID()+'@example.invalid']))[0].id;
- const observed=new Date(Date.now()-86400000).toISOString(),body={offer:'project recovery',industries:['construction'],markets:['AE'],roles:['owner'],needs:['project recovery','quote follow-up'],aliases:{need:{'PROJECT RECOVERY':['schedule recovery']}},excludedIndustries:[],maxAgeDays:90,source:{reference:'review:brief',excerpt:'Approved delivery offer',observedAt:observed}};
+ const observed=new Date(Date.now()-86400000).toISOString(),body={offer:'project recovery',industries:['construction'],markets:['AE'],roles:['owner'],needs,aliases:{need:{'PROJECT RECOVERY':['schedule recovery']}},excludedIndustries:[],maxAgeDays:90,source:{reference:'review:brief',excerpt:'Approved delivery offer',observedAt:observed}};
  await rpc('save_business_brief',[tenant,0,body,actor]);
  const source=(await q(`insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,rights_reference,synthetic,assessment_facts,assessment_excerpt,assessment_reviewed_by) values($1,$2,'reviewed','source-original',$3,'assessment','review:source',true,$4,'construction AE owner schedule recovery',$5) returning id`,[tenant,lead,observed,{industry:'construction',market:'AE',role:'owner',need:'schedule recovery'},actor]))[0].id;
  const unrelated=(await q(`insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,rights_reference,synthetic,assessment_facts,assessment_excerpt,assessment_reviewed_by) values($1,$2,'staff_import','unrelated',$3,'review','review:source',true,'{}','Unrelated staff note',$4) returning id`,[tenant,lead,observed,actor]))[0].id;
@@ -39,6 +39,9 @@ describe('service-owned original draft source receipts',()=>{
   await expect(q(`update campaign_assets set revive_draft_context='{}' where campaign_id=$1`,[f.campaign])).rejects.toThrow(/immutable/);
   const {draftContext,...untagged}=f.body;await expect(rpc('manage_campaign_plan',[f.tenant,f.campaign,actor,'save',1,untagged])).rejects.toThrow(/cannot be omitted/);
   expect((await q('select count(*)::int n from campaign_assets where campaign_id=$1',[f.campaign]))[0].n).toBe(1);
+ });
+ it('records a proposal when only an unrelated brief need contains characters drafts cannot use',async()=>{
+  const f=await fixture(['project recovery','CRM cleanup [x]']);expect(f.receipt.proposalId).toMatch(/^[1-9][0-9]*$/);expect(f.receipt.draftContext.canonicalNeed).toBe('project recovery');
  });
  it('rejects an unrelated same-contact source swap without a new campaign, saved audit or action',async()=>{
   const f=await fixture(),swapped={...f.body,draftContext:{...f.body.draftContext,sourceId:f.unrelated}};

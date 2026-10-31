@@ -7,6 +7,7 @@ import { meetingSnapshot, saveMeetingDraft } from "./foundation/consultation-rev
 import { dueReminder } from "./lib/slots";
 import { syncSheet } from "./lib/sheets";
 import { analyseMeeting, minutesMarkdown } from "./lib/ai";
+import { PaidUseBlocked } from "./lib/build-budget";
 import { googleAdsRows, metaRows, linkedinRows, toTenantCurrency, adsHttpError, redactedAdsError, type AdRow } from "./lib/ads";
 import { runReviveAutomation } from "./foundation/revive-automation";
 
@@ -27,7 +28,7 @@ export async function sendReminders(env: Env, now = new Date()) {
       // This fenced authorization rereads the current booking immediately before the provider call.
       const authorized=await db.rpc<any>("authorize_consultation_reminder",args);if(authorized===null){review++;continue;}
       if(!validReminderReceipt(authorized,m,which,token,"dispatching"))throw Error("Authorization acknowledgement uncertain");
-      const email=emails.reminder(m.attendee_name??"there",m.start_at,m.meet_url,which);
+      const email=emails.reminder(m.attendee_name??"there",m.start_at,m.meet_url,which,now);
       const ack=await sendEmail(env,m.attendee_email,email.subject,email.text,undefined,async()=>{
         // OAuth refresh may take time; fence the actual Gmail mutation after it completes.
         if(await db.rpc("confirm_consultation_dispatch",args)!==true)throw Error("Booking changed before provider dispatch");
@@ -61,7 +62,9 @@ export async function processFinishedMeetings(env: Env, now = new Date()) {
       const t=m.meet_code?await meetTranscript(env,m.meet_code):{status:"no_record" as const};transcript=t.text;
       if(t.status==="ready"&&typeof transcript==="string"&&transcript.length>200){
         const lead=m.lead_id?await db.one<any>("leads",`id=eq.${m.lead_id}&tenant_id=is.null&select=company,website`):null;
-        const a=await analyseMeeting(env,transcript,{company:lead?.company??lead?.website,attendee:m.attendee_name});
+        // Any failure other than a pre-network block may follow a paid dispatch: draft it once, never re-call the model.
+        let a;try{a=await analyseMeeting(env,transcript,{company:lead?.company??lead?.website,attendee:m.attendee_name});}
+        catch(e){if(e instanceof PaidUseBlocked&&new Date(m.end_at).getTime()>=giveUp){out.waiting++;continue;}await saveMeetingDraft(db,m,{transcript},"analysis_unavailable");out.review++;continue;}
         await saveMeetingDraft(db,m,{transcript,notes:{summary:a.summary,...a.notes},minutes:minutesMarkdown(a,`Call with ${m.attendee_name??m.attendee_email}`,m.start_at.slice(0,10)),requirements:{...a.requirements,decisions:a.minutes.decisions,actions:a.minutes.actions}},"transcript_unverified");out.processed++;out.review++;
       }else if(new Date(m.end_at).getTime()<giveUp||!m.meet_code){
         await saveMeetingDraft(db,m,{transcript},"attendance_source_unavailable");out.review++;

@@ -34,7 +34,7 @@ export function validSetupBody(value:unknown):value is ReviveSetupBody {
  if(!Array.isArray(b.sourceInventory)||b.sourceInventory.length>10||b.sourceInventory.some(s=>!exact(s,['type','reference','rightsReference'])||!['website','email','interview','file'].includes(s.type)||!reference(s.reference)||!reference(s.rightsReference)))return false;
  if(!optional(b.relationshipSummary,r=>exact(r,['text','reference'])&&text(r.text,1000)&&reference(r.reference)))return false;
  if(!optional(b.senderName,v=>reference(v,80))||!optional(b.senderEmail,email)||!optional(b.ownerId,v=>typeof v==='string'&&uuid.test(v))||!optional(b.market,v=>typeof v==='string'&&/^[A-Z]{2}$/.test(v))||!optional(b.language,v=>typeof v==='string'&&v.length<=35&&/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,3}$/.test(v)))return false;
- if(!optional(b.timezone,v=>{if(!reference(v,80))return false;try{new Intl.DateTimeFormat('en',{timeZone:v});return true;}catch{return false;}}))return false;
+ if(!optional(b.timezone,v=>{if(!reference(v,80))return false;try{const tz=new Intl.DateTimeFormat('en',{timeZone:v}).resolvedOptions().timeZone;return tz===v||tz.toLowerCase()!==v.toLowerCase();}catch{return false;}}))return false;
  if(!optional(b.salesCapacityPerWeek,v=>integer(v,0,100))||!optional(b.outcomeWindowDays,v=>integer(v,1,180))||!optional(b.dailyContactCap,v=>integer(v,1,25))||!optional(b.startMinute,v=>integer(v,0,1439))||!optional(b.endMinute,v=>integer(v,1,1440)))return false;
  if(!optional(b.workingDays,v=>Array.isArray(v)&&v.length<=7&&new Set(v).size===v.length&&v.every(d=>integer(d,1,7))))return false;
  return b.startMinute===null||b.endMinute===null||b.endMinute>b.startMinute;
