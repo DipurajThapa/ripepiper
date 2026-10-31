@@ -7,7 +7,7 @@ describe('frozen offline prospect-quality baseline',()=>{
  it('repeats the exact artifact and binds data, rules, evaluator and both brief versions',()=>{
   const report=runQualityEvaluation(dataset);
   expect(runQualityEvaluation(copy(dataset))).toEqual(report);
-  expect(report).toEqual(JSON.parse(readFileSync(new URL('../../../docs/evidence/PROSPECT_QUALITY_SAFE_REVIEW_2026-10-27.json',import.meta.url),'utf8')));
+  expect(report).toEqual(JSON.parse(readFileSync(new URL('./fixtures/prospect-quality-safe-review.json',import.meta.url),'utf8')));
   expect(report.passed).toBe(true);expect(report.provenance.dataset.version).toBe('2026-10-23.v1');
   for(const value of [report.provenance.dataset.canonicalSha256,report.provenance.rules.assessorSha256,report.provenance.rules.shortlistModuleSha256,report.provenance.evaluatorSha256,...report.provenance.briefs.map((b:any)=>b.canonicalSha256)])expect(value).toMatch(/^[a-f0-9]{64}$/);
   expect(report.provenance.briefs).toHaveLength(2);expect(report.costs).toEqual({externalCalls:0,modelCalls:0,incrementalProviderChargesUsd:0});expect(report.commercialOutcomes).toMatchObject({measured:false,conversionUplift:null,operatorCorrectionRate:null});

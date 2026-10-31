@@ -38,11 +38,6 @@ export interface Env {
   META_ACCESS_TOKEN: string;             // system user token with ads_read
   LINKEDIN_ACCESS_TOKEN: string;         // r_ads, r_ads_reporting
 
-  // WhatsApp Cloud API (optional reminders to people who opted in)
-  WHATSAPP_ENABLED?: string;          // "true" to enable
-  WHATSAPP_TOKEN?: string;
-  WHATSAPP_PHONE_ID?: string;
-
   MEETING_TRANSCRIPTS_ENABLED?: string; // exact true only; default off
   SHEETS_SYNC_ENABLED?: string; // exact true only; uncertain append recovery remains pending
   ADS_SYNC_ENABLED?: string; // exact true only; default off
