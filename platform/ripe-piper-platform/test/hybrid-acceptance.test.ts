@@ -383,3 +383,29 @@ describe('7. shared reference intelligence without tenant data',()=>{
   expect(await asRole('service_role','select * from learning_outcomes_by_segment where industry_code=$1',['4120'])).toEqual([]);
  },60000);
 });
+
+describe('8. onboarding status for the first tenant (Ripe Piper, self-service)',()=>{
+ it('reports each setup step from real records, names the next one and hides the client from strangers',async()=>{
+  const c=await client('client_owned','Ripe Piper'),base=`/api/admin/tenants/${c.id}`,stranger=await user('stranger');
+  await q(`update tenants set status='onboarding' where id=$1`,[c.id]);
+  const status=async()=>(await call(c.owner,'GET',`${base}/onboarding`)).body;
+  const done=(b:any)=>Object.fromEntries(b.steps.map((s:any)=>[s.id,s.done]));
+  let s=await status();
+  expect(s).toMatchObject({ok:true,mode:'client_owned',next:'business_brief',liveSending:false});
+  expect(Object.values(done(s)).every(v=>v===false)).toBe(true);
+  expect(s.connectors.find((x:any)=>x.id==='linkedin').status).toBe('not_supported');
+  expect(s.connectors.find((x:any)=>x.id==='google_workspace').permissions).toContain('https://www.googleapis.com/auth/gmail.send');
+  expect(await call(stranger.id,'GET',`${base}/onboarding`)).toEqual(notFound);
+  expect((await post(c.owner,`${base}/brief`,{brief:brief(),expected_version:0})).status).toBe(200);
+  const {body}=await setup(c.id,c.owner,{senderEmail:'owner@ripepiper.example'});
+  expect((await status()).next).toBe('account_active');
+  await q(`update tenants set status='active' where id=$1`,[c.id]);
+  expect((await status()).next).toBe('mailbox');
+  await connect(c.owner,c.id,'google',['mail_send','calendar'],{identity:'owner@ripepiper.example',scope:'openid email https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.freebusy',refresh:'refresh-rp'});
+  s=await status();expect(done(s)).toMatchObject({mailbox:true,calendar:true,envelope:false});expect(s.next).toBe('envelope');
+  await approveEnvelope(c.owner,c.id);expect((await status()).next).toBe('first_campaign');
+  const [k]=await contacts(c.id,c.owner,1),id=crypto.randomUUID();
+  expect((await campaigns(c.owner,c.id,'save',id,0,plan([k.lead],await drafted(c,c.owner,body,k)))).body).toMatchObject({status:'approved'});
+  s=await status();expect(s.next).toBeNull();expect(Object.values(done(s)).every(Boolean)).toBe(true);
+ },60000);
+});

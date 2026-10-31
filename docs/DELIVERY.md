@@ -8,8 +8,8 @@ Owner and release authority: Dipuraj Thapa. Ripe Piper is a B2B prospecting serv
 
 **Overall: development-complete for the bounded offline scope, not client-ready.** All four packages have tested source implementations against synthetic data. No live lead-to-outcome service exists yet.
 
-- **Source:** `main` (outcome engine merged in PR #14), plus the uncommitted hybrid operating model on `feat/hybrid-operating-model-2026-10-31` described under [Hybrid operating model](#hybrid-operating-model-branch-not-merged).
-- **Checks (hybrid branch):** typecheck clean; targeted Vitest and Node runs per change, including `test/hybrid-acceptance.test.ts` (the seven owner acceptance tests). The full suite has not been run on this branch.
+- **Source:** `main` (outcome engine merged in PR #14), plus the hybrid operating model in pull request #15 described under [Hybrid operating model](#hybrid-operating-model-branch-not-merged).
+- **Checks (hybrid branch):** typecheck clean; full Vitest suite and Node script tests pass; CI green on pull request #15. The SaaS readiness audit and onboarding status are in [SAAS_READINESS.md](SAAS_READINESS.md).
 - **Migrations:** 46 files in `platform/ripe-piper-platform/supabase/migrations`. Isolated staging (`wgomywhuzyboxlckopca`) has the first 35 applied and verified. The eleven newest are not applied to any hosted database: `20261027194016` to `20261031000002` (on `main`) and `20261101000001` to `20261101000006` (hybrid branch). Production Supabase was last observed with only its 3 original migrations.
 - **Runtime:** no API Worker is deployed. The static site publishes to Cloudflare Pages from `main` with `live:false` configuration, so it shows sample data and does not reach an API.
 - **Deployment hold:** production deploys are blocked on purpose (`npm run deploy` runs `scripts/blocked-deploy.mjs`, and the `.githooks/pre-push` hook blocks pushes to `main`). Commits that must not trigger a Pages build use the `[CF-Pages-Skip]` prefix.
@@ -68,7 +68,7 @@ Staff registration and attendance records with per-event history; default-off sy
 
 ## Hybrid operating model (branch, not merged)
 
-Uncommitted on `feat/hybrid-operating-model-2026-10-31`; targeted tests only, not applied to staging. Migrations `20261101000001` to `20261101000006`.
+In pull request #15 (`feat/hybrid-operating-model-2026-10-31`, checks green, not merged); full suite passes; not applied to staging. Migrations `20261101000001` to `20261101000006`.
 
 - **Access** (`000001`, `src/foundation/access.ts`, `routes/http.ts`): `profiles.is_operator`; append-only `operator_grants` (capabilities `read`/`operate`/`approve`, authority `client_admin` or `contract` with a reference, at most 366 days, revoke once, client-visible activity rows); the single predicate `can_operate`, reached from the Worker through `tenant_access` and `requireTenant`; denied equals missing (404). Tenant-confidential RLS no longer lets a platform admin read without a grant; `platform_tenant_overview()` gives counts and health only. `set_tenant_ownership` switches the mode by compare-and-set and audits it. Existing staff were backfilled with a 30-day `pre-hybrid-backfill` contract grant.
 - **Operating envelope** (`000002`, `envelope.ts`): append-only `operating_envelopes` bound to the brief and setup versions; `envelope_campaign_fit` returns fixed reason codes; `approve_campaign_within_envelope` approves through the existing campaign path. A Revive save is offered to the envelope, and the 5-minute cron approves remaining in-bounds drafts. Stop conditions (minimum sample 5, opt-out 10%, review actions, any reply) pause a campaign from the cron and never resume it. Revoking pauses envelope campaigns and cancels their queued steps; a newer approved version supersedes. A person approving an escalated campaign is recorded as an override.

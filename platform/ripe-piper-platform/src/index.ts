@@ -24,6 +24,7 @@ import { saveBrief, addProspectEvidence, prospectShortlist, recordProductEvent, 
 import { eventOperations, publicEventMetadata, publicEventRegistration } from "./foundation/events";
 import { conversationReview } from "./foundation/conversation-review";
 import { connectionOperations } from "./foundation/connections";
+import { onboardingStatus } from "./foundation/onboarding";
 import { authorizeConnection, oauthCallback } from "./foundation/connection-oauth";
 import { campaignPlans } from "./foundation/campaigns";
 import { signalSource } from "./foundation/signal-sources";
@@ -65,6 +66,7 @@ const routes: [string, RegExp, Handler][] = [
   ["GET", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/export$/, (r,e,_c,p)=>exportTenant(r,e,p[0])],
   ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/offboard$/, (r,e,_c,p)=>offboardTenant(r,e,p[0])],
   ["GET", /^\/api\/admin\/platform-overview$/, (r,e)=>platformOverview(r,e)],
+  ["GET", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/onboarding$/, (r,e,_c,p)=>onboardingStatus(r,e,p[0])],
   ["POST", /^\/api\/lead$/, (r, e, c) => postLead(r, e, c)],
   ["POST", /^\/api\/book$/, (r, e) => postBook(r, e)],
   ["POST", /^\/api\/calculator$/, (r, e, c) => postCalculator(r, e, c)],

@@ -238,8 +238,27 @@
   /* ---------------------------------------------------------- owner controls (the Worker re-checks ownership on every call) */
   var panelIds = ["prospectingPanel", "reviveSetupPanel", "campaignPlansPanel", "signalSourcesPanel", "eventOperationsPanel"], ownerTicket = 0;
   function tenantPath(t, action) { return "/api/admin/tenants/" + t.id + "/" + action; }
+  var CONNECTOR_STATUS = { operational: "Working", testing: "Built, awaiting provider approval", planned: "Planned", not_supported: "Not offered" };
+  // Steps and connector status come from the server; nothing here decides whether a step is done.
+  function loadOnboarding(t, current) {
+    var box = function (html) { if (current()) $("onboardingBox").innerHTML = "<h3>Getting started</h3>" + html; };
+    RP.api(tenantPath(t, "onboarding"), undefined, "GET").then(function (j) {
+      var steps = j.steps.map(function (s) {
+        return "<li>" + (s.done ? "Done: " : s.id === j.next ? "Next: " : "To do: ") + RP.esc(s.label) + (s.available === false && !s.done ? " (not switched on yet)" : "") + "</li>";
+      }).join("");
+      box("<ol>" + steps + '</ol><p class="hint">' + (j.liveSending ? "Live sending is on for approved campaigns." : "Live sending is off. Approved campaigns run as tests until Ripe Piper switches it on with your authorisation.") + "</p>" +
+        "<h4>Integrations and connectors</h4>" + RP.table([
+          { key: "name", label: "Connector" },
+          { key: "status", label: "Status", render: function (c) { return RP.esc(CONNECTOR_STATUS[c.status] || c.status); } },
+          { key: "customerDoes", label: "What you do" },
+          { key: "ripePiperManages", label: "What Ripe Piper handles" },
+          { key: "adminConsent", label: "Admin approval" }
+        ], j.connectors));
+    }).catch(function (err) { box('<p class="err">' + RP.esc(err.message) + "</p>"); });
+  }
   function ownerMarkup(self) {
-    return '<div class="formbox"><h3>Operating mode</h3><p>' + (self ? "Self-service: your team runs the brief, setup and campaigns in the Workspace tab." : "Managed: Ripe Piper operators you grant access to run the service for you.") + " Switching moves no data and does not change who has access.</p>" +
+    return '<div class="formbox" id="onboardingBox"><h3>Getting started</h3><p class="hint">Loading your setup status…</p></div>' +
+      '<div class="formbox"><h3>Operating mode</h3><p>' + (self ? "Self-service: your team runs the brief, setup and campaigns in the Workspace tab." : "Managed: Ripe Piper operators you grant access to run the service for you.") + " Switching moves no data and does not change who has access.</p>" +
       '<div class="field"><label for="modeReason">Reason for switching</label><input id="modeReason" type="text" minlength="8" maxlength="500"></div><button class="btn btn-line" type="button" id="modeSwitch">' + (self ? "Switch to managed" : "Switch to self-service") + '</button><p id="modeStatus" role="status"></p></div>' +
       '<div class="formbox">' + RP.grantsMarkup(false) + "</div>" +
       (self ? "" : '<div class="formbox"><h3>Operating envelope</h3>' + RP.envelopeMarkup() + '</div><div class="formbox">' + RP.connectionsMarkup() + "</div>") +
@@ -256,6 +275,7 @@
     panelIds.forEach(function (id) { $(id).innerHTML = ""; });
     if (!owner) return;
     $("ownerAccount").innerHTML = ownerMarkup(self);
+    loadOnboarding(t, current);
     RP.wireGrants(t.id, current, false)();
     // Panels are fixed to the member's own company; the tenant id never comes from the page.
     if (self) { window.dispatchEvent(new CustomEvent("rp:tenant-selected", { detail: { id: t.id, name: t.name } })); return; }
