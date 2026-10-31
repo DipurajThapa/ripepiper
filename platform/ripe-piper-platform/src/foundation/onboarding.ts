@@ -55,15 +55,19 @@ export async function onboardingStatus(req:Request,env:Env,tenantId:string){
  const [tenant,brief,setup,envelope,campaign,connections]=await Promise.all([
   db.one<any>('tenants',`id=eq.${t}&select=status,ownership`),
   db.one<any>('business_briefs',`tenant_id=eq.${t}&select=version&order=version.desc`),
-  db.one<any>('revive_setups',`tenant_id=eq.${t}&select=state&order=version.desc`),
+  db.one<any>('revive_setups',`tenant_id=eq.${t}&select=version&order=version.desc`),
   db.one<any>('operating_envelopes',`tenant_id=eq.${t}&select=version&order=version.desc`),
   db.one<any>('campaigns',`tenant_id=eq.${t}&status=eq.approved&select=id`),
   registryList(db,t)]);
- const envelopeEffective=envelope?await db.rpc<boolean>('envelope_effective',{p_tenant:t,p_version:envelope.version,p_now:new Date().toISOString()})===true:false;
+ const now=new Date().toISOString();
+ // A reviewed setup stops counting once a newer brief replaces the one it was reviewed against; the envelope refuses it then too.
+ const [setupCurrent,envelopeEffective]=await Promise.all([
+  setup?db.rpc<boolean>('revive_setup_current',{p_tenant:t,p_version:setup.version,p_now:now}).then(r=>r===true):false,
+  envelope?db.rpc<boolean>('envelope_effective',{p_tenant:t,p_version:envelope.version,p_now:now}).then(r=>r===true):false]);
  const mailbox=connections.find(c=>c.canSend&&c.senderVerified),calendar=connections.find(c=>c.canBook);
  const steps=[
   {id:'business_brief',label:'Describe the business, offer and ideal customers',done:!!brief},
-  {id:'setup',label:'Review the sending details: sender, postal address, working hours and limits',done:setup?.state==='reviewed'},
+  {id:'setup',label:'Review the sending details: sender, postal address, working hours and limits',done:setupCurrent},
   {id:'account_active',label:'Activate the account against the reviewed brief',done:tenant?.status==='active'},
   {id:'mailbox',label:'Connect the sending mailbox (Google or Microsoft)',done:!!mailbox,available:oauthEnabled(env)},
   {id:'calendar',label:'Connect the calendar for booked meetings (optional)',done:!!calendar,optional:true,available:oauthEnabled(env)},
@@ -71,5 +75,6 @@ export async function onboardingStatus(req:Request,env:Env,tenantId:string){
   {id:'first_campaign',label:'First campaign approved inside those limits',done:!!campaign},
  ];
  const next=steps.find(s=>!s.done&&!s.optional)?.id??null;
- return json({ok:true,mode:tenant?.ownership??null,next,steps,liveSending:env.TENANT_SEND_ENABLED==='true',connectors:CONNECTORS});
+ return json({ok:true,mode:tenant?.ownership??null,next,steps,// Dispatch does not call the tenant send adapter yet (RP-013), so no flag can make sending live.
+ liveSending:false,connectors:CONNECTORS});
 }

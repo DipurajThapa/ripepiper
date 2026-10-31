@@ -407,5 +407,8 @@ describe('8. onboarding status for the first tenant (Ripe Piper, self-service)',
   const [k]=await contacts(c.id,c.owner,1),id=crypto.randomUUID();
   expect((await campaigns(c.owner,c.id,'save',id,0,plan([k.lead],await drafted(c,c.owner,body,k)))).body).toMatchObject({status:'approved'});
   s=await status();expect(s.next).toBeNull();expect(Object.values(done(s)).every(Boolean)).toBe(true);
+  // A newer brief makes the reviewed setup stale; the checklist sends the client back to it.
+  expect((await post(c.owner,`${base}/brief`,{brief:brief(),expected_version:1})).status).toBe(200);
+  s=await status();expect(done(s).setup).toBe(false);expect(s.next).toBe('setup');
  },60000);
 });
