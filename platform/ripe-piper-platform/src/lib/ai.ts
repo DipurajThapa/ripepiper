@@ -1,5 +1,5 @@
 import type { Env } from "../env";
-import { reserveAI, settleAI } from "./build-budget";
+import { reserveAI, settleAI, type AIScope } from "./build-budget";
 import { fixedScope, eventScope, advanceAmount, money, type Currency, type Plan, type Pkg } from "./pricing";
 
 /** AI meeting analysis and pre-proposal drafting (Claude API). Prices always come from code, never from the model. */
@@ -11,8 +11,12 @@ export interface MeetingAnalysis {
   requirements: { recommended_plan: Plan; recommended_package: Pkg; icp: string; markets: string[]; customisations: string[]; risks: string[] };
 }
 
-async function claude(env: Env, system: string, user: string, maxTokens = 2500): Promise<string> {
-  const reservation = await reserveAI(env,system,user,maxTokens);
+/** Meeting analysis and pre-proposals read only Ripe Piper's own (tenant_id null) meetings and leads. */
+const AGENCY: AIScope = { tenantId: null };
+
+/** Every paid call names whose records built the prompt; a tenant prompt must come from one validated snapshot of that tenant only. */
+async function claude(env: Env, scope: AIScope, system: string, user: string, maxTokens = 2500): Promise<string> {
+  const reservation = await reserveAI(env,system,user,maxTokens,scope);
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     // A 3000-token analysis can take most of a minute; a premature abort still pays for the call.
     signal: AbortSignal.timeout(90000),
@@ -57,7 +61,7 @@ export function parseAnalysis(raw: string): MeetingAnalysis {
 }
 
 export async function analyseMeeting(env: Env, transcript: string, context: { company?: string; attendee?: string }): Promise<MeetingAnalysis> {
-  const raw = await claude(env, ANALYSIS_SYSTEM,
+  const raw = await claude(env, AGENCY, ANALYSIS_SYSTEM,
     `Company: ${context.company ?? "Unknown"}\nAttendee: ${context.attendee ?? "Unknown"}\n\nTranscript:\n${transcript.slice(0, 120_000)}`, 3000);
   return parseAnalysis(raw);
 }
@@ -80,7 +84,7 @@ export function priceBlock(currency: Currency, plan: Plan, pkg: Pkg, singleEvent
 
 export async function draftPreProposal(env: Env, a: MeetingAnalysis, p: { company: string; contact: string; currency: Currency; singleEvent?: boolean }): Promise<string> {
   const { md: prices } = priceBlock(p.currency, a.requirements.recommended_plan, a.requirements.recommended_package, p.singleEvent);
-  const body = await claude(env,
+  const body = await claude(env, AGENCY,
     `You write short pre-proposals for Ripe Piper. Use plain, complete, active-voice sentences and positive framing of the client.
 Never mention prices, discounts or guarantees; the price table is added separately. Do not invent facts that are not in the notes.
 Write Markdown with exactly these sections: "## Your situation", "## What we will do", "## What you will receive", "## Timeline", "## What we need from you", "## Customisations to quote separately".`,

@@ -46,6 +46,9 @@ await page.route('**/*',async route=>{const req=route.request(),url=new URL(req.
   }
   else if(url.pathname==='/api/admin/actions/88888888-8888-4888-8888-888888888888/test'){assert.equal(actionRecord.state,'queued');actionRecord.state='tested';result={ok:true,state:'tested',delivery:'not_sent'};}
   else if(url.pathname.endsWith('/actions/88888888-8888-4888-8888-888888888888/receipt')){assert.equal(actionRecord.state,'tested');result={ok:true,state:'tested',receipt:{acknowledgedAt:date(0)}};}
+  else if(url.pathname==='/api/admin/platform-overview')result={ok:true,tenants:[]};
+  else if(url.pathname.endsWith('/connection')&&b.operation==='connections')result={ok:true,connections:[]};
+  else if(url.pathname.endsWith('/operator-grants')&&b.operation==='list')result={ok:true,grants:[]};
   else if(url.pathname.endsWith('/events')&&b.operation==='list')result={ok:true,campaigns:[],registrations:[],registrationEnabled:false};
   else throw Error('Unexpected API request '+url.pathname);return route.fulfill({contentType:'application/json',body:JSON.stringify(result)});
  }

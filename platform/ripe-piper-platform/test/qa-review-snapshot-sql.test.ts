@@ -2,6 +2,7 @@ import {beforeAll,afterAll,beforeEach,afterEach,describe,it,expect} from 'vitest
 import {PGlite} from '@electric-sql/pglite';
 import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
 import {readFileSync,readdirSync} from 'node:fs';
+import {asOperator} from './helpers/access';
 
 // Independently authored adversaries against the complete production migration chain.
 const actor='00000000-0000-4000-8000-000000000001';
@@ -11,12 +12,16 @@ const snapshot=async(t=tenant)=> {await db.exec('set local role service_role');t
 const lead=async(t=tenant,email=crypto.randomUUID()+'@example.invalid')=>(await q("insert into leads(tenant_id,source,email) values($1,'import',$2) returning id",[t,email]))[0].id;
 const person=async(email:string,confirmed=true)=>(await q("insert into auth.users(id,email,email_confirmed_at) values(gen_random_uuid(),$1,case when $2 then now() end) returning id",[email,confirmed]))[0].id;
 async function upgradeRead(){await db.exec('set role service_role');try{return (await q('select public.revive_input_snapshot($1,$2) revive,public.signal_strategy_context($1,$2,$3) signal,public.revive_review_context($1,$2,$3) context',[upgradeTenant,upgradeLead,actor]))[0];}finally{await db.exec('reset role');}}
+// Owner candidates are tenant owners plus active 'operate' grantees (the admin flag alone no longer counts).
+const operators=async(pattern:string)=>{for(const {id} of await q('select id from profiles where email like $1',[pattern]))await asOperator(db,{tenantId:tenant,profileId:id});};
 beforeAll(async()=>{
  db=new PGlite({extensions:{btree_gist}});
  await db.exec("create role anon;create role authenticated;create role service_role bypassrls;create schema auth;create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,raw_user_meta_data jsonb default '{}');create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.sub',true),'')::uuid$$;grant usage on schema auth to anon,authenticated;grant execute on function auth.uid() to anon,authenticated;");
  const directory=new URL('../supabase/migrations/',import.meta.url);
  const migration='20261027190653_safe_bounded_prospect_snapshot.sql';
- for(const file of readdirSync(directory).filter(f=>f.endsWith('.sql')&&f!==migration).sort()) await db.exec(readFileSync(new URL(file,directory),'utf8'));
+ // Seed on the pre-snapshot schema, then apply the snapshot migration, the hybrid access migration (its backfill grants the existing admin) and every later one.
+ const hybrid='20261101000001_hybrid_access.sql';
+ for(const file of readdirSync(directory).filter(f=>f.endsWith('.sql')&&f!==migration&&f<hybrid).sort()) await db.exec(readFileSync(new URL(file,directory),'utf8'));
  await q("insert into auth.users(id,email,email_confirmed_at) values($1,'qa-snapshot-staff@example.invalid',now())",[actor]);
  await q('update profiles set is_admin=true where id=$1',[actor]);
  tenant=(await q("insert into tenants(name,slug,country,currency,status) values('QA snapshot','qa-snapshot','AE','AED','active') returning id"))[0].id;
@@ -26,7 +31,7 @@ beforeAll(async()=>{
  await q('insert into business_briefs(tenant_id,version,body,created_by) values($1,1,$2,$3)',[upgradeTenant,brief,actor]);
  await q("insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,synthetic,assessment_facts,assessment_excerpt,assessment_reviewed_by) values($1,$2,'qa','unchanged',now(),'review',true,'{\"industry\":\"construction\"}','construction',$3)",[upgradeTenant,upgradeLead,actor]);
  upgradeBefore=await upgradeRead();
- await db.exec(readFileSync(new URL(migration,directory),'utf8'));
+ for(const file of [migration,...readdirSync(directory).filter(f=>f.endsWith('.sql')&&f>=hybrid).sort()])await db.exec(readFileSync(new URL(file,directory),'utf8'));
 },30000);
 afterAll(async()=>{await db.close();});
 beforeEach(async()=>{await db.exec('begin');});
@@ -51,11 +56,11 @@ describe('independent complete-chain snapshot adversaries',()=>{
    const wide=nodes.filter(n=>n['Node Type']==='Aggregate'&&(n.Output??[]).some((s:string)=>s.includes('jsonb_agg')));
    expect(wide.length).toBeGreaterThanOrEqual(4);expect(wide.every(n=>n['Actual Loops']===0)).toBe(true);
  });
- it('admits exactly 100 verified admin owners and rejects the 101st',async()=>{
+ it('admits exactly 100 verified operator owners and rejects the 101st',async()=>{
    await q("insert into auth.users(id,email,email_confirmed_at) select gen_random_uuid(),'bound-admin-'||g||'@example.invalid',now() from generate_series(1,99) g");
-   await q("update profiles set is_admin=true where email like 'bound-admin-%'");
+   await operators('bound-admin-%');
    const complete=await snapshot();expect(complete.status).toBe('complete');expect(complete.ownerCount).toBe(100);expect(complete.owners).toHaveLength(100);
-   const extra=await person('bound-admin-extra@example.invalid');await q('update profiles set is_admin=true where id=$1',[extra]);
+   const extra=await person('bound-admin-extra@example.invalid');await asOperator(db,{tenantId:tenant,profileId:extra});
    expect(await snapshot()).toEqual({version:1,status:'capacity'});
  });
  it('admits exactly 100 raw tenant owners including admin duplication and rejects the 101st',async()=>{
@@ -77,10 +82,11 @@ describe('independent complete-chain snapshot adversaries',()=>{
      await db.exec('rollback to savepoint corrupt_metadata');
    }
  });
- it('counts 101 raw admins before filtering out unverified identities',async()=>{
+ it('never counts unverified operator grantees as owner candidates',async()=>{
+   // Hybrid: candidates come from this tenant's grants filtered by can_operate (verified actor), so unverified grantees are excluded rather than counted.
    await q("insert into auth.users(id,email) select gen_random_uuid(),'unverified-admin-'||g||'@example.invalid' from generate_series(1,100) g");
-   await q("update profiles set is_admin=true where email like 'unverified-admin-%'");
-   expect(await snapshot()).toEqual({version:1,status:'capacity'});
+   await operators('unverified-admin-%');
+   expect(await snapshot()).toMatchObject({status:'complete',ownerCount:1});
  });
  it('counts 101 raw owner memberships before filtering out unverified identities',async()=>{
    await q("insert into auth.users(id,email) select gen_random_uuid(),'unverified-owner-'||g||'@example.invalid' from generate_series(1,101) g");

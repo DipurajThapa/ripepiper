@@ -1,5 +1,5 @@
 import {beforeEach,describe,it,expect,vi} from 'vitest';
-import {tenantGoogleConnection,googleBindingDigest,tenantConnection} from '../src/foundation/connections';
+import {tenantGoogleConnection,googleBindingDigest,tenantConnection,connectionAllows} from '../src/foundation/connections';
 import {listInboundMessages,readInboundMessage,googleCalendarIdentity} from '../src/lib/google';
 import type {Env} from '../src/env';
 const tenant='11111111-1111-4111-8111-111111111111';
@@ -74,6 +74,7 @@ describe('durable authority Worker boundaries',()=>{
    const u=new URL(input);calls.push(u.pathname+u.search);options.mutate?.(u);
    if(u.pathname==='/auth/v1/user')return Response.json({id:actor,email:'admin@example.invalid'});
    if(u.pathname.endsWith('/profiles'))return Response.json([{is_admin:true}]);
+   if(u.pathname.endsWith('/rpc/tenant_access'))return Response.json(true);
    if(u.pathname.endsWith('/tenants'))return Response.json([{id:tenant,status:'active',execution_version:7}]);
    if(u.pathname.endsWith('/tenant_google_authority'))return Response.json(options.authority?[{tenant_id:tenant,connection_id:c.id,version:3,binding_hash:hash,mailbox:c.mailbox,calendar_id:c.calendarId,purpose_reference:c.purposeReference,expires_at:c.expiresAt,verified_at:new Date().toISOString(),verified_by:actor,revoked:false}]:[]);
    if(u.pathname.includes('/rpc/tenant_google_'))return Response.json(options.preflight===undefined?true:options.preflight);
@@ -128,5 +129,24 @@ describe('durable authority Worker boundaries',()=>{
    return oldFetch(input,init);
   });
   const response=await f.run({operation:'import',lead_id:tenant,message_id:'message1',reviewed:true,digest:preview.message.digest});expect(response.status).toBe(503);expect(await response.text()).toContain('same reference');
+ });
+});
+
+describe('registry capability derivation',()=>{
+ const row={provider:'google_workspace',purposes:['mail_send','calendar'],scopes_granted:['https://www.googleapis.com/auth/gmail.send'],status:'connected',expires_at:null};
+ it('needs status, purpose and the granted scope together; never true for the read-only pilot or an adapterless provider',()=>{
+  expect(connectionAllows(row,'mail_send')).toBe(true);expect(connectionAllows(row,'calendar')).toBe(false);
+  expect(connectionAllows({...row,status:'error'},'mail_send')).toBe(false);expect(connectionAllows({...row,expires_at:new Date(Date.now()-1).toISOString()},'mail_send')).toBe(false);
+  expect(connectionAllows({...row,purposes:['mail_read','calendar']},'mail_send')).toBe(false);
+  expect(connectionAllows({provider:'microsoft_365',purposes:['mail_send'],scopes_granted:['mail.send']},'mail_send')).toBe(true);
+  expect(connectionAllows({provider:'sms',purposes:['messaging'],scopes_granted:['mail.send']},'mail_send')).toBe(false);
+ });
+ it('keeps every pilot response read-only',async()=>{
+  env={...env,SUPABASE_URL:'https://db.example.invalid',GOOGLE_TENANT_CONNECTIONS:'[]'};
+  vi.stubGlobal('fetch',async(input:string)=>{const u=new URL(input);
+   if(u.pathname==='/auth/v1/user')return Response.json({id:tenant,email:'owner@example.invalid'});if(u.pathname.endsWith('/rpc/tenant_access'))return Response.json(true);
+   if(u.pathname.endsWith('/tenants'))return Response.json([{id:tenant,status:'active',execution_version:1}]);return Response.json([]);});
+  const res=await tenantConnection(new Request('https://worker.example.invalid',{method:'POST',headers:{Authorization:'Bearer fixture'},body:JSON.stringify({operation:'status'})}),env,tenant);
+  expect(await res.json()).toMatchObject({state:'not_connected',canSend:false});
  });
 });

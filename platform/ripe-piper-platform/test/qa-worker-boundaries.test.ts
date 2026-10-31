@@ -11,6 +11,7 @@ beforeEach(()=>{
   const url=new URL(input);calls.push({url,init});if(url.origin!==env.SUPABASE_URL)throw Error('External network forbidden');
   if(url.pathname==='/auth/v1/user')return Response.json({id:(init.headers as any).Authorization==='Bearer client'?client:staff,email:'fixture@example.invalid'});
   if(url.pathname==='/rest/v1/profiles')return Response.json([{is_admin:url.searchParams.get('id')==='eq.'+staff}]);
+  if(url.pathname==='/rest/v1/rpc/tenant_access')return Response.json(JSON.parse(String(init.body)).p_actor===staff);
   if(url.pathname==='/rest/v1/tenants')return Response.json([{id:tenant}]);
   if(url.pathname==='/rest/v1/outbound_actions')return Response.json(url.searchParams.get('tenant_id')==='eq.'+tenant?[{id:action,tenant_id:tenant,state:'tested',dispatch_token:'PRIVATE-FENCE',provider_ref:'test-sink:'+action,acknowledged_at:'2026-10-23T00:00:00Z'}]:[]);
   if(url.pathname==='/rest/v1/rpc/response_review_owners')return Response.json([{id:staff,label:'QA owner'}]);
@@ -21,15 +22,15 @@ const call=(path:string,token?:string,body:any={})=>worker.fetch(new Request('ht
 it('actual receipt route denies anonymous/client, scopes staff lookup and never mutates or exposes token',async()=>{
  const path='/api/admin/tenants/'+tenant+'/actions/'+action+'/receipt';
  expect((await call(path)).status).toBe(401);expect(calls).toHaveLength(0);
- expect((await call(path,'client')).status).toBe(403);
+ expect((await call(path,'client')).status).toBe(404);
  calls=[];const result=await call(path,'staff'),text=await result.text();expect(result.status).toBe(200);expect(text).toContain('synthetic_sink');expect(text).toContain('not_sent');expect(text).not.toContain('PRIVATE-FENCE');
- expect(calls.every(c=>!c.init.method||c.init.method==='GET')).toBe(true);
+ expect(calls.every(c=>c.url.pathname==='/rest/v1/rpc/tenant_access'||!c.init.method||c.init.method==='GET')).toBe(true);
  expect((await call(path.replace(tenant,client),'staff')).status).toBe(404);
 });
 it('actual conversation review route denies anonymous/client and uses authenticated staff for owner read',async()=>{
  const path='/api/admin/tenants/'+tenant+'/conversation-review';
  expect((await call(path,undefined,{operation:'owners'})).status).toBe(401);expect(calls).toHaveLength(0);
- expect((await call(path,'client',{operation:'owners'})).status).toBe(403);
+ expect((await call(path,'client',{operation:'owners'})).status).toBe(404);
  calls=[];const result=await call(path,'staff',{operation:'owners',actor:client});expect(result.status).toBe(200);
  expect(await result.json()).toMatchObject({owners:[{id:staff,label:'QA owner'}]});
  const lookup=calls.find(c=>c.url.pathname.endsWith('/response_review_owners'))!;expect(JSON.parse(String(lookup.init.body))).toEqual({p_tenant:tenant,p_actor:staff});

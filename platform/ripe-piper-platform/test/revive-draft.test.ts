@@ -4,7 +4,7 @@ import {currentReviveDraftContext,proposeReviveDraft,reviewedBookingUrl,reviewed
 import type {ReviveContext} from '../src/foundation/revive';
 import type {Env} from '../src/env';
 import {Db} from '../src/lib/db';
-import {setupBody} from './helpers/revive-setup';
+import {brandProfile,setupBody} from './helpers/revive-setup';
 const tenant='11111111-1111-4111-8111-111111111111',lead='22222222-2222-4222-8222-222222222222',source='33333333-3333-4333-8333-333333333333',history='44444444-4444-4444-8444-444444444444',admin='55555555-5555-4555-8555-555555555555';
 const now=Date.parse('2026-10-23T12:00:00Z'),observed=new Date(now-86400000).toISOString();
 const input=()=>({leadId:lead,sourceId:source,messageCount:3,senderName:'Dipuraj'});
@@ -93,7 +93,7 @@ describe('draft route integrates into the existing campaign save and approval wo
   let c=context();const calls:any[]=[];
   vi.spyOn(Db.prototype,'userFromToken').mockResolvedValue({id:admin,email:'fixture@example.invalid',is_admin:true});
   vi.spyOn(Db.prototype,'one').mockImplementation(async(table)=>table==='tenants'?{id:tenant,name:'Ripe Piper'}:null);
-  const rpc=vi.spyOn(Db.prototype,'rpc').mockImplementation(async(name,args:any)=>{calls.push({name,args});if(name==='revive_setup_context')return{tenantId:tenant,setup:{version:1,briefVersion:3,state:'reviewed',body:setupBody(admin,'review:setup',{senderName:'Dipuraj'}),createdBy:admin,createdAt:new Date().toISOString()},currentBriefVersion:3,ready:true,missing:[],owners:[{id:admin,label:'Verified reviewer'}],brief:c.brief};if(name==='revive_review_context')return c;if(name==='record_revive_draft_proposal')return{proposalId:'1',draftContext:structuredClone(args.p_context)};return{id:'66666666-6666-4666-8666-666666666666',version:1,status:'draft'};});
+  const rpc=vi.spyOn(Db.prototype,'rpc').mockImplementation(async(name,args:any)=>{if(name==='tenant_access')return true;calls.push({name,args});if(name==='revive_setup_context')return{tenantId:tenant,setup:{version:1,briefVersion:3,state:'reviewed',body:setupBody(admin,'review:setup',{senderName:'Dipuraj'}),createdBy:admin,createdAt:new Date().toISOString()},currentBriefVersion:3,ready:true,missing:[],owners:[{id:admin,label:'Verified reviewer'}],brief:c.brief};if(name==='revive_review_context')return c;if(name==='record_revive_draft_proposal')return{proposalId:'1',draftContext:structuredClone(args.p_context)};return{id:'66666666-6666-4666-8666-666666666666',version:1,status:'draft'};});
   return{calls,rpc,get context(){return c;},set context(value:ReviveContext){c=value;}};
  }
  it('previews with no campaign mutation, preserves operator edits through the atomic tagged-save RPC, and never autoapproves',async()=>{
@@ -125,5 +125,25 @@ describe('draft route integrates into the existing campaign save and approval wo
  });
  it('keeps ordinary manual campaign saves on the existing RPC',async()=>{
   const a=adapter(),p=proposeReviveDraft(a.context,'Ripe Piper',input());await campaignPlans(request({operation:'save',campaign_id:crypto.randomUUID(),version:0,body:{product:'revive',purpose:'reactivation',market:'AE',timezone:'UTC',steps:p.steps}}),env,tenant);expect(a.calls.at(-1).name).toBe('manage_campaign_plan');
+ });
+});
+describe('tenant brand sign-off and default booking link',()=>{
+ const brand=()=>brandProfile('Dipuraj') as any,stop='To opt out of follow-up, reply "stop".';
+ it('signs with the tenant signature, postal address and stop line, and books through setup.booking by default',()=>{
+  const p=proposeReviveDraft(context(),'Acme Works',input(),now,brand());
+  for(const s of p.steps){expect(s.body.endsWith(`choose a time to discuss it: https://calendar.google.com/calendar/appointments/schedules/fixture\n\nDipuraj\nHead of Sales\n\n1 Fixture Street, Dubai, AE\n\n${stop}`)).toBe(true);expect(s.evidenceReference.endsWith(';booking:booking:reviewed-fixture')).toBe(true);}
+  expect(p.basis.bookingReference).toBe('booking:reviewed-fixture');expect(p.bookingVerification).toBe('supplied_reviewed_url_only');
+  expect(planError({product:'revive',purpose:'reactivation',market:'AE',timezone:'UTC',steps:p.steps})).toBeNull();
+ });
+ it('prefers a draft-supplied reviewed link and falls back to sender plus business without a brand',()=>{
+  const p=proposeReviveDraft(context(),'Acme Works',{...input(),bookingUrl:'https://cal.business.com/reviewed',bookingReviewed:true,bookingReference:'calendar-owner-review:2'},now,brand());
+  expect(p.steps[0].body).toContain('discuss it: https://cal.business.com/reviewed\n\n');expect(p.steps[0].evidenceReference).toContain('booking:calendar-owner-review:2');
+  const plain=proposeReviveDraft(context(),'Acme Works',input(),now,{...brand(),signature:null,legalFooter:null,booking:null});
+  expect(plain.steps[0].body.endsWith(`Is project recovery relevant for your team?\n\nDipuraj\nAcme Works\n\n${stop}`)).toBe(true);
+  expect(proposeReviveDraft(context(),'Acme Works',input(),now).steps[0].body).toBe(plain.steps[0].body);
+ });
+ it('carries only its own tenant brand',()=>{
+  const a=proposeReviveDraft(context(),'Alpha Works',input(),now,brand()),b=proposeReviveDraft(context(),'Beta Works',input(),now,brandProfile('Dipuraj',{signature:'Beta signer',legalFooter:{postalAddress:'2 Beta Road',reference:'legal:b'}}) as any);
+  expect(JSON.stringify(a.steps)).not.toMatch(/Beta/);expect(JSON.stringify(b.steps)).not.toMatch(/Head of Sales|Fixture Street|Alpha/);
  });
 });

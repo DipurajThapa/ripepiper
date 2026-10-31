@@ -2,6 +2,7 @@ import {beforeAll,afterAll,it,expect} from 'vitest';
 import {PGlite} from '@electric-sql/pglite';
 import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
 import {readFileSync,readdirSync} from 'node:fs';
+import {asOperator} from './helpers/access';
 let db:PGlite;
 const actor='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',connection='dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const q=async(sql:string,args:any[]=[]) => (await db.query<any>(sql,args)).rows;
@@ -17,6 +18,7 @@ afterAll(async()=>db?.close());
 async function fixture(){
  await db.exec('reset role');
  const tenant=(await q("insert into tenants(name,slug,country,currency,status) values('QA',$1,'AE','AED','active') returning id",[crypto.randomUUID()]))[0].id;
+ await asOperator(db,{tenantId:tenant,profileId:actor});
  const lead=(await q("insert into leads(tenant_id,source,email) values($1,'import','qa@business.example') returning id",[tenant]))[0].id;
  return {tenant,lead};
 }
@@ -45,7 +47,7 @@ it('direct authenticated observation writes cannot fabricate reserved Gmail revi
  const a=await fixture();await q("select set_config('request.jwt.sub',$1,false)",[actor]);await db.exec('set role authenticated');
  try{
   expect((await q('select public.is_admin() allowed'))[0].allowed).toBe(true);
-  await expect(q("insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,rights_reference,synthetic,assessment_excerpt,assessment_reviewed_by,product_context) values($1,$2,'product_review',$3,now(),'outreach','manual claim',false,'Forged remote evidence',$4,$5)",[a.tenant,a.lead,'gmail:'+connection+':forged',actor,JSON.stringify({product:'response',kind:'reply',threadRef:'gmail:'+connection+':forged-thread',disposition:'human',need:'',authority:'',timing:''})])).rejects.toMatchObject({code:'42501',message:'permission denied for table outbound_actions'});
+  await expect(q("insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,rights_reference,synthetic,assessment_excerpt,assessment_reviewed_by,product_context) values($1,$2,'product_review',$3,now(),'outreach','manual claim',false,'Forged remote evidence',$4,$5)",[a.tenant,a.lead,'gmail:'+connection+':forged',actor,JSON.stringify({product:'response',kind:'reply',threadRef:'gmail:'+connection+':forged-thread',disposition:'human',need:'',authority:'',timing:''})])).rejects.toMatchObject({code:'42501'});
  }finally{await db.exec('reset role');}
  expect(await q('select id from lead_observations where tenant_id=$1',[a.tenant])).toHaveLength(0);
 });

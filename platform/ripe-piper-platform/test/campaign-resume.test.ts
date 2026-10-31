@@ -3,6 +3,7 @@ import {PGlite} from '@electric-sql/pglite';
 import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
 import {readFileSync,readdirSync} from 'node:fs';
 import {seedReviveSetup,strategyBody} from './helpers/revive-setup';
+import {asOperator} from './helpers/access';
 const actor='11111111-1111-4111-8111-111111111111';
 let db:PGlite;
 const q=async(sql:string,args:any[]=[])=>(await db.query<any>(sql,args)).rows;
@@ -16,6 +17,7 @@ beforeAll(async()=>{
 afterAll(async()=>db?.close());
 async function fixture(offsets:number[]){
  const tenant=(await q(`insert into tenants(name,slug,country,currency,status) values('Resume',$1,'AE','AED','active') returning id`,['resume-'+crypto.randomUUID()]))[0].id;
+ await asOperator(db,{tenantId:tenant,profileId:actor});
  await rpc('save_business_brief',[tenant,0,{offer:'Recover dormant enquiries',industries:['construction'],markets:['AE'],roles:['owner'],needs:['lead follow-up'],excludedIndustries:[],maxAgeDays:30,source:{reference:'audience-brief',excerpt:'Reviewed construction offer',observedAt:new Date(Date.now()-3600000).toISOString()}},actor]);
  await seedReviveSetup(db,tenant,actor);
  const lead=(await q(`insert into leads(tenant_id,source,email,company) values($1,'import',$2,'Reviewed construction business') returning id`,[tenant,crypto.randomUUID()+'@example.invalid']))[0].id;
@@ -30,7 +32,7 @@ async function fixture(offsets:number[]){
  await plan('save',0,body('First'));await plan('approve',1,approval);await plan('rights',1,{leadId:lead,sourceId:source,noticeReference:'synthetic'});
  const v1=await plan('queue',1,{leadId:lead,startAt:new Date(Date.now()+60000).toISOString()});
  const edit=async()=>{await plan('pause',1,{});await plan('save',1,body('Edited'));await plan('approve',2,approval);};
- return {tenant,id,lead,plan,v1,edit};
+ return {tenant,id,lead,plan,v1,edit,body,approval};
 }
 async function test(tenant:string,action:string){
  const due=(await q('select due_at from outbound_actions where id=$1',[action]))[0].due_at.toISOString(),token=crypto.randomUUID();
@@ -54,4 +56,13 @@ it('never restarts a contact whose older version was already sent',async()=>{
  await f.edit();
  await expect(f.plan('queue',2,{leadId:f.lead,startAt:new Date(Date.now()+60000).toISOString()})).rejects.toThrow('cannot restart');
  expect(await q('select state,asset_version from outbound_actions where campaign_id=$1',[f.id])).toEqual([{state:'tested',asset_version:1}]);
+});
+it('an identical save while paused creates the next version and re-enrols only the contact cancelled by the pause',async()=>{
+ const f=await fixture([0,24]);await f.plan('pause',1,{});
+ expect(await f.plan('save',1,f.body('First'))).toEqual({id:f.id,version:2,status:'draft'});
+ await f.plan('approve',2,f.approval);
+ const v2=await f.plan('queue',2,{leadId:f.lead,startAt:new Date(Date.now()+60000).toISOString()});expect(v2).toMatchObject({replayed:false});expect(v2.actionIds).toHaveLength(2);
+ expect(await q('select state,error_code,asset_version from outbound_actions where campaign_id=$1 order by asset_version,message_step',[f.id])).toEqual([
+  {state:'cancelled',error_code:'campaign_paused',asset_version:1},{state:'cancelled',error_code:'campaign_paused',asset_version:1},
+  {state:'queued',error_code:null,asset_version:2},{state:'queued',error_code:null,asset_version:2}]);
 });

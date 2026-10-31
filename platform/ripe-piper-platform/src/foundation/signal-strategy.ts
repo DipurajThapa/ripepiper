@@ -3,6 +3,7 @@ import {bad,json} from '../routes/http';
 import {assessProspect,validBrief,validInstant,type BusinessBrief,type Observation} from './prospecting';
 import {reviewProducts} from './products';
 import {validSetupContext,type SetupContext} from './revive-setup';
+import {brandSignoff} from '../lib/brand';
 const uuid=(v:unknown):v is string=>typeof v==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 const text=(v:unknown,n:number):v is string=>typeof v==='string'&&!!v.trim()&&v.length<=n;
 const plain=(v:unknown,n:number):v is string=>text(v,n)&&!/[\u0000-\u001f\u007f<>`{}\[\]]|\$\{|<%|%>|%\w+%/.test(v);
@@ -51,9 +52,10 @@ export function buildSignalProposal(tenantId:string,input:SignalProposalInput,s:
  if(!text(triggerHypothesis,500))hold('Review a shorter trigger relevance hypothesis.');
  const validUntil=new Date(Math.min(Date.parse(trigger!.validUntil!),Date.parse(b.source.observedAt)+b.maxAgeDays*86400000,...evidence.filter(e=>e.id!==input.signalId||assessment.fields.some(f=>f.evidence.some(x=>x.id===e.id))).map(e=>Date.parse(e.observedAt)+b.maxAgeDays*86400000))).toISOString();
  if(Date.parse(validUntil)<=now)hold('Supporting evidence has expired.');
- const cta=`Would a conversation about ${canonicalNeed} be useful?`;
+ // The setup's reviewed booking link is the default call to action; SQL signal_binding_valid mirrors this copy.
+ const cta=setup.body.booking?`If this is relevant, choose a time to discuss it: ${setup.body.booking.url}`:`Would a conversation about ${canonicalNeed} be useful?`;
  const subject=`A conversation about ${canonicalNeed}`;
- const body=`Hello,\n\nI am reaching out about ${canonicalNeed} for ${buyerRole} teams.\n\n${s.tenant.name}'s reviewed offer: ${b.offer}\n\n${cta}\n\n${setup.body.senderName}\nReply stop if you would prefer no further contact.`;
+ const body=`Hello,\n\nI am reaching out about ${canonicalNeed} for ${buyerRole} teams.\n\n${s.tenant.name}'s reviewed offer: ${b.offer}\n\n${cta}\n\n${brandSignoff(setup.body,s.tenant.name,'Reply stop if you would prefer no further contact.')}`;
  return {tenantId,leadId:input.leadId,signalId:input.signalId,synthetic:input.synthetic,briefVersion:s.setup.brief!.version,setupVersion:setup.version,recipient:s.lead.email,sender:{name:setup.body.senderName!,email:setup.body.senderEmail!},preparedAt:new Date(now).toISOString(),validUntil,strategy:{canonicalNeed,buyerRole,offer:b.offer,triggerHypothesis,cta},message:{subject,body},evidence,claimSources:{canonicalNeed:field('need').evidence.map(e=>e.id),buyerRole:field('role').evidence.map(e=>e.id),offer:{reference:b.source.reference,observedAt:b.source.observedAt,excerpt:b.source.excerpt}},reviewRequired:true as const,persisted:false as const};
 }
 export type SignalProposal=ReturnType<typeof buildSignalProposal>;

@@ -18,7 +18,8 @@ function adapter(options:any={}) {
   if(options.readError)throw Error('PRIVATE database details');
   if(table==='tenants')return options.paused?[]:[{id:tenant}];
   if(table==='profiles')return[{is_admin:!options.viewer}];
-  if(table==='campaigns')return campaigns.filter(c=>c.status==='approved');
+  if(table==='operating_envelopes')return options.envelopes??[];
+  if(table==='campaigns'){const status=new URLSearchParams(query).get('status')?.slice(3)??'approved';return campaigns.filter(c=>c.status===status);}
   if(table==='campaign_assets'){const params=new URLSearchParams(query);return assets.filter(a=>a.tenant_id===params.get('tenant_id')?.slice(3)&&a.campaign_id===params.get('campaign_id')?.slice(3)&&a.version===Number(params.get('version')?.slice(3)));}
   if(table==='revive_reviews')return reviews;
   if(table==='outbound_actions'){
@@ -28,7 +29,10 @@ function adapter(options:any={}) {
   throw Error('Unexpected table '+table);
  });
  const rpc=vi.spyOn(Db.prototype,'rpc').mockImplementation(async(name,args:any)=>{
+  if(name==='tenant_access')return !options.viewer;
   calls.push({name,args});
+  if(name==='approve_campaign_within_envelope'){const c=campaigns.find(x=>x.id===args.p_campaign);if(options.envelopeFits===false)return{campaignId:c.id,assetVersion:c.asset_version,status:'escalated',reasons:['content_not_from_template']};c.status='approved';c.envelope_version=1;return{campaignId:c.id,assetVersion:c.asset_version,status:'approved',by:'envelope',envelopeVersion:1};}
+  if(name==='enforce_envelope_stop_conditions'){const paused=!!options.stopTripped;if(paused)campaigns.find(x=>x.id===args.p_campaign).status='paused';return{campaignId:args.p_campaign,paused};}
   if(name==='manage_campaign_plan') {
    if(args.p_operation==='pause'){campaigns.find(c=>c.id===args.p_campaign).status='paused';actions.filter(a=>a.campaign_id===args.p_campaign&&a.state==='queued').forEach(a=>a.state='cancelled');return{id:campaign,status:'paused'};}
    if(options.queueBlocked)throw new DbError(400,'22023 rights or review invalid');
@@ -177,6 +181,23 @@ describe('bounded autonomous Revive synthetic coordinator',()=>{
  });
  it('does not claim on an uncorrelated or malformed working-policy acknowledgement',async()=>{
   const a=adapter({actions:[freshAction()],readiness:{tenantId:crypto.randomUUID(),disposition:'ready'}});expect(await runReviveAutomation(env)).toMatchObject({tested:0,review:1});expect(a.calls.some(c=>c.name==='claim_fenced_synthetic_action')).toBe(false);
+ });
+ it('approves an in-bounds draft under the effective envelope, enrols it and tests it through the synthetic sink in one tick',async()=>{
+  const a=adapter({campaigns:[{id:campaign,tenant_id:tenant,operator_id:admin,capability:'revive',status:'draft',asset_version:1}],envelopes:[{tenant_id:tenant}]});
+  expect(await runReviveAutomation(env)).toMatchObject({approved:1,escalated:0,enrolled:1,delivery:'not_sent'});
+  expect(a.calls.filter(c=>c.name).map(c=>c.name)).toEqual(['approve_campaign_within_envelope','enforce_envelope_stop_conditions','manage_campaign_plan']);
+  vi.setSystemTime(now+6000);expect(await runReviveAutomation(env)).toMatchObject({approved:0,tested:1,delivery:'not_sent'});expect(a.actions[0].state).toBe('tested');
+ });
+ it('leaves an out-of-bounds draft in draft and never approves without a client-approved envelope',async()=>{
+  let a=adapter({campaigns:[{id:campaign,tenant_id:tenant,operator_id:admin,capability:'revive',status:'draft',asset_version:1}],envelopes:[{tenant_id:tenant}],envelopeFits:false});
+  expect(await runReviveAutomation(env)).toMatchObject({approved:0,escalated:1,enrolled:0});expect(a.campaigns[0].status).toBe('draft');
+  vi.restoreAllMocks();a=adapter({campaigns:[{id:campaign,tenant_id:tenant,operator_id:admin,capability:'revive',status:'draft',asset_version:1}]});
+  expect(await runReviveAutomation(env)).toMatchObject({approved:0,escalated:0,enrolled:0});expect(a.calls.some(c=>c.name)).toBe(false);
+ });
+ it('pauses on a tripped stop condition before any enrolment and never resumes it',async()=>{
+  const a=adapter({campaigns:[{id:campaign,tenant_id:tenant,operator_id:admin,capability:'revive',status:'approved',asset_version:1,envelope_version:1}],envelopes:[{tenant_id:tenant}],stopTripped:true});
+  expect(await runReviveAutomation(env)).toMatchObject({stopped:1,enrolled:0,approved:0});expect(a.campaigns[0].status).toBe('paused');
+  expect(await runReviveAutomation(env)).toMatchObject({campaigns:0,approved:0});expect(a.calls.filter(c=>c.name==='manage_campaign_plan')).toEqual([]);
  });
  it('requires a verified administrator before the operator route runs',async()=>{
   const a=adapter();await expect(runReviveAutomationAdmin(new Request('https://fixture.invalid'),env,tenant)).rejects.toMatchObject({status:401});expect(a.calls).toEqual([]);

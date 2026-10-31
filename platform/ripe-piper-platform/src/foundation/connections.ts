@@ -1,8 +1,12 @@
-/** Staff-managed, bounded read-only pilot connections. Credentials exist only in Worker secrets. */
+/** Tenant connection registry (sealed OAuth credentials) plus the bounded read-only Google pilot.
+ * The pilot's GOOGLE_TENANT_CONNECTIONS secret is the one-release migration path into the registry (mirrored in SQL); remove it next release. */
 import type {Env} from '../env';
 import {Db,DbError} from '../lib/db';
-import {bad,json,readJson,requireUser} from '../routes/http';
+import {bad,json,readJson,requireTenant} from '../routes/http';
 import {googleMailbox,googleCalendarIdentity,listInboundMessages,readInboundMessage} from '../lib/google';
+import {connectionAad,open,seal} from '../lib/vault';
+import {PROVIDERS} from '../lib/oauth';
+import type {MsAccount} from '../lib/microsoft';
 import {validInstant} from './prospecting';
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const email=/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
@@ -48,10 +52,107 @@ function receipt(value:any,status:string,expected:number){
  return value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).sort().join(',')==='authorityVersion,status,version'&&value.version===1&&value.status===status&&value.authorityVersion===expected+1;
 }
 class AuthorityChanged extends Error {}
-export async function tenantConnection(req:Request,env:Env,tenantId:string){
- const user=await requireUser(req,env,true),b=await readJson(req),db=new Db(env,8000,64*1024);
- const fields:Record<string,string[]>={status:[],check:[],register:['reviewed','expectedVersion'],revoke:['expectedVersion'],list:['lead_id'],preview:['lead_id','message_id'],import:['lead_id','message_id','reviewed','digest']};
+
+// ---------------------------------------------------------------- registry
+export type ConnectionPurpose='mail_send'|'calendar';
+type Row={provider:string;purposes:string[];scopes_granted?:string[];scopes?:string[];status?:string;expires_at?:string|null};
+const scopeOf=(provider:string,purpose:ConnectionPurpose)=>(PROVIDERS as Record<string,{scopes:Record<string,string>}>)[provider]?.scopes[purpose]?.toLowerCase();
+/** Derived, never trusted from a payload: connected, unexpired, purpose chosen and its scope actually granted. */
+export function connectionAllows(r:Row,purpose:ConnectionPurpose){
+ const scope=scopeOf(r.provider,purpose),granted=(r.scopes_granted??r.scopes??[]).map(x=>x.toLowerCase());
+ return (r.status??'connected')==='connected'&&(!r.expires_at||Date.parse(r.expires_at)>Date.now())&&r.purposes.includes(purpose)&&!!scope&&granted.includes(scope);
+}
+// The pilot binding is read-only by construction (purposes mail_read+calendar, no send scope).
+const pilotCanSend=connectionAllows({provider:'google_workspace',purposes:['mail_read','calendar'],scopes_granted:[]},'mail_send');
+export type TenantConnection={connectionId:string;tenantId:string;version:number;identity:string;purpose:ConnectionPurpose;purposes:string[];scopes:string[];executionVersion:number}
+ &({provider:'google_workspace';env:Env}|{provider:'microsoft_365';account:MsAccount});
+export class ConnectionChanged extends Error {}
+const b64=(u:Uint8Array)=>{let s='';u.forEach(x=>s+=String.fromCharCode(x));return btoa(s);};
+const unb64=(s:string)=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+export const sealedArgs=(x:{keyId:string;iv:Uint8Array;ciphertext:Uint8Array})=>({p_key_id:x.keyId,p_iv:b64(x.iv),p_ciphertext:b64(x.ciphertext)});
+// Per Env and connection version, so provider token caches (keyed by object) survive across calls; a reconnect bumps the version.
+const resolved=new WeakMap<Env,Map<string,Env|MsAccount>>();
+async function resolveConnection(env:Env,db:Db,tenantId:string,purpose:ConnectionPurpose):Promise<TenantConnection|null>{
+ const r=await db.rpc<any>('tenant_connection_credential',{p_tenant:tenantId,p_purpose:purpose});
+ if(r===null)return null;
+ if(!r||!uuid.test(r.id)||r.tenantId!==tenantId.toLowerCase()||!['google_workspace','microsoft_365'].includes(r.provider)||!version(r.version)||!version(r.executionVersion)
+  ||typeof r.identity!=='string'||!Array.isArray(r.purposes)||!Array.isArray(r.scopes)||typeof r.keyId!=='string'||typeof r.iv!=='string'||typeof r.ciphertext!=='string')throw Error('Invalid connection record');
+ const base={connectionId:r.id as string,tenantId:r.tenantId as string,version:r.version as number,identity:r.identity as string,purpose,purposes:r.purposes as string[],scopes:r.scopes as string[],executionVersion:r.executionVersion as number};
+ if(!connectionAllows({provider:r.provider,purposes:base.purposes,scopes:base.scopes},purpose))return null;
+ const key=`${r.id}:${r.version}`;let cache=resolved.get(env);if(!cache){cache=new Map();resolved.set(env,cache);}
+ let target=cache.get(key);
+ if(!target){
+  const aad=connectionAad(r.tenantId,r.id,r.provider),token=await open(env,aad,{keyId:r.keyId,iv:unb64(r.iv),ciphertext:unb64(r.ciphertext)});
+  target=r.provider==='google_workspace'?{...env,GOOGLE_REFRESH_TOKEN:token,GOOGLE_CALENDAR_ID:'primary'}:{refreshToken:token,rotate:async(next:string)=>{
+   // Microsoft may rotate the refresh token: re-seal it under the current key, bound to the same authority version.
+   if(await db.rpc('reseal_tenant_connection_secret',{p_tenant:r.tenantId,p_connection:r.id,p_version:r.version,...sealedArgs(await seal(env,aad,next))})!==true)throw new ConnectionChanged();
+  }};
+  cache.set(key,target);
+ }
+ return r.provider==='google_workspace'?{...base,provider:'google_workspace',env:target as Env}:{...base,provider:'microsoft_365',account:target as MsAccount};
+}
+/** Preflight before every provider call: same tenant, active, same execution and connection version, purpose still granted. */
+export async function connectionCurrent(db:Db,c:TenantConnection){
+ const ok=await db.rpc('tenant_connection_current',{p_tenant:c.tenantId,p_connection:c.connectionId,p_execution_version:c.executionVersion,p_version:c.version,p_purpose:c.purpose});
+ if(ok!==true)throw new ConnectionChanged();
+}
+/** Stable error codes only (never provider bodies); a code moves the connection to error and stops sends. */
+export const recordConnectionHealth=(db:Db,c:TenantConnection,code:string|null)=>db.rpc('record_connection_health',{p_tenant:c.tenantId,p_connection:c.connectionId,p_code:code});
+
+/** Route handler (Request) or registry resolver (env, db, tenant, purpose); the resolver returns null when no connection allows the purpose. */
+export function tenantConnection(req:Request,env:Env,tenantId:string):Promise<Response>;
+export function tenantConnection(env:Env,db:Db,tenantId:string,purpose:ConnectionPurpose):Promise<TenantConnection|null>;
+export function tenantConnection(a:any,b:any,tenantId:string,purpose?:ConnectionPurpose):Promise<Response|TenantConnection|null>{
+ return a instanceof Request?connectionOperations(a,b,tenantId):resolveConnection(a,b,tenantId,purpose!);
+}
+
+const SAFE='id,provider,account_identity,purposes,scopes_granted,status,version,last_checked_at,last_error_code,expires_at,consented_at';
+async function registryList(db:Db,tenantId:string){
+ const [rows,setup]=await Promise.all([db.select<any>('tenant_connections',`tenant_id=eq.${tenantId}&status=neq.revoked&select=${SAFE}&order=provider.asc,id.asc&limit=20`),
+  db.one<any>('revive_setups',`tenant_id=eq.${tenantId}&select=body&order=version.desc`)]);
+ const sender=typeof setup?.body?.senderEmail==='string'?setup.body.senderEmail.toLowerCase():null;
+ return rows.map(r=>({id:r.id,provider:r.provider,identity:r.account_identity,purposes:r.purposes,scopes:r.scopes_granted,status:r.status,version:r.version,
+  lastCheckedAt:r.last_checked_at,lastErrorCode:r.last_error_code,expiresAt:r.expires_at,consentedAt:r.consented_at,
+  canSend:connectionAllows(r,'mail_send'),canBook:connectionAllows(r,'calendar'),senderVerified:!!sender&&r.status==='connected'&&r.account_identity===sender}));
+}
+// Onboarding choices: one email provider (optionally with calendar), and interest-only channels that have no adapter yet.
+function channels(c:any){
+ if(!c||typeof c!=='object'||Array.isArray(c)||Object.keys(c).some(k=>!['email','calendar','whatsapp','linkedin','sms'].includes(k)))return null;
+ if(c.email!==undefined&&c.email!==null&&!['google','microsoft'].includes(c.email))return null;
+ if(['calendar','whatsapp','linkedin','sms'].some(k=>c[k]!==undefined&&typeof c[k]!=='boolean')||(c.calendar&&!c.email))return null;
+ const out:{provider:string;purposes:string[]}[]=[];
+ if(c.email)out.push({provider:c.email==='google'?'google_workspace':'microsoft_365',purposes:c.calendar?['mail_send','calendar']:['mail_send']});
+ if(c.whatsapp)out.push({provider:'whatsapp_cloud',purposes:['messaging']});
+ if(c.linkedin)out.push({provider:'linkedin',purposes:['profile_link']});
+ if(c.sms)out.push({provider:'sms',purposes:['messaging']});
+ return out.length?out:null;
+}
+
+export async function connectionOperations(req:Request,env:Env,tenantId:string){
+ const user=await requireTenant(req,env,tenantId,'operate'),b=await readJson(req),db=new Db(env,8000,64*1024);
+ const fields:Record<string,string[]>={status:[],check:[],register:['reviewed','expectedVersion'],revoke:['expectedVersion','connectionId'],list:['lead_id'],preview:['lead_id','message_id'],import:['lead_id','message_id','reviewed','digest'],
+  connections:[],select_channels:['channels']};
  if(!Object.hasOwn(fields,b.operation)||Object.keys(b).some(k=>k!=='operation'&&!fields[b.operation].includes(k)))return bad('Unknown connection operation or field.');
+ if(b.operation==='connections')return json({ok:true,connections:await registryList(db,tenantId)});
+ if(b.operation==='select_channels'){
+  const selected=channels(b.channels);if(!selected)return bad('Choose at least one supported channel.');
+  try{await db.rpc('select_tenant_channels',{p_tenant:tenantId,p_actor:user.id,p_channels:selected});}
+  catch(e){if(e instanceof DbError&&e.body.includes('42501'))return bad('Not found.',404);throw e;}
+  return json({ok:true,connections:await registryList(db,tenantId)});
+ }
+ if(b.operation==='revoke'&&b.connectionId!==undefined){
+  if(typeof b.connectionId!=='string'||!uuid.test(b.connectionId)||!version(b.expectedVersion))return bad('Choose a connection and supply its current version.');
+  const id=b.connectionId.toLowerCase();
+  try{
+   const r=await db.rpc<any>('revoke_tenant_connection',{p_tenant:tenantId,p_actor:user.id,p_connection:id,p_expected_version:b.expectedVersion});
+   if(!r||r.connectionId!==id||r.status!=='revoked'||!version(r.version))throw Error('Uncertain revocation');
+   return json({ok:true,connectionId:r.connectionId,version:r.version,status:r.status});
+  }catch(e){
+   if(e instanceof DbError&&e.body.includes('42501'))return bad('Not found.',404);
+   if(e instanceof DbError&&(e.isConflict||e.body.includes('40001')))return bad('The connection changed. Reload its status.',409);
+   return bad('The revocation is uncertain. Reload the connection status before retrying.',503);
+  }
+ }
  if(['register','revoke'].includes(b.operation)&&(!version(b.expectedVersion)||(b.operation==='register'&&b.reviewed!==true)))return bad('Review the binding and supply its current authority version.');
  let persistence=false;
  try{
@@ -68,13 +169,13 @@ export async function tenantConnection(req:Request,env:Env,tenantId:string){
   }
   let binding;
   try{binding=tenantGoogleConnection(env,tenantId);}catch{
-   if(b.operation==='status')return json({ok:true,state:'configuration_invalid',authorityVersion,canRead:false,canSend:false});
+   if(b.operation==='status')return json({ok:true,state:'configuration_invalid',authorityVersion,canRead:false,canSend:pilotCanSend});
    throw Error('Invalid configuration');
   }
   const digest=binding?await googleBindingDigest(binding.connection):null;
   const c=binding?.connection;
   const matches=!!(authority&&c&&!authority.revoked&&Date.parse(authority.expires_at)>Date.now()&&authority.connection_id===c.id&&authority.binding_hash===digest&&authority.mailbox===c.mailbox&&authority.calendar_id===c.calendarId&&authority.purpose_reference===c.purposeReference&&Date.parse(authority.expires_at)===Date.parse(c.expiresAt));
-  if(b.operation==='status')return json({ok:true,state:tenant.status==='active'&&matches?'verified':authority?.revoked?'revoked':!binding?'not_connected':authority?'binding_changed':'configured_unverified',authorityVersion,canRead:tenant.status==='active'&&matches,canSend:false,...(c?{mailbox:c.mailbox,calendarId:c.calendarId,expiresAt:c.expiresAt}:{})});
+  if(b.operation==='status')return json({ok:true,state:tenant.status==='active'&&matches?'verified':authority?.revoked?'revoked':!binding?'not_connected':authority?'binding_changed':'configured_unverified',authorityVersion,canRead:tenant.status==='active'&&matches,canSend:pilotCanSend,...(c?{mailbox:c.mailbox,calendarId:c.calendarId,expiresAt:c.expiresAt}:{})});
   if(!binding||!c||tenant.status!=='active')return bad('The client connection is not active.',409);
   if(b.operation==='register'&&b.expectedVersion!==authorityVersion)return bad('Connection authority changed. Reload its status.',409);
   const probe=['check','register'].includes(b.operation);
@@ -103,7 +204,7 @@ export async function tenantConnection(req:Request,env:Env,tenantId:string){
     if(confirmed!==true)throw Error('Registration authority changed before return');
     return json(result);
    }
-   return json({ok:true,state:'identity_verified',authorityVersion,mailbox:c.mailbox,calendarId:c.calendarId,calendarRole:calendar.role,checkedAt:new Date().toISOString(),canRead:false,canSend:false});
+   return json({ok:true,state:'identity_verified',authorityVersion,mailbox:c.mailbox,calendarId:c.calendarId,calendarRole:calendar.role,checkedAt:new Date().toISOString(),canRead:false,canSend:pilotCanSend});
   }
   if(!uuid.test(b.lead_id??''))return bad('Choose an existing client contact.');
   const lead=await db.one<any>('leads',`id=eq.${b.lead_id}&tenant_id=eq.${tenantId}&select=id,email`);
@@ -111,12 +212,12 @@ export async function tenantConnection(req:Request,env:Env,tenantId:string){
   if(!email.test(lead.email)||lead.email.toLowerCase().endsWith('.invalid'))return bad('Live mailbox reads require a business contact.');
   if(b.operation==='list'){
    const messages=await listInboundMessages(binding.provider,lead.email,c.mailbox,current);
-   await current();return json({ok:true,messages,canSend:false});
+   await current();return json({ok:true,messages,canSend:pilotCanSend});
   }
   if(!/^[a-zA-Z0-9_-]{1,128}$/.test(b.message_id??''))return bad('Select a message.');
   const message=await readInboundMessage(binding.provider,b.message_id,lead.email,c.mailbox,current);
   await current();
-  if(b.operation==='preview')return json({ok:true,message,canSend:false});
+  if(b.operation==='preview')return json({ok:true,message,canSend:pilotCanSend});
   if(b.reviewed!==true||b.digest!==message.digest)return bad('Review the current excerpt before importing; the source may have changed.',409);
   const context={product:'response',kind:'reply',threadRef:`gmail:${c.id}:${message.threadId}`,disposition:'human',need:'',authority:'',timing:''};
   const reference=`gmail:${c.id}:${message.id}`;

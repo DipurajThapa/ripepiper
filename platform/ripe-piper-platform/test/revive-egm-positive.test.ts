@@ -4,6 +4,7 @@ import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
 import {readFileSync,readdirSync} from 'node:fs';
 import {assessRevive} from '../src/foundation/revive';
 import {seedReviveSetup} from './helpers/revive-setup';
+import {asOperator} from './helpers/access';
 
 const actor='90111111-1111-4111-8111-111111111111',viewer='90222222-2222-4222-8222-222222222222';
 let db:PGlite;
@@ -21,6 +22,7 @@ afterAll(async()=>db?.close());afterEach(()=>vi.restoreAllMocks());
 
 async function fixture(briefOverrides:Record<string,unknown>={}){
  const tenant=(await q(`insert into tenants(name,slug,country,currency,status) values('QA boundary',$1,'AE','AED','active') returning id`,[crypto.randomUUID()]))[0].id;
+ await asOperator(db,{tenantId:tenant,profileId:actor});
  const lead=(await q(`insert into leads(tenant_id,source,email) values($1,'import',$2) returning id`,[tenant,crypto.randomUUID()+'@example.invalid']))[0].id;
  const observed=new Date(Date.now()-86400000).toISOString();
  const body={offer:'Recover construction enquiries',industries:['construction'],markets:['AE'],roles:['owner'],needs:['quote follow-up'],excludedIndustries:[],maxAgeDays:90,source:{reference:'qa-brief',excerpt:'Approved construction offer',observedAt:observed},...briefOverrides};

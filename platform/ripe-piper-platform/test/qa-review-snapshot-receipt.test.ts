@@ -12,6 +12,7 @@ async function review(value:any,raw?:string){
    const u=String(input);
    if(u.includes('/auth/v1/user'))return Response.json({id:actor,email:'staff@example.invalid'});
    if(u.includes('/rest/v1/profiles?'))return Response.json([{is_admin:true}]);
+   if(u.includes('/rest/v1/rpc/tenant_access'))return Response.json(true);
    if(u.endsWith('/rpc/review_prospect_snapshot')){expect(JSON.parse(String(init?.body))).toEqual({p_tenant:tenant,p_actor:actor,p_synthetic:true});return raw===undefined?Response.json(value):new Response(raw);}
    throw new Error('Independent QA rejects fallback reads: '+u);
  });

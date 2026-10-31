@@ -42,6 +42,7 @@
       <label class="hint" for="tenantSelect" id="tenantSelectLabel" hidden>Company</label><select id="tenantSelect" hidden></select>
       <label class="hint" for="monthSelect">Month</label><select id="monthSelect"></select>
       <button class="btn btn-line" type="button" id="downloadCsv">Download your records (CSV)</button>
+      <button class="btn btn-line" type="button" id="downloadJson" hidden>Download all data (JSON)</button>
       <button class="btn btn-line" type="button" id="signOut">Sign out</button>
     </div>
   </div>
@@ -50,6 +51,7 @@
     <a href="#overview" data-tab="overview" aria-current="page">Overview</a><a href="#funnel" data-tab="funnel">Funnel</a>
     <a href="#value" data-tab="value">Cost and return</a>
     <a href="#deals" data-tab="deals">Deals</a><a href="#quotes" data-tab="quotes">Proposals and quotes</a><a href="#activity" data-tab="activity">Activity</a>
+    <a href="#account" data-tab="account" data-owner hidden>Account</a><a href="#workspace" data-tab="workspace" data-owner hidden>Workspace</a>
   </nav>
 </div></section>
 
@@ -98,6 +100,16 @@
   <div class="timeline" id="activity"></div>
 </div></section>
 
+<section class="tight" data-panel="account" hidden><div class="wrap">
+  <div class="sec-head"><span class="kicker">Account</span><h2>Access, operating mode and your data.</h2><p class="muted">Only your company's account owners see this section.</p></div>
+  <div class="stack lg" id="ownerAccount"></div>
+</div></section>
+
+<section class="tight" data-panel="workspace" hidden><div class="wrap">
+  <div class="sec-head"><span class="kicker">Workspace</span><h2>Run your brief, setup and campaigns.</h2><p class="muted">Self-service mode: the same tools Ripe Piper operators use, limited to your company.</p></div>
+  <div class="stack lg"><div class="formbox" id="prospectingPanel"></div><div class="formbox" id="reviveSetupPanel"></div><div class="formbox" id="campaignPlansPanel"></div><div class="formbox" id="signalSourcesPanel"></div><div class="formbox" id="eventOperationsPanel"></div></div>
+</div></section>
+
 </main>
 
 <footer>
@@ -124,6 +136,6 @@
     <div class="fine"><span>© 2026 Ripe Piper. All rights reserved.</span></div>
   </div>
 </footer>
-<script src="../assets/site.js"></script><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script><script src="../assets/config.js"></script><script src="../assets/app-common.js"></script><script src="../assets/portal.js"></script>
+<script src="../assets/site.js"></script><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script><script src="../assets/config.js"></script><script src="../assets/app-common.js"></script><script src="../assets/contact-import.js"></script><script src="../assets/tenant-stops-admin.js"></script><script src="../assets/prospecting-admin.js"></script><script src="../assets/revive-setup-admin.js"></script><script src="../assets/campaigns-admin.js"></script><script src="../assets/signal-admin.js"></script><script src="../assets/signal-discovery-admin.js"></script><script src="../assets/events-admin.js"></script><script src="../assets/portal.js"></script>
 </body>
 </html>

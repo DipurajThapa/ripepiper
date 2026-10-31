@@ -12,9 +12,12 @@
   try {
    var result=await fetch('/api/tenant-unsubscribe/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:token}),cache:'no-store',referrerPolicy:'no-referrer',credentials:'omit'});
    var receipt=await result.json();
-   if(!result.ok||!receipt||Array.isArray(receipt)||Object.keys(receipt).sort().join(',')!=='status,version'||receipt.version!==1||!['confirmed','invalid'].includes(receipt.status))throw Error('unavailable');
+   var keys=receipt&&!Array.isArray(receipt)?Object.keys(receipt).sort().join(','):'';
+   // Only a confirmation carries the sending business name; it is shown as text, never markup.
+   if(!result.ok||receipt.version!==1||!(receipt.status==='invalid'&&keys==='status,version'||receipt.status==='confirmed'&&keys==='businessName,status,version'&&typeof receipt.businessName==='string'&&receipt.businessName.trim()&&receipt.businessName.length<=200))throw Error('unavailable');
    token=null;
-   status.textContent=receipt.status==='confirmed'?'Confirmed. The contact stop for this tenant’s outreach has been recorded.':'This link is invalid or has expired. Request a new link from the business.';
+   if(receipt.status==='confirmed'){var name=receipt.businessName.trim(),title=document.getElementById('stopTitle');if(title)title.textContent='Stop emails from '+name;status.textContent='Confirmed. Emails from '+name+' to this contact have been stopped.';}
+   else status.textContent='This link is invalid or has expired. Request a new link from the business.';
   } catch (_) {status.textContent='We could not confirm the result. No success has been confirmed. You may try again using the button; this page will not retry automatically.';button.disabled=false;}
   finally {busy=false;}
  };

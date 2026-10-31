@@ -5,6 +5,7 @@ import type {Env} from '../src/env';
 import {PGlite} from '@electric-sql/pglite';
 import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
 import {readFileSync,readdirSync} from 'node:fs';
+import {asOperator} from './helpers/access';
 const actor='00000000-0000-4000-8000-000000000001';
 const directory=new URL('../supabase/migrations/',import.meta.url);
 let db:PGlite,legacy:any,claimed:any;
@@ -12,6 +13,7 @@ const q=async(sql:string,args:any[]=[])=> (await db.query<any>(sql,args)).rows;
 async function rpc(name:string,args:any[]){await db.exec('set role service_role');try{return (await q(`select public.${name}(${args.map((_,i)=>'$'+(i+1)).join(',')}) value`,args))[0].value;}finally{await db.exec('reset role');}}
 async function fixture(product='signal',beforeSignalGuard=false){
  const tenant=(await q(`insert into tenants(name,slug,country,currency,status) values('QA Signal',$1,'AE','AED','active') returning id`,[crypto.randomUUID()]))[0].id;
+ if(!beforeSignalGuard)await asOperator(db,{tenantId:tenant,profileId:actor}); // earlier fixtures get the migration's pre-hybrid backfill grant
  const lead=(await q(`insert into leads(tenant_id,source,email) values($1,'import',$2) returning id`,[tenant,crypto.randomUUID()+'@example.invalid']))[0].id;
  const observed=new Date(Date.now()-86400000).toISOString();
  const brief={offer:'Reviewed client service',industries:['construction'],markets:['AE'],roles:['owner'],needs:['lead follow-up'],excludedIndustries:[],maxAgeDays:90,source:{reference:'qa-brief',excerpt:'Reviewed construction offer for AE owners',observedAt:observed}};
@@ -64,7 +66,7 @@ it('composes actual Worker source import, SQL provenance, shortlist and trigger-
   if(u.origin!==env.SUPABASE_URL)throw Error('QA rejects external provider requests');
   if(u.pathname==='/auth/v1/user')return Response.json({id:actor,email:'qa-staff@example.invalid'});
   if(u.pathname==='/rest/v1/profiles')return Response.json([{id:actor,is_admin:true}]);
-  if(u.pathname.startsWith('/rest/v1/rpc/')){const name=u.pathname.split('/').at(-1)!;if(!['import_review_lead','record_product_event','review_prospect_snapshot'].includes(name))throw Error('Unexpected RPC');const b=JSON.parse(String(init.body));if(Object.keys(b).some(k=>!/^p_[a-z_]+$/.test(k)))throw Error('Unexpected RPC argument');try{await db.exec('set role service_role');return Response.json((await q(`select public.${name}(${Object.keys(b).map((k,i)=>k+'=> $'+(i+1)).join(',')}) value`,Object.values(b)))[0].value);}catch(e:any){return Response.json({code:e.code,message:e.message},{status:400});}finally{await db.exec('reset role');}}
+  if(u.pathname.startsWith('/rest/v1/rpc/')){const name=u.pathname.split('/').at(-1)!;if(!['tenant_access','import_review_lead','record_product_event','review_prospect_snapshot'].includes(name))throw Error('Unexpected RPC');const b=JSON.parse(String(init.body));if(Object.keys(b).some(k=>!/^p_[a-z_]+$/.test(k)))throw Error('Unexpected RPC argument');try{await db.exec('set role service_role');return Response.json((await q(`select public.${name}(${Object.keys(b).map((k,i)=>k+'=> $'+(i+1)).join(',')}) value`,Object.values(b)))[0].value);}catch(e:any){return Response.json({code:e.code,message:e.message},{status:400});}finally{await db.exec('reset role');}}
   const table=u.pathname.replace('/rest/v1/','');if(!['tenants','leads','business_briefs','lead_observations','lead_suppression','suppression'].includes(table))throw Error('Unexpected table');
   const where:string[]=[],values:any[]=[];
   for(const [key,value] of u.searchParams){if(['select','limit','order'].includes(key))continue;const m=/^([a-z_]+)(?:->>([a-zA-Z]+))?$/.exec(key);if(!m)throw Error('Unexpected filter');const field=m[2]?`${m[1]}->>'${m[2]}'`:m[1];if(value==='not.is.null'){where.push(field+' is not null');continue;}if(value.startsWith('in.(')){values.push(value.slice(4,-1).split(',').map(v=>v.replace(/^"|"$/g,'')));where.push(field+`::text=any($${values.length}::text[])`);continue;}const dot=value.indexOf('.'),operator={eq:'=',lte:'<='}[value.slice(0,dot)];if(!operator)throw Error('Unexpected operator');const raw=value.slice(dot+1);values.push(key==='synthetic'?raw==='true':raw);where.push(field+operator+'$'+values.length);}

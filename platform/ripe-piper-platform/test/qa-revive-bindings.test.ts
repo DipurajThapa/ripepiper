@@ -5,6 +5,7 @@ import {readFileSync,readdirSync} from 'node:fs';
 import worker from '../src/index';
 import type {Env} from '../src/env';
 import {seedReviveSetup,strategyBody} from './helpers/revive-setup';
+import {asOperator} from './helpers/access';
 // Disposable PostgreSQL and intercepted HTTP only; unexpected endpoints throw.
 const staff='cd114378-1c4b-4be2-a0fa-cd1285f35229';
 const env={SUPABASE_URL:'https://bindings-qa.invalid',SUPABASE_SERVICE_ROLE_KEY:'fixture-service',SUPABASE_ANON_KEY:'fixture-public',SYNTHETIC_SINK_ENABLED:'true'} as Env;
@@ -35,6 +36,7 @@ beforeAll(async()=>{
 afterAll(async()=>{vi.unstubAllGlobals();await db.close();});
 async function setup(){
  const tenant=(await rows("insert into tenants(name,slug,country,currency,status) values('QA Bindings',$1,'AE','AED','active') returning id",[crypto.randomUUID()]))[0].id;
+ await asOperator(db,{tenantId:tenant,profileId:staff});
  const observedAt=new Date(Date.now()-3600000).toISOString(),brief={offer:'Reviewed enquiry follow-up',industries:['construction'],markets:['AE'],roles:['owner'],needs:['lead follow-up','pipeline visibility'],excludedIndustries:['gambling'],maxAgeDays:90,source:{reference:'qa-interview',excerpt:'Reviewed business targets',observedAt}};
  await service('save_business_brief',[tenant,0,brief,staff]);const seeded=await seedReviveSetup(db,tenant,staff,{senderName:'QA Owner'});const contacts=[] as Array<{lead:string;source:string}>;
  // Use the SAME supported need for both contacts so audience denial cannot
@@ -122,12 +124,13 @@ it('rejects a known proposal receipt with a modified canonical need',async()=>{
 it('denies authenticated admin receipt forging, rewriting, relabelling and deletion',async()=>{
  const f=await setup(),p=await draft(f),receipt=(await rows("select * from activity_log where tenant_id=$1 and message::jsonb->>'kind'='revive_draft_proposed'",[f.tenant]))[0];expect(receipt).toBeTruthy();
  await db.exec('set role authenticated');await rows("select set_config('request.jwt.sub',$1,false)",[staff]);
- try{for(const [sql,args] of [
-  ["insert into activity_log(tenant_id,actor,kind,message,visible_to_client) values($1,$2,'note',$3,false)",[f.tenant,staff,receipt.message]],
+ // Hybrid RLS is select-only for staff: the insert is refused, and updates/deletes either raise or match no row; the unchanged receipt below is the proof.
+ try{await expect(rows("insert into activity_log(tenant_id,actor,kind,message,visible_to_client) values($1,$2,'note',$3,false)",[f.tenant,staff,receipt.message])).rejects.toThrow();
+  for(const [sql,args] of [
   ['update activity_log set message=$1 where id=$2',[JSON.stringify({...JSON.parse(receipt.message),context:p.body.draftContext}),receipt.id]],
   ["update activity_log set message='ordinary note' where id=$1",[receipt.id]],
   ['delete from activity_log where id=$1',[receipt.id]],
- ] as Array<[string,any[]]>)await expect(rows(sql,args)).rejects.toThrow();}finally{await db.exec('reset role');}
+ ] as Array<[string,any[]]>)await rows(sql,args).catch(()=>undefined);}finally{await db.exec('reset role');}
  expect((await rows('select message from activity_log where id=$1',[receipt.id]))[0].message).toBe(receipt.message);
 });
 it('does not let a subsequent campaign edit drop a persisted generated-draft binding',async()=>{

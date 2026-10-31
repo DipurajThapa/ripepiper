@@ -1,5 +1,7 @@
 /* Client portal: live, tenant-scoped results. Row-level security in the database makes sure
-   each signed-in user receives only their own company's rows. */
+   each signed-in user receives only their own company's rows. Owners also manage operator access, the operating
+   mode, the envelope, connections and their data; in self-service mode the staff panel modules load for their own
+   company only. Viewers keep the read-only dashboard. */
 (function () {
   "use strict";
   var RP = window.RP, $ = function (id) { return document.getElementById(id); };
@@ -176,10 +178,19 @@
     $("quotesList").innerHTML = html;
   }
 
+  /* Envelope and campaign events are stored as JSON receipts; show them as sentences. */
+  var events = { campaign_escalated: "A campaign needs approval", campaign_envelope_approved: "A campaign was approved inside the operating envelope", campaign_stop_condition: "A campaign was paused by a stop condition", campaign_override_approved: "A campaign was approved by a person", campaign_paused: "A campaign was paused", envelope_proposed: "An operating envelope was proposed", envelope_approved: "The operating envelope was approved", envelope_revoked: "The operating envelope was revoked" };
+  function activityText(message) {
+    var p; try { p = JSON.parse(message); } catch (e) { return message; }
+    if (!p || typeof p.kind !== "string") return message;
+    var why = Array.isArray(p.reasons) && p.reasons.length && RP.envelopeReasons ? ": " + RP.envelopeReasons(p.reasons) : "";
+    return (Object.prototype.hasOwnProperty.call(events, p.kind) ? events[p.kind] : p.kind.replace(/_/g, " ")) + (p.envelopeVersion ? " (envelope v" + p.envelopeVersion + ")" : "") + why + ".";
+  }
+
   function renderActivity() {
     var icons = { note: "chat", change: "tune", milestone: "flag", alert: "warning" };
     $("activity").innerHTML = state.activity.length ? state.activity.map(function (a) {
-      return '<div class="tl"><b>' + RP.date(a.at) + '</b><div class="stack sm"><span class="kicker">' + RP.icon(icons[a.kind] || "chat") + " " + RP.esc(a.kind) + "</span><p>" + RP.esc(a.message) + "</p></div></div>";
+      return '<div class="tl"><b>' + RP.date(a.at) + '</b><div class="stack sm"><span class="kicker">' + RP.icon(icons[a.kind] || "chat") + " " + RP.esc(a.kind) + "</span><p>" + RP.esc(activityText(a.message)) + "</p></div></div>";
     }).join("") : '<p class="muted pad">Updates from our team will appear here.</p>';
   }
 
@@ -224,8 +235,57 @@
     a.href = url; a.download = "ripepiper-records-" + new Date().toISOString().slice(0, 10) + ".csv"; a.click(); URL.revokeObjectURL(url);
   }
 
+  /* ---------------------------------------------------------- owner controls (the Worker re-checks ownership on every call) */
+  var panelIds = ["prospectingPanel", "reviveSetupPanel", "campaignPlansPanel", "signalSourcesPanel", "eventOperationsPanel"], ownerTicket = 0;
+  function tenantPath(t, action) { return "/api/admin/tenants/" + t.id + "/" + action; }
+  function ownerMarkup(self) {
+    return '<div class="formbox"><h3>Operating mode</h3><p>' + (self ? "Self-service: your team runs the brief, setup and campaigns in the Workspace tab." : "Managed: Ripe Piper operators you grant access to run the service for you.") + " Switching moves no data and does not change who has access.</p>" +
+      '<div class="field"><label for="modeReason">Reason for switching</label><input id="modeReason" type="text" minlength="8" maxlength="500"></div><button class="btn btn-line" type="button" id="modeSwitch">' + (self ? "Switch to managed" : "Switch to self-service") + '</button><p id="modeStatus" role="status"></p></div>' +
+      '<div class="formbox">' + RP.grantsMarkup(false) + "</div>" +
+      (self ? "" : '<div class="formbox"><h3>Operating envelope</h3>' + RP.envelopeMarkup() + '</div><div class="formbox">' + RP.connectionsMarkup() + "</div>") +
+      '<div class="formbox"><h3>End service</h3><p>Stops all execution and revokes every connection. Download your data first; it stays available until the retention purge.</p><div class="field"><label for="endReason">Reason for ending the service</label><input id="endReason" type="text" minlength="8" maxlength="500"></div><button class="btn btn-line" type="button" id="endService">End service</button><p id="endStatus" role="status"></p></div>';
+  }
+  function renderOwner() {
+    var t = state.tenant, owner = state.role === "owner" && !RP.demo, self = t.ownership === "client_owned", ticket = ++ownerTicket;
+    var current = function () { return ticket === ownerTicket && state.tenant === t; };
+    var shut = [];
+    document.querySelectorAll("[data-owner]").forEach(function (n) { n.hidden = !owner || (n.dataset.tab === "workspace" && !self); if (n.hidden) shut.push(n.dataset.tab); });
+    // A hidden tab must not stay open (a viewer arriving on #account, a mode switch, another company picked).
+    document.querySelectorAll("[data-panel]").forEach(function (p) { if (!p.hidden && shut.indexOf(p.dataset.panel) >= 0) document.querySelectorAll('[data-tab="overview"]').forEach(function (a) { a.click(); }); });
+    $("downloadJson").hidden = !owner; $("ownerAccount").innerHTML = "";
+    panelIds.forEach(function (id) { $(id).innerHTML = ""; });
+    if (!owner) return;
+    $("ownerAccount").innerHTML = ownerMarkup(self);
+    RP.wireGrants(t.id, current, false)();
+    // Panels are fixed to the member's own company; the tenant id never comes from the page.
+    if (self) { window.dispatchEvent(new CustomEvent("rp:tenant-selected", { detail: { id: t.id, name: t.name } })); return; }
+    $("envLoad").onclick = RP.wireEnvelope(t.id, current); $("envLoad").onclick();
+    RP.wireConnections(t.id, current)();
+  }
+  function ownerAction(id) {
+    var t = state.tenant, status = function (el, text) { if (state.tenant === t) $(el).textContent = text; };
+    if (id === "downloadJson") return RP.api(tenantPath(t, "export"), undefined, "GET").then(function (j) {
+      var url = URL.createObjectURL(new Blob([JSON.stringify(j, null, 2)], { type: "application/json" })), a = document.createElement("a");
+      a.href = url; a.download = "ripepiper-export-" + new Date().toISOString().slice(0, 10) + ".json"; a.click(); URL.revokeObjectURL(url);
+    }).catch(function (err) { $("freshness").textContent = err.message; });
+    if (id === "modeSwitch") {
+      var to = t.ownership === "client_owned" ? "managed" : "client_owned", reason = $("modeReason").value.trim();
+      if (reason.length < 8) return status("modeStatus", "Give a reason of at least 8 characters.");
+      status("modeStatus", "Switching…");
+      return RP.api(tenantPath(t, "mode"), { expected: t.ownership, to: to, reason: reason }).then(function (j) { if (state.tenant !== t || j.ownership !== to) return; t.ownership = to; renderOwner(); }).catch(function (err) { status("modeStatus", err.message); });
+    }
+    if (id === "endService") {
+      var why = $("endReason").value.trim();
+      if (why.length < 8) return status("endStatus", "Give a reason of at least 8 characters.");
+      if (!window.confirm("End the service? All execution stops and every connection is revoked.")) return;
+      status("endStatus", "Ending the service…");
+      return RP.api(tenantPath(t, "offboard"), { reason: why }).then(function (j) { t.status = "ended"; status("endStatus", "Service ended. Download your data before " + RP.date(j.purgeAfter) + ", when it is deleted."); }).catch(function (err) { status("endStatus", err.message); });
+    }
+  }
+
   document.addEventListener("click", function (e) {
     if (e.target.closest("#downloadCsv")) return downloadCsv();
+    var action = e.target.closest("#downloadJson,#modeSwitch,#endService"); if (action) return ownerAction(action.id);
     var b = e.target.closest("[data-accept]"); if (!b) return;
     var errEl = document.querySelector('[data-qerr="' + b.dataset.accept + '"]');
     RP.api("/api/portal/quotes/" + b.dataset.accept + "/accept").then(function (j) { location.href = j.payment_url; })
@@ -235,7 +295,7 @@
   function pick(tenantId) {
     state.tenant = state.tenants.find(function (t) { return t.id === tenantId; });
     state.role = state.tenant._role || "viewer";
-    return load(tenantId).then(function () { fillMonths(); renderAll(); });
+    return load(tenantId).then(function () { fillMonths(); renderAll(); renderOwner(); });
   }
 
   RP.auth(function (user) {

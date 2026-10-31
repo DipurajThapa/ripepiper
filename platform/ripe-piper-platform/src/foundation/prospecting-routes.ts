@@ -1,6 +1,6 @@
 import type { Env } from "../env";
 import { Db, DbError } from "../lib/db";
-import { bad, json, readJson, requireUser } from "../routes/http";
+import { bad, json, readJson, requireTenant } from "../routes/http";
 import { assessProspect, validBrief, validDate, validFacts, type Observation } from "./prospecting";
 import { productError, reviewProducts } from "./products";
 import { SNAPSHOT_MAX_BYTES, snapshotFailure, validProspectSnapshot } from "./prospect-snapshot";
@@ -8,7 +8,7 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const bounded = (s: unknown, n: number): s is string => typeof s === "string" && !!s.trim() && s.length <= n;
 
 export async function saveBrief(req: Request, env: Env, tenantId: string) {
-  const user = await requireUser(req, env, true);
+  const user = await requireTenant(req, env, tenantId, 'operate');
   const b = await readJson(req);
   if (!validBrief(b.brief) || !Number.isInteger(b.expected_version) || b.expected_version < 0) return bad("Complete the brief, source and current version.");
   const db = new Db(env);
@@ -25,7 +25,7 @@ export async function saveBrief(req: Request, env: Env, tenantId: string) {
 }
 
 export async function addProspectEvidence(req: Request, env: Env, tenantId: string) {
-  const user = await requireUser(req, env, true);
+  const user = await requireTenant(req, env, tenantId, 'operate');
   const b = await readJson(req);
   if (!uuid.test(b.lead_id ?? "") || !bounded(b.source,80) || !bounded(b.reference,240) || !bounded(b.rights_reference,240) ||
       !validDate(b.observed_at,Date.now()) || !validFacts(b.facts,b.excerpt) || typeof b.synthetic !== "boolean")
@@ -47,7 +47,7 @@ export async function addProspectEvidence(req: Request, env: Env, tenantId: stri
 
 /** Recompute from current evidence and brief; no stale cached score and no sending. */
 export async function prospectShortlist(req: Request, env: Env, tenantId: string) {
-  const actor=await requireUser(req,env,true);
+  const actor=await requireTenant(req,env,tenantId,'read');
   const b = await readJson(req);
   if (typeof b.synthetic !== "boolean") return bad("Choose synthetic or business evidence.");
   let snapshot: unknown;
@@ -80,7 +80,7 @@ export async function prospectShortlist(req: Request, env: Env, tenantId: string
 
 /** Staff-reviewed records only. Atomic persistence and reply stops are enforced by PostgreSQL. */
 export async function recordProductEvent(req: Request, env: Env, tenantId: string) {
-  const user=await requireUser(req,env,true), b=await readJson(req);
+  const user=await requireTenant(req,env,tenantId,'operate'), b=await readJson(req);
   if(!uuid.test(b.lead_id??"") || !bounded(b.reference,240) || !bounded(b.rights_reference,240) || !bounded(b.excerpt,2000) || typeof b.synthetic!=="boolean") return bad("Provide an existing lead, source reference, permitted-use reference and reviewed excerpt.");
   const error=productError(b.context,b.observed_at,Date.now(),true);
   if(error) return bad(error);
@@ -112,7 +112,7 @@ export async function recordProductEvent(req: Request, env: Env, tenantId: strin
 }
 
 export async function importReviewLeads(req:Request,env:Env,tenantId:string) {
- const user=await requireUser(req,env,true),b=await readJson(req);
+ const user=await requireTenant(req,env,tenantId,'operate'),b=await readJson(req);
  if(typeof b.synthetic!=='boolean' || !Array.isArray(b.rows) || !b.rows.length || b.rows.length>50) return bad('Import between 1 and 50 rows and select the evidence mode.');
  const db=new Db(env);
  if(!await db.one('tenants',`id=eq.${tenantId}&select=id`))return bad('Client not found.',404);

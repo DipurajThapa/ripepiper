@@ -147,7 +147,7 @@ describe('exact acknowledged Revive action attribution',()=>{
  });
  it('denies browser direct-write attribution even for an authenticated platform admin',async()=>{
   const f=await fixture();await db.exec(`set role authenticated;select set_config('request.jwt.sub','${staff}',false)`);
-  try{await expect(db.query(`insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,synthetic,assessment_reviewed_by,product_context)values($1,$2,'forged','forged',now(),'fixture',true,$3,$4)`,[tenant,f.lead,staff,JSON.stringify(context(f))])).rejects.toThrow('Staff service attribution');}
+  try{await expect(db.query(`insert into lead_observations(tenant_id,lead_id,source,external_ref,observed_at,original_purpose,synthetic,assessment_reviewed_by,product_context)values($1,$2,'forged','forged',now(),'fixture',true,$3,$4)`,[tenant,f.lead,staff,JSON.stringify(context(f))])).rejects.toMatchObject({code:'42501'});}
   finally{await db.exec('reset role');}
  });
  it('rejects partial/malformed identities in API validation and direct service insert',async()=>{
@@ -166,6 +166,7 @@ describe('Revive outcome API to actual local SQL persistence',()=>{
    const u=new URL(input);if(u.origin!==env.SUPABASE_URL)throw Error('External provider access forbidden');
    if(u.pathname==='/auth/v1/user')return Response.json({id:(init.headers as any).Authorization==='Bearer viewer'?viewer:staff,email:'fixture@example.invalid'});
    if(u.pathname==='/rest/v1/profiles')return Response.json([{is_admin:u.searchParams.get('id')==='eq.'+staff}]);
+   if(u.pathname==='/rest/v1/rpc/tenant_access'){const b=JSON.parse(String(init.body));return Response.json(await service(async()=>(await db.query<any>('select public.tenant_access(p_tenant=>$1::uuid,p_actor=>$2::uuid,p_capability=>$3) ok',[b.p_tenant,b.p_actor,b.p_capability])).rows[0].ok));}
    if(u.pathname==='/rest/v1/leads')return Response.json((await db.query('select id,email from leads where tenant_id=$1 and id=$2',[u.searchParams.get('tenant_id')!.slice(3),u.searchParams.get('id')!.slice(3)])).rows);
    if(u.pathname==='/rest/v1/rpc/record_product_event'){
     if(malformed!==undefined)return Response.json(malformed);
@@ -185,7 +186,7 @@ describe('Revive outcome API to actual local SQL persistence',()=>{
  it('rejects viewer/anonymous and foreign action at the server/transaction boundary',async()=>{
   const f=await fixture(),other=await fixture();mockDatabase();
   await expect(recordProductEvent(request(body(f),''),env,tenant)).rejects.toThrow('sign in');
-  await expect(recordProductEvent(request(body(f),'viewer'),env,tenant)).rejects.toThrow('administrators');
+  await expect(recordProductEvent(request(body(f),'viewer'),env,tenant)).rejects.toMatchObject({status:404});
   const b=body(f);b.context={...b.context,actionId:other.action};expect((await recordProductEvent(request(b),env,tenant)).status).toBe(409);
  });
  it.each([{},false,'not-a-uuid'])('does not accept a malformed persistence acknowledgement %j',async value=>{

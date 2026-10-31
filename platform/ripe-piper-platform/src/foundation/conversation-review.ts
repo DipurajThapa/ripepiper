@@ -1,9 +1,9 @@
 import type { Env } from '../env';
 import { Db, DbError } from '../lib/db';
-import { bad, json, readJson, requireUser } from '../routes/http';
+import { bad, json, readJson, requireTenant } from '../routes/http';
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export async function conversationReview(req:Request,env:Env,tenantId:string) {
- const actor=await requireUser(req,env,true), body=await readJson(req),db=new Db(env);
+ const actor=await requireTenant(req,env,tenantId,'operate'), body=await readJson(req),db=new Db(env);
  if(!await db.one('tenants',`id=eq.${tenantId}&select=id`))return bad('Client account not found.',404);
  if(body.operation==='owners'){
   const owners=await db.rpc<any>('response_review_owners',{p_tenant:tenantId,p_actor:actor.id});

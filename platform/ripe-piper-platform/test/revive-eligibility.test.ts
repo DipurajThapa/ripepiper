@@ -6,6 +6,7 @@ import {readFileSync,readdirSync} from 'node:fs';
 import worker from '../src/index';
 import {assessRevive,type ReviveContext} from '../src/foundation/revive';
 import type {Env} from '../src/env';
+import {asOperator} from './helpers/access';
 const actor='00000000-0000-4000-8000-000000000001';
 const env={SUPABASE_URL:'https://revive-db.invalid',SUPABASE_SERVICE_ROLE_KEY:'fixture',SUPABASE_ANON_KEY:'fixture-public',SYNTHETIC_SINK_ENABLED:'true'} as Env;
 let db:PGlite;
@@ -33,6 +34,7 @@ function mockApi(){vi.stubGlobal('fetch',async(input:string,init:RequestInit={})
 const call=async(tenant:string,body:any,token='fixture-staff')=>worker.fetch(new Request(`https://worker.invalid/api/admin/tenants/${tenant}/revive-review`,{method:'POST',headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:JSON.stringify(body)}),env,{} as ExecutionContext);
 async function fixture(){
  const tenant=(await q(`insert into tenants(name,slug,country,currency,status) values('Revive fixture',$1,'AE','AED','active') returning id`,[crypto.randomUUID()]))[0].id;
+ await asOperator(db,{tenantId:tenant,profileId:actor});
  const lead=(await q(`insert into leads(tenant_id,source,email) values($1,'import',$2) returning id`,[tenant,crypto.randomUUID()+'@example.invalid']))[0].id;
  const date=new Date(Date.now()-86400000).toISOString();
  const brief={offer:'Recover reviewed enquiries',industries:['construction'],markets:['AE'],roles:['owner'],needs:['lead follow-up'],excludedIndustries:['gambling'],maxAgeDays:90,source:{reference:'interview:fixture',excerpt:'Approved construction offer for AE owners',observedAt:date}};
@@ -138,10 +140,10 @@ it.each(['history','fit','identity','brief','suppression','expiry','revoked_revi
  if(change==='brief')await rpc('save_business_brief',[f.tenant,1,{...f.brief,offer:'Changed offer'},actor]);
  if(change==='suppression')await q(`insert into lead_suppression(tenant_id,lead_id,reason) values($1,$2,'objection')`,[f.tenant,f.lead]);
  if(change==='expiry')await q(`update revive_reviews set expires_at=now()-interval '1 second' where tenant_id=$1`,[f.tenant]);
- if(change==='revoked_reviewer')await q('update profiles set is_admin=false where id=$1',[actor]);
+ if(change==='revoked_reviewer')await q('update profiles set is_operator=false where id=$1',[actor]);
  expect(await rpc('claim_fenced_synthetic_action',[f.tenant,id,crypto.randomUUID(),new Date(Date.now()+3000).toISOString()])).toBeNull();
  expect((await q('select state from outbound_actions where id=$1',[id]))[0].state).toBe('blocked');
- if(change==='revoked_reviewer')await q('update profiles set is_admin=true where id=$1',[actor]);
+ if(change==='revoked_reviewer')await q('update profiles set is_operator=true where id=$1',[actor]);
 });
 it('rechecks evidence during an already claimed action and rejects completion',async()=>{
  const f=await fixture();await accept(f);const campaign=await plan(f);const id=(await queue(f,campaign)).actionIds[0],token=crypto.randomUUID(),at=new Date(Date.now()+3000).toISOString();

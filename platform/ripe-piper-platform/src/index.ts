@@ -23,9 +23,13 @@ import { saveBrief, addProspectEvidence, prospectShortlist, recordProductEvent, 
 
 import { eventOperations, publicEventMetadata, publicEventRegistration } from "./foundation/events";
 import { conversationReview } from "./foundation/conversation-review";
-import { tenantConnection } from "./foundation/connections";
+import { connectionOperations } from "./foundation/connections";
+import { authorizeConnection, oauthCallback } from "./foundation/connection-oauth";
 import { campaignPlans } from "./foundation/campaigns";
 import { signalSource } from "./foundation/signal-sources";
+import { operatorGrants, tenantMode, platformOverview } from "./foundation/access";
+import { envelopeOperations } from "./foundation/envelope";
+import { exportTenant, offboardTenant } from "./foundation/offboarding";
 
 type Handler = (req: Request, env: Env, ctx: ExecutionContext, p: string[]) => Promise<Response>;
 const routes: [string, RegExp, Handler][] = [
@@ -46,13 +50,21 @@ const routes: [string, RegExp, Handler][] = [
   ["GET", /^\/api\/events\/([0-9a-f-]{36})$/, (r,e,_c,p)=>publicEventMetadata(r,e,p[0])],
   ["POST", /^\/api\/events\/([0-9a-f-]{36})$/, (r,e,_c,p)=>publicEventRegistration(r,e,p[0])],
   ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/conversation-review$/, (r,e,_c,p)=>conversationReview(r,e,p[0])],
-  ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/connection$/, (r,e,_c,p)=>tenantConnection(r,e,p[0])],
+  ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/connection$/, (r,e,_c,p)=>connectionOperations(r,e,p[0])],
+  ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/connections\/(google|microsoft)\/authorize$/, (r,e,_c,p)=>authorizeConnection(r,e,p[0],p[1])],
+  ["GET", /^\/api\/oauth\/(google|microsoft)\/callback$/, (r,e,_c,p)=>oauthCallback(r,e,p[0])],
   ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/campaigns$/, (r,e,_c,p)=>campaignPlans(r,e,p[0])],
   ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/brief$/, (r,e,_c,p)=>saveBrief(r,e,p[0])],
   ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/prospect-evidence$/, (r,e,_c,p)=>addProspectEvidence(r,e,p[0])],
   ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/prospect-import$/, (r,e,_c,p)=>importReviewLeads(r,e,p[0])],
   ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/product-event$/, (r,e,_c,p)=>recordProductEvent(r,e,p[0])],
   ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/shortlist$/, (r,e,_c,p)=>prospectShortlist(r,e,p[0])],
+  ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/operator-grants$/, (r,e,_c,p)=>operatorGrants(r,e,p[0])],
+  ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/mode$/, (r,e,_c,p)=>tenantMode(r,e,p[0])],
+  ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/envelope$/, (r,e,_c,p)=>envelopeOperations(r,e,p[0])],
+  ["GET", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/export$/, (r,e,_c,p)=>exportTenant(r,e,p[0])],
+  ["POST", /^\/api\/admin\/tenants\/([0-9a-f-]{36})\/offboard$/, (r,e,_c,p)=>offboardTenant(r,e,p[0])],
+  ["GET", /^\/api\/admin\/platform-overview$/, (r,e)=>platformOverview(r,e)],
   ["POST", /^\/api\/lead$/, (r, e, c) => postLead(r, e, c)],
   ["POST", /^\/api\/book$/, (r, e) => postBook(r, e)],
   ["POST", /^\/api\/calculator$/, (r, e, c) => postCalculator(r, e, c)],

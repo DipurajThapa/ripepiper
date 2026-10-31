@@ -43,3 +43,28 @@ export async function requireUser(req: Request, env: Env, admin = false) {
   if (admin && !user.is_admin) throw new HttpError(403, "This action is for administrators only.");
   return user;
 }
+
+export type Capability = "read" | "operate" | "approve";
+const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Platform-level routes only (billing, go-live, safety stops): never confers tenant content access. */
+export const requirePlatformAdmin = (req: Request, env: Env) => requireUser(req, env, true);
+
+/** Tenant authority via the single SQL predicate (tenant_access -> can_operate). Denied and missing are the same 404. */
+export async function tenantAccess(env: Env, user: { id: string }, tenantId: string, capability: Capability) {
+  if (!uuidRe.test(tenantId) || await new Db(env).rpc<boolean>("tenant_access", { p_tenant: tenantId.toLowerCase(), p_actor: user.id, p_capability: capability }) !== true)
+    throw new HttpError(404, "Not found.");
+}
+
+export async function requireTenant(req: Request, env: Env, tenantId: string, capability: Capability) {
+  const user = await requireUser(req, env);
+  await tenantAccess(env, user, tenantId, capability);
+  return user;
+}
+
+/** Client admin (memberships owner) or platform admin; everyone else gets the tenant 404. Returns which authority applies. */
+export async function requireOwnerOrPlatformAdmin(req: Request, env: Env, tenantId: string) {
+  const user = await requireUser(req, env);
+  const owner = uuidRe.test(tenantId) && !!await new Db(env).one("memberships", `tenant_id=eq.${tenantId.toLowerCase()}&user_id=eq.${user.id}&role=eq.owner&select=user_id`);
+  if (!owner && !user.is_admin) throw new HttpError(404, "Not found.");
+  return { user, owner };
+}

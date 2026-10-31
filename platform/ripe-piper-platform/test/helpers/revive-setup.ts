@@ -4,6 +4,10 @@ import type {PGlite} from '@electric-sql/pglite';
 export function setupBody(actor:string,reference='interview:fixture',overrides:Record<string,unknown>={}){
  return {website:null,supportedClaims:[],sourceInventory:[{type:'interview',reference,rightsReference:'Synthetic fixture review only'}],relationshipSummary:{text:'Reviewed earlier enquiries whose project was deferred.',reference},senderName:'Fixture owner',senderEmail:'staff@example.invalid',ownerId:actor,market:'AE',language:'en',timezone:'UTC',salesCapacityPerWeek:10,outcomeWindowDays:30,workingDays:[1,2,3,4,5,6,7],startMinute:0,endMinute:1440,dailyContactCap:25,...overrides};
 }
+/** The four optional brand keys, as setupBody overrides; synthetic values only. */
+export function brandProfile(name='Fixture owner',overrides:Record<string,unknown>={}){
+ return {replyTo:'replies@example.invalid',signature:`${name}\nHead of Sales`,booking:{url:'https://calendar.google.com/calendar/appointments/schedules/fixture',reference:'booking:reviewed-fixture'},legalFooter:{postalAddress:'1 Fixture Street, Dubai, AE',reference:'legal:reviewed-fixture'},...overrides};
+}
 export function strategyBody(setupVersion:number,need='lead follow-up',reference='interview:fixture',overrides:Record<string,unknown>={}){
  return {setupVersion,canonicalNeed:need,segment:'Reviewed existing enquiries',relationshipRationale:'The reviewed earlier enquiry was deferred; current need is assessed separately.',valueProposition:'Discuss the reviewed offer where it remains relevant.',evidenceReference:reference,cta:{kind:'reply',prompt:'Is this still relevant for your team?'},goal:'qualified_conversation',confirmed:true,...overrides};
 }

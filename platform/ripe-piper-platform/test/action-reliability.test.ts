@@ -2,9 +2,11 @@ import {beforeAll,afterAll,beforeEach,describe,it,expect,vi} from 'vitest';
 import {PGlite} from '@electric-sql/pglite';
 import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
 import {readFileSync,readdirSync} from 'node:fs';
-import {dispatchSyntheticAction,inspectActionReceipt} from '../src/foundation/action-reliability';
+import {dispatchSyntheticAction,executeSyntheticAction,inspectActionReceipt} from '../src/foundation/action-reliability';
+import {baseEnv,brandSetup,fakeDb,googleConnection} from './helpers/tenant-send';
 import type {Env} from '../src/env';
 import {seedReviveSetup} from './helpers/revive-setup';
+import {asOperator} from './helpers/access';
 const admin='00000000-0000-4000-8000-000000000001';
 const now='2026-10-23T12:00:00.000Z';
 const later='2026-10-23T12:03:00.000Z';
@@ -14,6 +16,7 @@ async function query<T=any>(sql:string,args:any[]=[]){return (await db.query<T>(
 async function rpc(name:string,args:any[]){await db.exec('set role service_role');try{return (await query(`select public.${name}(${args.map((_,i)=>'$'+(i+1)).join(',')}) value`,args))[0].value;}finally{await db.exec('reset role');}}
 async function fixture(){
  const tenant=(await query(`insert into tenants(name,slug,country,currency,status) values('Fixture',$1,'AE','AED','active') returning id`,[crypto.randomUUID()]))[0].id;
+ await asOperator(db,{tenantId:tenant,profileId:admin});
  const lead=(await query(`insert into leads(tenant_id,source,email) values($1,'import',$2) returning id`,[tenant,crypto.randomUUID()+'@example.invalid']))[0].id;
  // This is an accepted Revive cohort, not a bypass of the new cohort fence.
  // Derive dates from the local database clock; calendar dates must not expire this fixture.
@@ -107,6 +110,7 @@ describe('bounded synthetic dispatch and read-only receipt adapter',()=>{
    if(url.host!=='fixture.supabase.invalid')throw Error('Unexpected external provider');
    if(url.pathname==='/auth/v1/user')return Response.json({id:admin,email:'fixture@example.invalid'});
    if(url.pathname==='/rest/v1/profiles')return Response.json([{is_admin:true}]);
+   if(url.pathname==='/rest/v1/rpc/tenant_access')return Response.json(true);
    if(url.pathname==='/rest/v1/outbound_actions')return Response.json(url.searchParams.get('tenant_id') && url.searchParams.get('tenant_id')!=='eq.'+tenant?[]:[row]);
    const b=JSON.parse(String(init.body));
    if(url.pathname.endsWith('/claim_fenced_synthetic_action')){
@@ -129,7 +133,7 @@ describe('bounded synthetic dispatch and read-only receipt adapter',()=>{
   expect((await dispatchSyntheticAction(request(),env,id)).status).toBe(200);
   expect(calls.filter(c=>c.url.pathname.endsWith('/complete_fenced_synthetic_action'))).toHaveLength(1);
   expect(calls.filter(c=>c.url.pathname.endsWith('/claim_fenced_synthetic_action'))).toHaveLength(1);
-  expect(calls.filter(c=>c.url.pathname.startsWith('/rest/')&&!c.url.pathname.endsWith('/profiles')).every(c=>c.init.signal instanceof AbortSignal)).toBe(true);
+  expect(calls.filter(c=>c.url.pathname.startsWith('/rest/')&&!c.url.pathname.endsWith('/profiles')&&!c.url.pathname.endsWith('/rpc/tenant_access')).every(c=>c.init.signal instanceof AbortSignal)).toBe(true);
  });
  it.each(['claim_lost','completion_timeout','completion_malformed'])('holds %s for review without a second attempt or private error leakage',async selected=>{
   mode=selected;const result=await dispatchSyntheticAction(request(),env,id);expect(result.status).toBe(503);expect(await result.text()).not.toContain('PRIVATE');
@@ -140,7 +144,29 @@ describe('bounded synthetic dispatch and read-only receipt adapter',()=>{
   await dispatchSyntheticAction(request(),env,id);calls=[];
   const result=await inspectActionReceipt(request(),env,tenant,id),text=await result.text();
   expect(result.status).toBe(200);expect(text).toContain('synthetic_sink');expect(text).toContain('not_sent');expect(text).not.toContain(row.dispatch_token);
-  expect(calls.every(c=>!c.init.method||c.init.method==='GET')).toBe(true);
+  expect(calls.every(c=>c.url.pathname.endsWith('/rpc/tenant_access')||!c.init.method||c.init.method==='GET')).toBe(true);
   expect((await inspectActionReceipt(request(),env,crypto.randomUUID(),id)).status).toBe(404);
+ });
+});
+describe('tenant connection snapshot on the fenced action',()=>{
+ const t='c1111111-1111-4111-8111-111111111111';
+ it('records connection id/version and, with TENANT_SEND_ENABLED off, reaches only the synthetic sink',async()=>{
+  const external:string[]=[];vi.stubGlobal('fetch',async(input:string)=>{external.push(input);throw Error('Unexpected network');});
+  const c=googleConnection(t,'owner@alpha.example','rt-A','cal-a'),f=fakeDb(t,brandSetup('Alpha','owner@alpha.example'));
+  const r=await executeSyntheticAction(f.db,baseEnv(),f.row.id,t,async()=>c);
+  expect(r.status).toBe(200);expect(external).toEqual([]);
+  expect(f.row).toMatchObject({state:'tested',provider_ref:'test-sink:'+f.row.id,connection_id:c.connectionId,connection_version:2});
+  expect(f.calls.filter(x=>x.op==='update').map(x=>x.args.q)).toEqual([`id=eq.${f.row.id}&tenant_id=eq.${t}&dispatch_token=eq.${f.row.dispatch_token}&state=eq.claimed&connection_id=is.null`]);
+  expect(f.calls.some(x=>x.name==='tenant_connection_current')).toBe(false);
+ });
+ it('keeps the existing sink path unchanged when the tenant has no mail connection',async()=>{
+  const f=fakeDb(t,brandSetup('Alpha','owner@alpha.example'));
+  expect((await executeSyntheticAction(f.db,baseEnv(),f.row.id,t,async()=>null)).status).toBe(200);
+  expect(f.row).toMatchObject({state:'tested',connection_id:null});expect(f.calls.some(x=>x.op==='update')).toBe(false);
+ });
+ it('treats a lost snapshot write as uncertain: held for review, never completed',async()=>{
+  const f=fakeDb(t,brandSetup('Alpha','owner@alpha.example'));f.row.connection_id=crypto.randomUUID();
+  expect((await executeSyntheticAction(f.db,baseEnv(),f.row.id,t,async()=>googleConnection(t,'owner@alpha.example','rt-A','cal-a'))).status).toBe(503);
+  expect(f.row).toMatchObject({state:'review',error_code:'uncertain_result'});expect(f.calls.some(x=>x.name==='complete_fenced_synthetic_action')).toBe(false);
  });
 });

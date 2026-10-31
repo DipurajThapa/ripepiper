@@ -5,6 +5,7 @@ import {readFileSync,readdirSync} from 'node:fs';
 import {reviewProducts,productError} from '../src/foundation/products';
 import {conversationReview} from '../src/foundation/conversation-review';
 import type {Env} from '../src/env';
+import {asOperator} from './helpers/access';
 const admin='00000000-0000-4000-8000-000000000001',owner='00000000-0000-4000-8000-000000000002',viewer='00000000-0000-4000-8000-000000000003',foreign='00000000-0000-4000-8000-000000000004';
 let db:PGlite,tenant:string,otherTenant:string;
 const reply={product:'response',kind:'reply',threadRef:'thread-one',disposition:'interested',need:'Known need',authority:'',timing:''};
@@ -17,6 +18,7 @@ beforeAll(async()=>{
  otherTenant=(await db.query<any>(`insert into tenants(name,slug,country,currency,status) values('Other','response-other','AE','AED','active') returning id`)).rows[0].id;
  for(const [id,name]of[[admin,'Admin'],[owner,'Owner'],[viewer,'Viewer'],[foreign,'Foreign']])await db.query(`insert into auth.users(id,email,email_confirmed_at,raw_user_meta_data)values($1,$2,now(),$3)`,[id,name.toLowerCase()+'@example.invalid',JSON.stringify({full_name:name})]);
  await db.query('update profiles set is_admin=true where id=$1',[admin]);await db.query(`insert into memberships(tenant_id,user_id,role)values($1,$2,'owner'),($1,$3,'viewer'),($4,$5,'owner')`,[tenant,owner,viewer,otherTenant,foreign]);
+ for(const t of [tenant,otherTenant])await asOperator(db,{tenantId:t,profileId:admin});
 });
 afterAll(async()=>db.close());
 async function service<T>(fn:()=>Promise<T>){await db.exec('set role service_role');try{return await fn();}finally{await db.exec('reset role');}}
@@ -96,12 +98,13 @@ describe('conversation review HTTP boundary',()=>{
  function provider(error?:string,result:any={id:admin,version:1,replayed:false}){const writes:any[]=[];vi.stubGlobal('fetch',async(input:string,init:RequestInit={})=>{
   const u=new URL(input);if(u.pathname==='/auth/v1/user')return Response.json({id:(init.headers as any).Authorization==='Bearer viewer'?viewer:admin,email:'admin@example.invalid'});
   if(u.pathname==='/rest/v1/profiles')return Response.json([{is_admin:u.searchParams.get('id')!=='eq.'+viewer}]);
+  if(u.pathname==='/rest/v1/rpc/tenant_access')return Response.json(JSON.parse(String(init.body)).p_actor!==viewer);
   if(u.pathname==='/rest/v1/tenants')return Response.json([{id:tenant}]);
   writes.push(JSON.parse(String(init.body)));return error?Response.json({code:error},{status:409}):Response.json(result);
  });return writes;}
  const body=()=>({operation:'save',lead_id:admin,thread_ref:'thread-one',owner_id:owner,expected_version:0,inbound_snapshot:admin,state:'resolved',reason:'Reviewed',request_id:viewer,synthetic:true});
  it('uses authenticated staff actor and validates shape before RPC',async()=>{
-  const writes=provider();await expect(conversationReview(request(body(),''),env,tenant)).rejects.toThrow('sign in');await expect(conversationReview(request(body(),'viewer'),env,tenant)).rejects.toThrow('administrators');
+  const writes=provider();await expect(conversationReview(request(body(),''),env,tenant)).rejects.toThrow('sign in');await expect(conversationReview(request(body(),'viewer'),env,tenant)).rejects.toMatchObject({status:404});
   expect((await conversationReview(request({...body(),expected_version:-1}),env,tenant)).status).toBe(400);
   expect((await conversationReview(request({...body(),actor:foreign}),env,tenant)).status).toBe(200);expect(writes).toHaveLength(1);expect(writes[0].p_actor).toBe(admin);
  });

@@ -17,7 +17,7 @@ async function pageFor(width=1280){
    calls.push({method:request.method(),body:request.postDataJSON(),headers:request.headers()});
    if(mode==='network')return route.abort('failed');
    if(mode==='malformed')return route.fulfill({contentType:'application/json',body:JSON.stringify({version:1,status:'confirmed',tenantId:tenant})});
-   return route.fulfill({contentType:'application/json',headers:{'Cache-Control':'no-store','Referrer-Policy':'no-referrer'},body:JSON.stringify({version:1,status:mode})});
+   return route.fulfill({contentType:'application/json',headers:{'Cache-Control':'no-store','Referrer-Policy':'no-referrer'},body:JSON.stringify(mode==='confirmed'?{version:1,status:mode,businessName:'Fixture Business'}:{version:1,status:mode})});
   }
   const files={'/unsubscribe.html':['site/unsubscribe.html','text/html'],'/assets/tenant-unsubscribe.js':['site/assets/tenant-unsubscribe.js','application/javascript'],'/assets/tenant-unsubscribe.css':['site/assets/tenant-unsubscribe.css','text/css'],'/assets/site.css':['site/assets/site.css','text/css']};
   if(files[url.pathname]){const [file,contentType]=files[url.pathname];return route.fulfill({contentType,headers:{'Cache-Control':'no-store','Referrer-Policy':'no-referrer'},body:await readFile(new URL(file,root),'utf8')});}

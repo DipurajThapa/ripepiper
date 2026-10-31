@@ -8,6 +8,7 @@ import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
 import worker from '../src/index';
 import type {Env} from '../src/env';
 import {setupBody,strategyBody} from './helpers/revive-setup';
+import {asOperator} from './helpers/access';
 
 const staff='00000000-0000-4000-8000-0000000000a1',member='00000000-0000-4000-8000-0000000000a2',outsider='00000000-0000-4000-8000-0000000000a3';
 const env={SUPABASE_URL:'https://anvukta-journey-db.invalid',SUPABASE_SERVICE_ROLE_KEY:'fixture-service',SUPABASE_ANON_KEY:'fixture-anon',SYNTHETIC_SINK_ENABLED:'true',REVIVE_AUTOMATION_ENABLED:'true'} as Env;
@@ -103,6 +104,7 @@ beforeAll(async()=>{
  await q('update profiles set is_admin=true where id=$1',[staff]);
  tenant=(await q(`insert into tenants(name,slug,country,currency,status) values('Anvukta (synthetic)','anvukta-journey','AE','AED','onboarding') returning id`))[0].id;
  other=(await q(`insert into tenants(name,slug,country,currency,status) values('Northstar (fictional)','northstar-journey','AE','AED','active') returning id`))[0].id;
+ await asOperator(db,{tenantId:tenant,profileId:staff});
  await q(`insert into memberships(tenant_id,user_id,role) values($1,$2,'viewer'),($3,$4,'viewer')`,[tenant,member,other,outsider]);
 },60000);
 // The shared network guard re-stubs fetch before every test; route it to the bridge instead.

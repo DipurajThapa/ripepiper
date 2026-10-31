@@ -12,8 +12,10 @@ export function paidPolicy(env:Env):Policy {
  return p;
 }
 export function costMicro(p:Policy,input:number,output:number){return Math.ceil((input*p.inputMicroPerMillion+output*p.outputMicroPerMillion)/1_000_000);}
+/** tenantId null means Ripe Piper's own records; a tenant scope is attributed to the reservation before any network. */
+export type AIScope={tenantId:string|null};
 /** No network until default-off configuration and current reviewed price policy pass. */
-export async function reserveAI(env:Env,system:string,user:string,maxTokens:number){
+export async function reserveAI(env:Env,system:string,user:string,maxTokens:number,scope:AIScope){
  const policy=paidPolicy(env);
  const bytes=new TextEncoder().encode(system+user).length;
  if(bytes>130_000||!Number.isSafeInteger(maxTokens)||maxTokens<1||maxTokens>4000)throw new PaidUseBlocked();
@@ -21,6 +23,8 @@ export async function reserveAI(env:Env,system:string,user:string,maxTokens:numb
  // be verified in the referenced policy before this configuration is enabled.
  const inputBound=bytes+1024,maximum=costMicro(policy,inputBound,maxTokens),id=crypto.randomUUID();
  if((await new Db(env).rpc<boolean>('reserve_build_usage',{p_id:id,p_model:policy.model,p_pricing:policy.reference,p_max_micro:maximum}))!==true)throw new PaidUseBlocked();
+ // A failed attribution is still pre-network: block (retryable) rather than spend unattributed.
+ if(scope?.tenantId&&(await new Db(env).update('build_usage',`id=eq.${id}&tenant_id=is.null`,{tenant_id:scope.tenantId}).catch(()=>[])).length!==1)throw new PaidUseBlocked();
  return {id,policy,inputBound,maxTokens,maximum};
 }
 export async function settleAI(env:Env,reservation:Awaited<ReturnType<typeof reserveAI>>,usage:any){

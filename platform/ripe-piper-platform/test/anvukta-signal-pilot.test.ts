@@ -13,6 +13,7 @@ import {assessProspect,type Observation,type BusinessBrief} from '../src/foundat
 import {reviewProducts} from '../src/foundation/products';
 import {seedReviveSetup} from './helpers/revive-setup';
 import {tenantGoogleConnection} from '../src/foundation/connections';
+import {asOperator} from './helpers/access';
 
 const actor='00000000-0000-4000-8000-000000000081';
 const contact='coo@cedar.example.invalid';
@@ -35,6 +36,7 @@ it('rehearses two configured clients through isolated Signal discovery, qualific
   await q('update profiles set is_admin=true where id=$1',[actor]);
   const tenant=(await q(`insert into tenants(name,slug,country,currency,status) values('Anvukta — synthetic pilot','anvukta-synthetic-pilot','AE','AED','active') returning id`))[0].id;
   const otherTenant=(await q(`insert into tenants(name,slug,country,currency,status) values('Northstar Safety — fictional client','northstar-synthetic-pilot','AE','AED','active') returning id`))[0].id;
+  for(const t of [tenant,otherTenant])await asOperator(db,{tenantId:t,profileId:actor});
   const observedAt=new Date(Date.now()-3600000).toISOString(),expiresAt=new Date(Date.now()+7*86400000).toISOString();
   const source={id:crypto.randomUUID(),tenantId:tenant,url:'https://signals.example.com/anvukta-pilot.json',purposeReference:'synthetic-fixture-source-review-only',expiresAt,enabled:true,synthetic:true};
   const items=[
@@ -54,8 +56,8 @@ it('rehearses two configured clients through isolated Signal discovery, qualific
    if(u.pathname==='/auth/v1/user'){expect(method).toBe('GET');return Response.json({id:actor,email:'pilot-staff@example.invalid'});}
    if(u.pathname.startsWith('/rest/v1/rpc/')){
     expect(method).toBe('POST');const name=u.pathname.split('/').at(-1)!;
-    if(!['save_business_brief','import_review_lead','record_product_event','manage_campaign_plan','revive_setup_context','review_prospect_snapshot'].includes(name))throw Error('Unexpected RPC');
-    rpcNames.push(name);const b=JSON.parse(String(init.body));
+    if(!['tenant_access','save_business_brief','import_review_lead','record_product_event','manage_campaign_plan','revive_setup_context','review_prospect_snapshot'].includes(name))throw Error('Unexpected RPC');
+    if(name!=='tenant_access')rpcNames.push(name);const b=JSON.parse(String(init.body));
     if(Object.keys(b).some(k=>!/^p_[a-z_]+$/.test(k)))throw Error('Unexpected RPC argument');
     await db.exec('set role service_role');
     try{return Response.json((await q(`select public.${name}(${Object.keys(b).map((k,i)=>k+'=> $'+(i+1)).join(',')}) value`,Object.values(b)))[0].value);}

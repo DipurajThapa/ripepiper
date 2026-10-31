@@ -3,6 +3,7 @@ import {PGlite} from '@electric-sql/pglite';
 import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
 import {readFileSync,readdirSync} from 'node:fs';
 import {seedReviveSetup,strategyBody} from './helpers/revive-setup';
+import {asOperator} from './helpers/access';
 const actor='11111111-1111-4111-8111-111111111111';
 let db:PGlite;
 const q=async(sql:string,args:any[]=[])=> (await db.query<any>(sql,args)).rows;
@@ -21,6 +22,7 @@ afterAll(async()=>db?.close());
 async function contact(tenant?:string){
  if(!tenant){
   tenant=(await q(`insert into tenants(name,slug,country,currency,status)values('Audience fixture',$1,'AE','AED','active')returning id`,['audience-'+crypto.randomUUID()]))[0].id;
+  await asOperator(db,{tenantId:tenant,profileId:actor});
   await rpc('save_business_brief',[tenant,0,{offer:'Recover dormant enquiries',industries:['construction'],markets:['AE'],roles:['owner'],needs:['lead follow-up'],excludedIndustries:[],maxAgeDays:30,source:{reference:'audience-brief',excerpt:'Reviewed construction offer',observedAt:new Date(Date.now()-3600000).toISOString()}},actor]);
   await seedReviveSetup(db,tenant,actor);
  }
@@ -56,7 +58,7 @@ it('lists only current accepted contacts within the selected tenant',async()=>{
 });
 it('records a new version for a different audience reviewer rather than retaining the old review identity',async()=>{
  const f=await contact(),id=crypto.randomUUID(),next=crypto.randomUUID();await save(f,id,0,body([f.lead]));
- await q(`insert into auth.users(id,email,email_confirmed_at)values($1,$2,now())`,[next,next+'@staff.invalid']);await q('update profiles set is_admin=true where id=$1',[next]);
+ await q(`insert into auth.users(id,email,email_confirmed_at)values($1,$2,now())`,[next,next+'@staff.invalid']);await asOperator(db,{tenantId:f.tenant,profileId:next});
  expect(await rpc('manage_campaign_plan',[f.tenant,id,next,'save',1,body([f.lead])])).toMatchObject({version:2,status:'draft'});
  expect((await q('select revive_audience from campaign_assets where campaign_id=$1 and version=2',[id]))[0].revive_audience.reviewedBy).toBe(next);
 });

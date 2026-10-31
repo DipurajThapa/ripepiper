@@ -1,6 +1,6 @@
 import type {Env} from '../env';
 import {Db,DbError} from '../lib/db';
-import {bad,json,readJson,requireUser,verifyTurnstile} from '../routes/http';
+import {bad,json,readJson,requireTenant,verifyTurnstile} from '../routes/http';
 import {validInstant} from './prospecting';
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const bounded=(s:unknown,n:number):s is string=>typeof s==='string'&&!!s.trim()&&s.length<=n;
@@ -18,7 +18,7 @@ function blocked(error:unknown){
  throw error;
 }
 export async function eventOperations(req:Request,env:Env,tenantId:string){
- const actor=await requireUser(req,env,true),body=await readJson(req),db=new Db(env);
+ const actor=await requireTenant(req,env,tenantId,'operate'),body=await readJson(req),db=new Db(env);
  if(!await db.one('tenants',`id=eq.${tenantId}&select=id`))return bad('Client not found.',404);
  if(body.operation==='list'){
   const campaigns=await db.select('campaigns',`tenant_id=eq.${tenantId}&capability=eq.events&order=created_at.desc&limit=101`);

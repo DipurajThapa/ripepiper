@@ -43,7 +43,10 @@ async function open(mode='connected',hash='',width=1280){
   if(url.pathname.startsWith('/api/')){
    const body=request.postDataJSON()||{};await page.evaluate(({path,body})=>window.__crmTest.api.push({path,body}),{path:url.pathname,body});
    const id=url.pathname.split('/')[4],setupContext={tenantId:id,setup:null,currentBriefVersion:null,ready:false,missing:['setup_required'],owners:[{id:actor,label:'Synthetic staff'}],brief:null};let result;
-   if(url.pathname.endsWith('/revive-setup')&&body.operation==='get')result={ok:true,context:setupContext,delivery:'not_sent'};
+   if(url.pathname==='/api/admin/platform-overview')result={ok:true,tenants:[]};
+   else if(url.pathname.endsWith('/connection')&&body.operation==='connections')result={ok:true,connections:[]};
+   else if(url.pathname.endsWith('/operator-grants')&&body.operation==='list')result={ok:true,grants:[]};
+   else if(url.pathname.endsWith('/revive-setup')&&body.operation==='get')result={ok:true,context:setupContext,delivery:'not_sent'};
    else if(url.pathname.endsWith('/campaigns')&&body.operation==='list')result={ok:true,campaigns:[],assets:[],actions:[],leads:[],sources:[],draftLeads:[],draftSources:[],audienceCandidates:[],setupContext,delivery:'synthetic_only'};
    else if(url.pathname.endsWith('/shortlist'))result={ok:true,brief:null,leads:[],results:[],synthetic:true};
    else if(url.pathname.endsWith('/signal-source')&&body.operation==='status')result={ok:true,state:'disabled'};

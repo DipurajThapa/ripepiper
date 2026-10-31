@@ -26,6 +26,11 @@ BEGIN
  INSERT INTO auth.users(id,email,email_confirmed_at,raw_user_meta_data) VALUES(a,'qa-staff@example.invalid',now(),'{}'),(u,'qa-owner-one@example.invalid',now(),'{}'),(v,'qa-owner-two@example.invalid',now(),'{}');
  UPDATE public.profiles SET is_admin=true WHERE id=a;
  INSERT INTO public.memberships(tenant_id,user_id,role) VALUES(t,u,'owner'),(x,v,'owner');
+ -- Hybrid access: staff act on a tenant only through an operator grant from a separate verified platform admin.
+ INSERT INTO auth.users(id,email,email_confirmed_at,raw_user_meta_data) VALUES('fa100000-0000-4000-8000-000000000009','qa-grantor@example.invalid',now(),'{}');
+ UPDATE public.profiles SET is_admin=true WHERE id='fa100000-0000-4000-8000-000000000009';UPDATE public.profiles SET is_operator=true WHERE id=a;
+ INSERT INTO public.operator_grants(tenant_id,operator_id,capabilities,authority,authorised_by,contract_reference,expires_at)
+  SELECT qa_t,a,'{read,operate,approve}','contract','fa100000-0000-4000-8000-000000000009','QA synthetic contract',now()+interval '1 day' FROM unnest(array[t]::uuid[]) qa_t;
  INSERT INTO public.leads(id,tenant_id,source,email) VALUES(l,t,'import','qa-contact-one@example.invalid'),(f,x,'import','qa-contact-two@example.invalid');
  INSERT INTO public.leads(tenant_id,source,email) VALUES(null,'book_form','qa-null-tenant@example.invalid');
  rejected:=false;

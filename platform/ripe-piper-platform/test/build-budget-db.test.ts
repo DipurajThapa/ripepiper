@@ -1,6 +1,6 @@
 import {beforeAll,afterAll,it,expect} from 'vitest';
 import {PGlite} from '@electric-sql/pglite';
-import {readFileSync} from 'node:fs';
+import {readFileSync,readdirSync} from 'node:fs';
 const db=new PGlite();const admin='11111111-1111-4111-8111-111111111111';
 beforeAll(async()=>{
  await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;create table public.profiles(id uuid primary key,is_admin boolean);insert into profiles values('${admin}',true);grant select on profiles to service_role;`);
@@ -35,4 +35,20 @@ it('freezes on exceeded bound and prevents unprivileged reads, arming and spend 
   await expect(db.query(`select authorize_build_budget($1,0,'p','x',now()+interval '1 day')`,[admin])).rejects.toThrow();
   await db.exec('reset role');
  }
+});
+it('writes the tenant scope to build_usage.tenant_id the way reserveAI attributes it, and clears it if the tenant is deleted',async()=>{
+ // The column ships in the shared-reference migration; apply only that statement so this test stays independent of the rest.
+ const dir=new URL('../supabase/migrations/',import.meta.url);
+ const ddl=readdirSync(dir).sort().map(f=>readFileSync(new URL(f,dir),'utf8').match(/alter table (public.)?build_usage add column[^;]*tenant_id[^;]*;/i)?.[0]).find(Boolean);
+ expect(ddl).toBeTruthy();
+ await db.exec('create table public.tenants(id uuid primary key);'+ddl);
+ const tenant='22222222-2222-4222-8222-222222222222';await db.query('insert into tenants values($1)',[tenant]);
+ await db.query(`update build_budget set enabled=true where id='ripepiper-build'`);
+ await db.exec('set role service_role');
+ const scoped=crypto.randomUUID(),agency=crypto.randomUUID();expect(await reserve(scoped,1)).toBe(true);expect(await reserve(agency,1)).toBe(true);
+ expect((await db.query<any>('update build_usage set tenant_id=$1 where id=$2 and tenant_id is null returning id',[tenant,scoped])).rows).toHaveLength(1);
+ expect((await db.query<any>('select id,tenant_id from build_usage where id in ($1,$2) order by tenant_id nulls last',[scoped,agency])).rows).toEqual([{id:scoped,tenant_id:tenant},{id:agency,tenant_id:null}]);
+ await db.exec('reset role');
+ await db.query('delete from tenants where id=$1',[tenant]);
+ expect((await db.query<any>('select tenant_id from build_usage where id=$1',[scoped])).rows[0].tenant_id).toBeNull();
 });

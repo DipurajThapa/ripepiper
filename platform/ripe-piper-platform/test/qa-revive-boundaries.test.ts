@@ -6,17 +6,20 @@ import worker from '../src/index';
 import {assessRevive} from '../src/foundation/revive';
 import type {Env} from '../src/env';
 import {seedReviveSetup} from './helpers/revive-setup';
+import {asOperator} from './helpers/access';
 
 const actor='90111111-1111-4111-8111-111111111111',viewer='90222222-2222-4222-8222-222222222222';
 const env={SUPABASE_URL:'https://qa-revive.invalid',SUPABASE_SERVICE_ROLE_KEY:'synthetic',SUPABASE_ANON_KEY:'public-fixture',REVIVE_AUTOMATION_ENABLED:'true',SYNTHETIC_SINK_ENABLED:'true'} as Env;
 let db:PGlite;
 const q=async(sql:string,args:any[]=[]) => (await db.query<any>(sql,args)).rows;
 async function rpc(name:string,args:any[]){await db.exec('set role service_role');try{return (await q(`select public.${name}(${args.map((_,i)=>'$'+(i+1)).join(',')}) value`,args))[0].value;}finally{await db.exec('reset role');}}
+const EGM='20261026041450_revive_egm_execution_guards.sql',HYBRID='20261101000001_hybrid_access.sql';
+// Without EGM the history is seeded on the pre-hybrid schema; the test then applies EGM, the hybrid migration (whose backfill grants the existing admin) and every later one.
 async function initializeDatabase(includeEgm=true){
  db=new PGlite({extensions:{btree_gist}});
  await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;create schema auth;create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,raw_user_meta_data jsonb default '{}');create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.sub',true),'')::uuid$$;grant usage on schema auth to anon,authenticated;grant execute on function auth.uid() to anon,authenticated;`);
  const directory=new URL('../supabase/migrations/',import.meta.url);
- for(const file of readdirSync(directory).filter(f=>f.endsWith('.sql')&&(includeEgm||f!=='20261026041450_revive_egm_execution_guards.sql')).sort())await db.exec(readFileSync(new URL(file,directory),'utf8'));
+ for(const file of readdirSync(directory).filter(f=>f.endsWith('.sql')&&(includeEgm||f<HYBRID&&f!==EGM)).sort())await db.exec(readFileSync(new URL(file,directory),'utf8'));
  await q(`insert into auth.users(id,email,email_confirmed_at) values($1,'qa-staff@example.invalid',now()),($2,'qa-viewer@example.invalid',now())`,[actor,viewer]);
  await q('update profiles set is_admin=true where id=$1',[actor]);
 }
@@ -25,6 +28,7 @@ afterAll(async()=>db?.close());afterEach(()=>vi.restoreAllMocks());
 
 async function fixture(){
  const tenant=(await q(`insert into tenants(name,slug,country,currency,status) values('QA boundary',$1,'AE','AED','active') returning id`,[crypto.randomUUID()]))[0].id;
+ if((await q("select to_regclass('public.operator_grants') t"))[0].t)await asOperator(db,{tenantId:tenant,profileId:actor});
  const lead=(await q(`insert into leads(tenant_id,source,email) values($1,'import',$2) returning id`,[tenant,crypto.randomUUID()+'@example.invalid']))[0].id;
  const observed=new Date(Date.now()-86400000).toISOString();
  const body={offer:'Recover construction enquiries',industries:['construction'],markets:['AE'],roles:['owner'],needs:['quote follow-up'],excludedIndustries:[],maxAgeDays:90,source:{reference:'qa-brief',excerpt:'Approved construction offer',observedAt:observed}};
@@ -84,7 +88,7 @@ it('blocks historical Revive action rows that have no cohort fence, while preser
  await initializeDatabase(false);
  const f=await fixture();await accept(f);const c=await campaign(f);const id=(await queue(f,c)).actionIds[0];
  await q('update outbound_actions set revive_review_version=null,revive_review_snapshot=null where id=$1',[id]);
- await db.exec(readFileSync(new URL('../supabase/migrations/20261026041450_revive_egm_execution_guards.sql',import.meta.url),'utf8'));
+ for(const file of [EGM,...readdirSync(new URL('../supabase/migrations/',import.meta.url)).filter(f=>f.endsWith('.sql')&&f>=HYBRID).sort()])await db.exec(readFileSync(new URL('../supabase/migrations/'+file,import.meta.url),'utf8'));
  const at=await afterDue(id);expect(await rpc('synthetic_action_allowed',[id,at])).toBe(false);
  await q(`update campaigns set capability='signal' where id=$1`,[c]);
  expect(await rpc('synthetic_action_allowed',[id,at])).toBe(false);
@@ -110,9 +114,9 @@ it('direct authenticated administrator cannot mutate accepted cohort, bind actio
 });
 it('actual Worker rejects anonymous and tenant-viewer calls to all three new staff operations before RPC',async()=>{
  const f=await fixture();let calls=0;
- vi.stubGlobal('fetch',async(input:string)=>{const u=new URL(input);if(u.origin!==env.SUPABASE_URL)throw Error('External network forbidden');if(u.pathname==='/auth/v1/user')return Response.json({id:viewer,email:'qa-viewer@example.invalid'});if(u.pathname==='/rest/v1/profiles')return Response.json([{is_admin:false}]);calls++;throw Error('Unexpected database mutation');});
+ vi.stubGlobal('fetch',async(input:string)=>{const u=new URL(input);if(u.origin!==env.SUPABASE_URL)throw Error('External network forbidden');if(u.pathname==='/auth/v1/user')return Response.json({id:viewer,email:'qa-viewer@example.invalid'});if(u.pathname==='/rest/v1/profiles')return Response.json([{is_admin:false}]);if(u.pathname==='/rest/v1/rpc/tenant_access')return Response.json(false);calls++;throw Error('Unexpected database mutation');});
  for(const operation of ['activate','revive-review','revive-run'])for(const authenticated of [false,true]){
   const response=await worker.fetch(new Request(`https://worker.invalid/api/admin/tenants/${f.tenant}/${operation}`,{method:'POST',headers:{'Content-Type':'application/json',...(authenticated?{Authorization:'Bearer fixture-viewer'}:{})},body:'{}'}),env,{} as ExecutionContext);
-  expect(response.status).toBe(authenticated?403:401);
+  expect(response.status).toBe(!authenticated?401:operation==='activate'?403:404);
  }expect(calls).toBe(0);
 });

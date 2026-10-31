@@ -8,7 +8,7 @@ import { quoteTotal, money } from "../lib/pricing";
 import { emails } from "../lib/email";
 import { cleanEmail, cleanText } from "../lib/validate";
 import { syncAds } from "../jobs";
-import { json, bad, readJson, requireUser, HttpError } from "./http";
+import { json, bad, readJson, requirePlatformAdmin, requireOwnerOrPlatformAdmin, HttpError } from "./http";
 
 const paidAI = <T>(p: Promise<T>) => p.catch(e => { throw e instanceof PaidUseBlocked ? new HttpError(409, "Paid AI is not enabled for this environment.") : e; });
 const TAKEN = new Error("already claimed");
@@ -31,7 +31,7 @@ const storedAnalysis = (m: any): MeetingAnalysis => ({ summary: m.notes?.summary
 
 /** Fetch the Meet transcript (or use an uploaded one) and produce notes, minutes and requirements with AI. */
 export async function processMeeting(req: Request, env: Env, id: string) {
-  await requireUser(req, env, true);
+  await requirePlatformAdmin(req, env);
   if(env.MEETING_TRANSCRIPTS_ENABLED!=="true")return bad("Meeting transcript processing is disabled.",409);
   const b = await readJson(req).catch(() => ({} as Record<string, any>));
   const db = new Db(env);
@@ -58,7 +58,7 @@ export async function processMeeting(req: Request, env: Env, id: string) {
 
 /** Draft the pre-proposal from the meeting analysis. Prices come from the published price list. */
 export async function draftProposal(req: Request, env: Env, meetingId: string) {
-  await requireUser(req, env, true);
+  await requirePlatformAdmin(req, env);
   const b = await readJson(req).catch(() => ({} as Record<string, any>));
   const db = new Db(env);
   const m = await db.one<any>("meetings", `id=eq.${meetingId}&tenant_id=is.null&select=*`);
@@ -79,7 +79,7 @@ export async function draftProposal(req: Request, env: Env, meetingId: string) {
 
 /** Send the reviewed pre-proposal to the client. */
 export async function sendProposal(req: Request, env: Env, id: string) {
-  await requireUser(req, env, true);
+  await requirePlatformAdmin(req, env);
   const db = new Db(env);
   const p = await db.one<any>("proposals", `id=eq.${id}&status=eq.draft&select=id,lead_id,access_token,client_email`);
   if (!p) return bad("Only draft proposals can be sent.");
@@ -94,7 +94,7 @@ export async function sendProposal(req: Request, env: Env, id: string) {
 
 /** Quotation for customisations, created after the proposal is locked (paid). The total is calculated here, not in the browser. */
 export async function createQuote(req: Request, env: Env) {
-  await requireUser(req, env, true);
+  await requirePlatformAdmin(req, env);
   const b = await readJson(req);
   const db = new Db(env);
   const p = await db.one<any>("proposals", `id=eq.${encodeURIComponent(String(b.proposal_id))}&select=*`);
@@ -112,7 +112,7 @@ export async function createQuote(req: Request, env: Env) {
 }
 
 export async function sendQuote(req: Request, env: Env, id: string) {
-  await requireUser(req, env, true);
+  await requirePlatformAdmin(req, env);
   const db = new Db(env);
   const q = await db.one<any>("quotes", `id=eq.${id}&status=eq.draft&select=*`);
   if (!q) return bad("Only draft quotations can be sent.");
@@ -126,9 +126,9 @@ export async function sendQuote(req: Request, env: Env, id: string) {
   return json({ ok: true });
 }
 
-/** Invite a person to a client's dashboard, or change the role of someone who already accepted. They sign in with Google or an email link using this address. */
+/** Platform admin or the client owner: invite a person to a client's dashboard, or change the role of someone who already accepted. They sign in with Google or an email link using this address. */
 export async function inviteUser(req: Request, env: Env, tenantId: string) {
-  const staff = await requireUser(req, env, true);
+  const { user: actor } = await requireOwnerOrPlatformAdmin(req, env, tenantId);
   const b = await readJson(req);
   const email = cleanEmail(b.email);
   if (!email) return bad("Please enter a valid email address.");
@@ -139,7 +139,7 @@ export async function inviteUser(req: Request, env: Env, tenantId: string) {
   if (!tenant) return bad("Client not found.", 404);
   if (!['onboarding', 'active'].includes(tenant.status)) return bad("This client is paused or inactive.", 409);
   const previous = await db.one<{ accepted_at: string | null }>("invites", `tenant_id=eq.${tenantId}&email=eq.${encodeURIComponent(email)}&select=accepted_at`);
-  if (previous?.accepted_at) return changeRole(db, tenantId, email, role, staff.id);
+  if (previous?.accepted_at) return changeRole(db, tenantId, email, role, actor.id);
   await db.upsert("invites", { tenant_id: tenantId, email, role }, "tenant_id,email");
   return json({ ok: true });
 }
@@ -156,14 +156,14 @@ async function changeRole(db: Db, tenantId: string, email: string, role: string,
 }
 
 export async function runAdsSync(req: Request, env: Env) {
-  await requireUser(req, env, true);
+  await requirePlatformAdmin(req, env);
   if(env.ADS_SYNC_ENABLED!=="true")return bad("Ads sync is disabled.",409);
   return json({ ok: true, result: await syncAds(env, 7) });
 }
 
 /** Repair the existing public-consultation link using a provider read, without another invitation. */
 export async function reconcileBooking(req: Request, env: Env, id: string) {
-  const user = await requireUser(req, env, true);
+  const user = await requirePlatformAdmin(req, env);
   const db = new Db(env);
   const m = await db.one<any>("meetings", `id=eq.${id}&tenant_id=is.null&status=eq.booked&select=*`);
   if (!m || !m.google_event_id) return bad("No reconcilable consultation reservation was found.", 404);
@@ -186,7 +186,7 @@ export async function reconcileBooking(req: Request, env: Env, id: string) {
 
 /** Cancel a booked consultation: delete the calendar event, free the slot and let the prospect rebook through the public flow. */
 export async function cancelBooking(req: Request, env: Env, id: string) {
-  const user = await requireUser(req, env, true);
+  const user = await requirePlatformAdmin(req, env);
   const db = new Db(env);
   const m = await db.one<any>("meetings", `id=eq.${id}&tenant_id=is.null&status=eq.booked&select=*`);
   if (!m) return bad("No booked consultation was found.", 404);

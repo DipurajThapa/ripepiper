@@ -1,7 +1,8 @@
 import type {Env} from '../env';
 import {Db,DbError} from '../lib/db';
-import {bad,json,readJson,requireUser} from '../routes/http';
+import {bad,json,readJson,requireTenant} from '../routes/http';
 import {validBrief,validInstant} from './prospecting';
+import {reviewedBookingUrl} from './revive-draft';
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const text=(v:unknown,n:number):v is string=>typeof v==='string'&&!!v.trim()&&v.length<=n&&!/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(v);
@@ -11,6 +12,9 @@ const optional=(v:unknown,check:(v:any)=>boolean)=>v===null||check(v);
 const integer=(v:unknown,min:number,max:number)=>Number.isInteger(v)&&Number(v)>=min&&Number(v)<=max;
 const email=(v:unknown)=>text(v,254)&&!/\s/.test(v)&&/^[^@<>]+@[^@<>]+\.[^@<>]+$/.test(v);
 const reference=(v:unknown,n=240)=>text(v,n)&&!/[\r\n]/.test(v);
+// Plain-text brand copy: no markup or template syntax (the revive-draft fragment rule), newlines allowed.
+const block=(v:unknown,n:number)=>text(v,n)&&!/[<>`{}\[\]]|\$\{|<%|%>|%\w+%/.test(v);
+const brandKeys=['replyTo','signature','booking','legalFooter'];
 const keys=['website','supportedClaims','sourceInventory','relationshipSummary','senderName','senderEmail','ownerId','market','language','timezone','salesCapacityPerWeek','outcomeWindowDays','workingDays','startMinute','endMinute','dailyContactCap'];
 export interface ReviveSetupBody {
  website:{url:string;reference:string}|null;supportedClaims:{text:string;reference:string}[];
@@ -18,6 +22,8 @@ export interface ReviveSetupBody {
  relationshipSummary:{text:string;reference:string}|null;senderName:string|null;senderEmail:string|null;ownerId:string|null;
  market:string|null;language:string|null;timezone:string|null;salesCapacityPerWeek:number|null;outcomeWindowDays:number|null;
  workingDays:number[]|null;startMinute:number|null;endMinute:number|null;dailyContactCap:number|null;
+ /** Optional brand profile; absent in setups saved before it existed. */
+ replyTo?:string|null;signature?:string|null;booking?:{url:string;reference:string}|null;legalFooter?:{postalAddress:string;reference:string}|null;
 }
 export interface SetupContext {
  tenantId:string;setup:{version:number;briefVersion:number|null;state:'draft'|'reviewed';body:ReviveSetupBody;createdBy:string;createdAt:string}|null;
@@ -28,7 +34,9 @@ export function validSetupWebsite(value:unknown):value is string {
  try{const u=new URL(value),h=u.hostname;return !u.username&&!u.password&&!u.port&&/^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z][A-Za-z0-9-]{1,62}$/.test(h)&&!/(?:^|\.)(?:localhost|local|internal|invalid|test|example)$/.test(h);}catch{return false;}
 }
 export function validSetupBody(value:unknown):value is ReviveSetupBody {
- if(!exact(value,keys))return false;const b=value as Record<string,any>;
+ if(!object(value)||!keys.every(k=>Object.hasOwn(value,k))||Object.keys(value).some(k=>!keys.includes(k)&&!brandKeys.includes(k)))return false;const b=value as Record<string,any>;
+ if(!optional(b.replyTo??null,email)||!optional(b.signature??null,v=>block(v,500))||!optional(b.booking??null,v=>exact(v,['url','reference'])&&reviewedBookingUrl(v.url)===v.url&&reference(v.reference))
+  ||!optional(b.legalFooter??null,v=>exact(v,['postalAddress','reference'])&&block(v.postalAddress,300)&&reference(v.reference)))return false;
  if(!optional(b.website,w=>exact(w,['url','reference'])&&validSetupWebsite(w.url)&&reference(w.reference)))return false;
  if(!Array.isArray(b.supportedClaims)||b.supportedClaims.length>10||b.supportedClaims.some(c=>!exact(c,['text','reference'])||!text(c.text,500)||!reference(c.reference)))return false;
  if(!Array.isArray(b.sourceInventory)||b.sourceInventory.length>10||b.sourceInventory.some(s=>!exact(s,['type','reference','rightsReference'])||!['website','email','interview','file'].includes(s.type)||!reference(s.reference)||!reference(s.rightsReference)))return false;
@@ -64,7 +72,7 @@ export function validSetupContext(value:unknown,tenantId:string):value is SetupC
  const expected=contextMissing(c);return c.ready===(expected.length===0)&&c.missing.length===expected.length&&expected.every(v=>c.missing.includes(v));
 }
 export async function reviveSetup(req:Request,env:Env,tenantId:string) {
- const actor=await requireUser(req,env,true),b=await readJson(req);
+ const actor=await requireTenant(req,env,tenantId,'operate'),b=await readJson(req);
  if(!uuid.test(tenantId)||!['get','save'].includes(b.operation))return bad('Choose an existing client and a setup operation.');
  const db=new Db(env,15000);
  try{

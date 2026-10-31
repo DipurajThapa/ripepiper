@@ -2,6 +2,7 @@ import {beforeAll,afterAll,describe,it,expect,vi} from 'vitest';
 import {PGlite} from '@electric-sql/pglite';import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';import {readFileSync,readdirSync} from 'node:fs';
 import worker from '../src/index';
 import {eventOperations,publicEventMetadata,publicEventRegistration} from '../src/foundation/events';import {reviewProducts} from '../src/foundation/products';import type {Env} from '../src/env';
+import {asOperator} from './helpers/access';
 const admin='00000000-0000-4000-8000-000000000001';let db:PGlite,tenant:string,foreign:string;
 const future=(hours:number)=>new Date(Date.now()+hours*3600000).toISOString();
 const settings=(override:any={})=>({title:'Fixture event',startsAt:future(48),endsAt:future(49),timezone:'UTC',capacity:3,open:true,noticeReference:'Event-only fixture notice',confirmed:true,...override});
@@ -11,6 +12,7 @@ beforeAll(async()=>{
  tenant=(await db.query<any>(`insert into tenants(name,slug,country,currency,status)values('Events','events-fixture','AE','AED','active')returning id`)).rows[0].id;
  foreign=(await db.query<any>(`insert into tenants(name,slug,country,currency,status)values('Other','events-other','AE','AED','active')returning id`)).rows[0].id;
  await db.query(`insert into auth.users(id,email,email_confirmed_at)values($1,'staff@example.invalid',now())`,[admin]);await db.query('update profiles set is_admin=true where id=$1',[admin]);
+ for(const t of [tenant,foreign])await asOperator(db,{tenantId:t,profileId:admin});
  await db.query(`insert into business_briefs(tenant_id,version,body,created_by)values($1,1,$2,$3)`,[tenant,JSON.stringify({maxAgeDays:30,source:{observedAt:new Date().toISOString()}}),admin]);
 });afterAll(async()=>db.close());
 async function service<T>(fn:()=>Promise<T>){await db.exec('set role service_role');try{return await fn();}finally{await db.exec('reset role');}}
@@ -106,7 +108,7 @@ describe('Events HTTP boundaries and result validation',()=>{
  const body=()=>({operation:'register',version:1,email:'fixture@example.invalid',name:'Fixture',capability:token(50),consent:true});
  const request=(b:any)=>new Request('https://fixture.invalid/api',{method:'POST',headers:{Authorization:'Bearer staff'},body:JSON.stringify(b)});
  const good=()=>({eventId:event,registrationId:admin,state:'registered',version:1,acknowledgedVersion:1,identityStatus:'unverified',attendance:'unknown',marketingPermission:'not_granted',delivery:'not_sent'});
- function provider(result:any){const calls:any[]=[];vi.stubGlobal('fetch',async(input:string,init:RequestInit={})=>{const u=new URL(input);calls.push({url:u.href,body:init.body&&JSON.parse(String(init.body))});if(u.pathname==='/auth/v1/user')return Response.json({id:admin,email:'staff@example.invalid'});if(u.pathname==='/rest/v1/profiles')return Response.json([{is_admin:true}]);if(u.pathname==='/rest/v1/tenants')return Response.json([{id:tenant}]);return Response.json(u.pathname.endsWith('/read_synthetic_registration')?null:result);});return calls;}
+ function provider(result:any){const calls:any[]=[];vi.stubGlobal('fetch',async(input:string,init:RequestInit={})=>{const u=new URL(input);calls.push({url:u.href,body:init.body&&JSON.parse(String(init.body))});if(u.pathname==='/auth/v1/user')return Response.json({id:admin,email:'staff@example.invalid'});if(u.pathname==='/rest/v1/profiles')return Response.json([{is_admin:true}]);if(u.pathname==='/rest/v1/rpc/tenant_access')return Response.json(true);if(u.pathname==='/rest/v1/tenants')return Response.json([{id:tenant}]);return Response.json(u.pathname.endsWith('/read_synthetic_registration')?null:result);});return calls;}
  it('is off by default, rejects real addresses and missing event-only acknowledgement before persistence',async()=>{
   const calls=provider(good());expect((await publicEventRegistration(request(body()),{...env,EVENT_REGISTRATION_ENABLED:undefined},event)).status).toBe(404);expect((await publicEventMetadata(request({}),{...env,SYNTHETIC_SINK_ENABLED:'false'},event)).status).toBe(404);
   expect((await publicEventRegistration(request({...body(),email:'contact@business.example'}),env,event)).status).toBe(400);expect((await publicEventRegistration(request({...body(),consent:false}),env,event)).status).toBe(400);expect(calls).toHaveLength(0);

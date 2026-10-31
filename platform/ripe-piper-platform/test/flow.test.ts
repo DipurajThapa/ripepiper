@@ -55,7 +55,7 @@ async function fakeSupabase(url: URL, init: RequestInit): Promise<Response> {
   if (url.pathname === "/auth/v1/user") return Response.json(init.headers && (init.headers as Record<string,string>).Authorization === "Bearer client-token"
     ? { id: "client-1", email: "client@example.invalid" } : { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", email: "admin@ripepiper.com" });
   if (url.pathname.startsWith("/rest/v1/rpc/")) {
-    rpcCalls.push(url.pathname);const b=JSON.parse(String(init.body));rpcBodies.push(b);
+    const b=JSON.parse(String(init.body));if(url.pathname.endsWith("/tenant_access"))return Response.json(b.p_actor!=="client-1");rpcCalls.push(url.pathname);rpcBodies.push(b);
     if(url.pathname.endsWith('/set_member_role'))return Response.json({tenant_id:b.p_tenant,user_id:'client-1',role:b.p_role,previous_role:'viewer'});
     if(url.pathname.endsWith('/review_prospect_snapshot')) {
       if(!(tables.tenants??[]).some(t=>t.id===b.p_tenant))return Response.json({version:1,status:'missing'});
@@ -416,7 +416,7 @@ describe("staff-managed client setup", () => {
     expect(rpcCalls).toEqual(["/rest/v1/rpc/accept_verified_invites"]);
     const invite = `/api/admin/tenants/${tenant}/invite`;
     expect((await call("POST", invite, { email: "new@example.invalid" })).status).toBe(401);
-    expect((await call("POST", invite, { email: "new@example.invalid" }, { Authorization: "Bearer client-token" })).status).toBe(403);
+    expect((await call("POST", invite, { email: "new@example.invalid" }, { Authorization: "Bearer client-token" })).status).toBe(404);
     expect((await call("POST", invite, { email: "new@example.invalid", role: "garbage" }, { Authorization: "Bearer test-admin" })).status).toBe(400);
     tables.tenants[0].status = 'paused';
     expect((await call("POST", invite, { email: "new@example.invalid", role: "viewer" }, { Authorization: "Bearer test-admin" })).status).toBe(409);
@@ -454,8 +454,9 @@ describe("staff-managed client setup", () => {
 describe("synthetic action endpoint", () => {
   it("fails closed without an admin session or explicit test-sink flag", async () => {
     const id = "11111111-1111-4111-8111-111111111111";
+    tables.outbound_actions=[{id,tenant_id:"22222222-2222-4222-8222-222222222222",state:"queued"}];
     expect((await call("POST", `/api/admin/actions/${id}/test`)).status).toBe(401);
-    expect((await call("POST", `/api/admin/actions/${id}/test`, {}, { Authorization: "Bearer client-token" })).status).toBe(403);
+    expect((await call("POST", `/api/admin/actions/${id}/test`, {}, { Authorization: "Bearer client-token" })).status).toBe(404);
     expect((await call("POST", `/api/admin/actions/${id}/test`, {}, { Authorization: "Bearer test-admin" })).status).toBe(403);
     expect(sentEmails).toHaveLength(0);
   });
@@ -606,7 +607,7 @@ describe('staff business brief and cited shortlist',()=>{
     tables.tenants=[{id:tenant,status:'onboarding'}];
     tables.leads=[{id:lead,tenant_id:tenant,email:'fixture@example.invalid',company:'Synthetic customer',status:'new'}];
     expect((await call('POST',root+'/brief',{brief,expected_version:0})).status).toBe(401);
-    expect((await call('POST',root+'/brief',{brief,expected_version:0},{Authorization:'Bearer client-token'})).status).toBe(403);
+    expect((await call('POST',root+'/brief',{brief,expected_version:0},{Authorization:'Bearer client-token'})).status).toBe(404);
     expect((await call('POST',root+'/brief',{brief:{...brief,markets:[]},expected_version:0},headers)).status).toBe(400);
     expect((await call('POST',root+'/brief',{brief,expected_version:0},headers)).status).toBe(200);
     tables.business_briefs=[{tenant_id:tenant,version:1,body:brief}];
@@ -637,7 +638,7 @@ describe('managed product API boundaries',()=>{
  it('requires staff, correct tenant identity and evidence mode before recording a product event',async()=>{
   tables.leads=[{id:lead,tenant_id:tenant,email:'fixture@example.invalid',status:'new'}];
   expect((await call('POST',root+'/product-event',payload)).status).toBe(401);
-  expect((await call('POST',root+'/product-event',payload,{Authorization:'Bearer client-token'})).status).toBe(403);
+  expect((await call('POST',root+'/product-event',payload,{Authorization:'Bearer client-token'})).status).toBe(404);
   expect((await call('POST',root+'/product-event',{...payload,lead_id:tenant},headers)).status).toBe(404);
   expect((await call('POST',root+'/product-event',{...payload,synthetic:false},headers)).status).toBe(400);
   expect((await call('POST',root+'/product-event',{...payload,context:{...payload.context,product:'revive'}},headers)).status).toBe(400);
@@ -693,7 +694,7 @@ it('unexpected database failures cannot expose source payloads in request logs',
   const response=await call('POST','/api/admin/tenants/11111111-1111-4111-8111-111111111111/shortlist',{synthetic:true},{Authorization:'Bearer test-admin'});
   // Auth failure itself is rejected without passing untrusted provider text into logs.
   expect(response.status).toBe(401);
-  vi.stubGlobal('fetch',async(input:any,init:any)=>String(input).includes('/auth/v1/user')||String(input).includes('/profiles?') ? fakeFetch(input,init) : new Response(JSON.stringify({message:secret,details:secret}),{status:500}));
+  vi.stubGlobal('fetch',async(input:any,init:any)=>String(input).includes('/auth/v1/user')||String(input).includes('/profiles?')||String(input).includes('/rpc/tenant_access') ? fakeFetch(input,init) : new Response(JSON.stringify({message:secret,details:secret}),{status:500}));
   const failure=await call('POST','/api/admin/tenants/11111111-1111-4111-8111-111111111111/shortlist',{synthetic:true},{Authorization:'Bearer test-admin'});
   expect(failure.status).toBe(503);expect(JSON.stringify(log.mock.calls)).not.toContain(secret);expect(await failure.text()).not.toContain(secret);
   expect(log).not.toHaveBeenCalled();
@@ -704,7 +705,7 @@ it('campaign HTTP operations require staff, a loaded version and an enabled synt
  const tenant='11111111-1111-4111-8111-111111111111',campaign='22222222-2222-4222-8222-222222222222',path=`/api/admin/tenants/${tenant}/campaigns`;
  tables.tenants=[{id:tenant}];
  expect((await call('POST',path,{operation:'list'})).status).toBe(401);
- expect((await call('POST',path,{operation:'list'},{Authorization:'Bearer client-token'})).status).toBe(403);
+ expect((await call('POST',path,{operation:'list'},{Authorization:'Bearer client-token'})).status).toBe(404);
  const headers={Authorization:'Bearer test-admin'};
  expect((await call('POST',path,{operation:'save',campaign_id:campaign,version:0,body:{steps:[]}},headers)).status).toBe(400);
  expect((await call('POST',path,{operation:'queue',campaign_id:campaign,version:1,body:{}},headers)).status).toBe(403);
@@ -816,7 +817,7 @@ describe('tenant read-only inbox integration',()=>{
   });return calls;
  }
  it('requires staff and an explicit active binding, without falling back to founder credentials',async()=>{
-  const calls=await setup();expect((await call('POST',root,{operation:'check'})).status).toBe(401);expect((await call('POST',root,{operation:'check'},{Authorization:'Bearer client-token'})).status).toBe(403);
+  const calls=await setup();expect((await call('POST',root,{operation:'check'})).status).toBe(401);expect((await call('POST',root,{operation:'check'},{Authorization:'Bearer client-token'})).status).toBe(404);
   delete env.GOOGLE_TENANT_CONNECTIONS;
   expect((await call('POST',root,{operation:'check'},staff)).status).toBe(409);
   expect(calls.some(u=>u.host.endsWith('googleapis.com'))).toBe(false);

@@ -1,6 +1,6 @@
 # Ripe Piper
 
-Ripe Piper provides managed B2B lead-generation services. Clients book an appointment, then Ripe Piper staff configure and run delivery for them. This repository supports that managed service; it is not a self-service SaaS product.
+Ripe Piper provides B2B lead-generation services in two operating modes on one codebase. **Managed:** Ripe Piper operators run delivery for a client under access the client (or a signed contract) grants. **Self-service:** the client's own admin runs the same workflows from the portal. The mode is a label on the client account (`tenants.ownership`: `managed` or `client_owned`, shown as Self-service); it never decides access, and switching moves no data.
 
 ## Packages
 
@@ -17,7 +17,7 @@ The product behaviour of the full lead lifecycle is specified in [docs/LEAD_LIFE
 
 | Path | Purpose |
 |---|---|
-| `site/` | Static website, client portal (`site/portal/`) and staff admin UI (`site/admin/`), published by Cloudflare Pages |
+| `site/` | Static website, client portal (`site/portal/`) and admin UI (`site/admin/`), published by Cloudflare Pages. Client admins in self-service mode get the same workflow panels in the portal, fixed to their own client |
 | `platform/ripe-piper-platform/src/` | Cloudflare Worker API, scheduled jobs and provider adapters |
 | `platform/ripe-piper-platform/supabase/` | Supabase (PostgreSQL) migrations and seed source |
 | `platform/ripe-piper-platform/test/` | Vitest suites against a synthetic database and mocked providers |
@@ -29,19 +29,23 @@ The product behaviour of the full lead lifecycle is specified in [docs/LEAD_LIFE
 
 ## Roles
 
-- **Ripe Piper staff** (`profiles.is_admin`): full control of every client.
-- **Client owner**: the client's own admin. Accepts and pays quotations and updates deals.
-- **Viewer**: read only.
+| Role | Stored as | Can do |
+|---|---|---|
+| Platform admin | `profiles.is_admin` | Platform work only: create, pause and activate clients, billing, subject requests, global stops, the counts-only client overview. No access to a client's contacts, campaigns, messages or credentials without a grant. |
+| Operator | `profiles.is_operator` plus an active row in `operator_grants` | Whatever the grant lists (`read`, `operate`, `approve`) for that one client, until it expires (at most 366 days) or is revoked. `is_operator` alone grants nothing. |
+| Client admin | `memberships.role = 'owner'` | Everything in their own client: brief, setup and brand, connections, envelope, campaigns, grants to operators, mode switch, member roles, export and ending the service. |
+| Client user | `memberships.role = 'viewer'` | Read only, own client. |
 
-Only staff change roles, using the existing invite form. The last owner of a client cannot be demoted.
+One SQL predicate, `ripepiper_private.can_operate(tenant, actor, capability)`, decides tenant access for every RPC and, through `requireTenant` in the Worker, every tenant route. A denied request gets the same `404 Not found.` as a missing client. A grant comes from the client admin (`client_admin`) or from a platform admin with a contract reference (`contract`); no one can grant themselves. Grants are append-only, and each grant and revoke appears in the client's activity log. The last owner of a client cannot be demoted.
 
 ## Status
 
-All four packages run end to end in development with synthetic data, and the checks pass (typecheck, Vitest, Node script tests, dependency audit, rendered browser checks). The platform is not yet ready for client delivery:
+All four packages and the hybrid operating model (grants, operating envelope, tenant brand, connection registry, shared reference store, offboarding) run end to end in development with synthetic data. `test/hybrid-acceptance.test.ts` proves the seven owner acceptance tests against the real migrations and Worker handlers with the network stubbed. The platform is not yet ready for client delivery:
 
 - Production deploys are blocked on purpose (`npm run deploy` is blocked; the pre-push hook blocks pushes to `main`).
-- Provider jobs default off. Real secrets, OAuth and payment keys are not configured.
-- The newest migrations have not been applied to any hosted database.
+- Provider jobs and the new flags (`OAUTH_ENABLED`, `TENANT_SEND_ENABLED`, `OFFBOARD_PURGE_ENABLED`) default off. Real secrets, OAuth apps, connection keys and payment keys are not configured.
+- No client mail is sent: execution ends in the synthetic sink, and the tenant send adapter is not yet called by any route or cron.
+- The eleven newest migrations have not been applied to any hosted database.
 
 Current status, backlog and release blockers are in [docs/DELIVERY.md](docs/DELIVERY.md). Historical audit and evidence reports were removed from the tree; they remain retrievable at commit `ff7a80c` (for example `git show ff7a80c:docs/evidence/M01.md`).
 

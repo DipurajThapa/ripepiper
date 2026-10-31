@@ -1,6 +1,6 @@
 import type {Env} from '../env';
 import {Db,DbError} from '../lib/db';
-import {bad,json,readJson,requireUser} from '../routes/http';
+import {bad,json,readJson,requireTenant} from '../routes/http';
 import {validInstant} from './prospecting';
 import {PRODUCTS} from './products';
 import {proposeReviveDraft,reviveDraftInputError,validDraftSave,validReviveProposalId} from './revive-draft';
@@ -27,6 +27,14 @@ function campaignAcknowledgement(operation:string,value:any,campaign:string,vers
  if(operation==='rights')return value.status==='synthetic_rights_recorded'?{id:value.id,status:'synthetic_rights_recorded'}:null;
  return null;
 }
+const ENVELOPE_REASONS=['envelope_missing','envelope_expired','envelope_stale','approver_not_authorised','tenant_not_active','capability_out_of_scope','purpose_out_of_scope','channel_out_of_scope','market_out_of_scope','legal_basis_missing','icp_out_of_scope','audience_out_of_scope','content_not_from_template','prohibited_claim','unknown_evidence','campaign_limit','total_limit','active_campaign_limit','paid_channel_unmetered','stop_condition_tripped'];
+/** Envelope result of a save (manage_campaign_plan offers revive drafts to the tenant's envelope): approved, or escalated with fixed codes. */
+function envelopeResult(value:any,campaign:string,version:number){
+ if(value?.campaignId!==campaign||value.assetVersion!==version)return null;
+ if(value.status==='approved'&&value.by==='envelope'&&Number.isInteger(value.envelopeVersion))return {status:'approved',by:'envelope',envelopeVersion:value.envelopeVersion};
+ if(value.status==='escalated'&&Array.isArray(value.reasons)&&value.reasons.length&&value.reasons.every((x:unknown)=>ENVELOPE_REASONS.includes(x as string)))return {status:'escalated',reasons:value.reasons};
+ return null;
+}
 export function planError(b:any):string|null {
  if(!b || !PRODUCTS.includes(b.product) || !bounded(b.purpose,160) || !/^[A-Z]{2}$/.test(b.market??''))return 'Choose a product, purpose and two-letter market.';
  if(b.audience!==undefined && (b.product!=='revive'||!b.audience||b.audience.confirmed!==true||!Array.isArray(b.audience.leadIds)||b.audience.leadIds.length<1||b.audience.leadIds.length>25||new Set(b.audience.leadIds).size!==b.audience.leadIds.length||b.audience.leadIds.some((id:unknown)=>typeof id!=='string'||!uuid.test(id))))return 'Review one to 25 distinct eligible contacts for this Revive campaign.';
@@ -42,7 +50,7 @@ export function planError(b:any):string|null {
  return null;
 }
 export async function campaignPlans(req:Request,env:Env,tenantId:string){
- const user=await requireUser(req,env,true),b=await readJson(req),db=new Db(env);
+ const user=await requireTenant(req,env,tenantId,'operate'),b=await readJson(req),db=new Db(env);
  if(b.operation==='signal-proposal')return prepareSignalProposal(db,tenantId,user.id,b.body);
  const tenant=await db.one<{id:string;name:string}>('tenants',`id=eq.${tenantId}&select=id,name`);
  if(!tenant)return bad('Client not found.',404);
@@ -72,7 +80,7 @@ export async function campaignPlans(req:Request,env:Env,tenantId:string){
   if(!context)return bad('Contact not found in this client account.',404);
   if(context.lead.tenant_id!==tenantId)return bad('Contact not found in this client account.',404);
   let proposal:ReturnType<typeof proposeReviveDraft>;
-  try{proposal=proposeReviveDraft(context,tenant.name,b.body);}
+  try{proposal=proposeReviveDraft(context,tenant.name,b.body,Date.now(),setupContext.setup.body);}
   catch{return bad('Drafting needs a current accepted Revive review, current reviewed need evidence and a plain-text business name/offer. Refresh the review before continuing.',409);}
   try{
    const provenance={...proposal.draftContext,setupVersion:setupContext.setup.version};
@@ -111,7 +119,8 @@ export async function campaignPlans(req:Request,env:Env,tenantId:string){
   }
  }
  else if(b.operation==='approve'){
-  if(!b.body || !['clientAuthority','ownerAuthority','ctsProfile'].every(k=>bounded(b.body[k],240)) || !Number.isInteger(b.body.maxActions)||b.body.maxActions<1||b.body.maxActions>100||!validInstant(b.body.expiresAt))return bad('Record the authority references, expiry and a maximum of 1–100 actions.');
+  // 'envelope:' authorities are written only by the envelope approval in SQL.
+  if(!b.body || !['clientAuthority','ownerAuthority','ctsProfile'].every(k=>bounded(b.body[k],240)&&!b.body[k].includes('envelope:')) || !Number.isInteger(b.body.maxActions)||b.body.maxActions<1||b.body.maxActions>100||!validInstant(b.body.expiresAt))return bad('Record the authority references, expiry and a maximum of 1–100 actions.');
  }
  else if(b.operation==='rights'){
   if(env.SYNTHETIC_SINK_ENABLED!=='true')return bad('Synthetic sequence testing is disabled.',403);
@@ -130,8 +139,14 @@ export async function campaignPlans(req:Request,env:Env,tenantId:string){
   const args={p_tenant:tenantId,p_campaign:b.campaign_id,p_actor:user.id,p_version:b.version,p_body:b.body??{}};
   const result=b.operation==='save'&&b.body?.draftContext!==undefined?await db.rpc<any>('save_reviewed_revive_draft',args):await db.rpc<any>('manage_campaign_plan',{...args,p_operation:b.operation});
   const ack=campaignAcknowledgement(b.operation,result,b.campaign_id,b.version);
-  if(!ack&&b.operation==='save'&&result?.id===b.campaign_id&&b.version>0&&result.version===b.version&&(result.status==='paused'||result.status==='ended'))return bad(`This campaign is ${result.status} and nothing changed. Edit the messages to save a new draft version for re-approval.`,409);
+  // A paused campaign saves as a new version (resume); only an ended campaign stays unchanged.
+  if(!ack&&b.operation==='save'&&result?.id===b.campaign_id&&b.version>0&&result.version===b.version&&result.status==='ended')return bad('This campaign has ended and nothing changed.',409);
   if(!ack)return bad('The campaign acknowledgement is uncertain. Reload and inspect the same campaign before approving, queuing or repeating an operation.',503);
+  if(b.operation==='save'&&result?.envelope!==undefined){
+   const envelope=envelopeResult(result.envelope,b.campaign_id,ack.version as number);
+   // The draft is saved either way; an uncertain envelope result is reported, never assumed.
+   return json({ok:true,...ack,status:envelope?.status==='approved'?'approved':ack.status,envelope:envelope??{status:'unknown'},delivery:'not_sent'});
+  }
   return json({ok:true,...ack,delivery:'not_sent'});
  }catch(e){
   if(e instanceof DbError){

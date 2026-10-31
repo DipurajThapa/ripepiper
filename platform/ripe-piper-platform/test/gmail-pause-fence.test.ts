@@ -4,6 +4,7 @@ import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
 import {readFileSync,readdirSync} from 'node:fs';
 import {tenantConnection,googleBindingDigest} from '../src/foundation/connections';
 import type {Env} from '../src/env';
+import {asOperator} from './helpers/access';
 let db:PGlite;
 const actor='11111111-1111-4111-8111-111111111111',connection='22222222-2222-4222-8222-222222222222',hash='a'.repeat(64);
 beforeAll(async()=>{
@@ -16,6 +17,7 @@ afterAll(async()=>{vi.unstubAllGlobals();await db?.close();});
 async function scope(){
  await db.exec('reset role');
  const tenant=(await db.query<any>(`insert into tenants(name,slug,country,currency,status) values('Fixture',$1,'AE','AED','active') returning id,execution_version`,['fixture-'+crypto.randomUUID()])).rows[0];
+ await asOperator(db,{tenantId:tenant.id,profileId:actor});
  const lead=(await db.query<any>(`insert into leads(tenant_id,source,email) values($1,'import','contact@business.example') returning id`,[tenant.id])).rows[0].id;
  await db.exec('set role service_role');return {...tenant,lead,expires:new Date(Date.now()+600000).toISOString()};
 }

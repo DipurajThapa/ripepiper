@@ -12,6 +12,11 @@ BEGIN
  INSERT INTO public.tenants(id,name,slug,country,currency,status) VALUES(t,'QA Events rollback','qa-events-rollback','AE','AED','active');
  INSERT INTO auth.users(id,email,email_confirmed_at,raw_user_meta_data) VALUES(a,'qa-events-staff@example.invalid',now(),'{}');
  UPDATE public.profiles SET is_admin=true WHERE id=a;
+ -- Hybrid access: staff act on a tenant only through an operator grant from a separate verified platform admin.
+ INSERT INTO auth.users(id,email,email_confirmed_at,raw_user_meta_data) VALUES('fa200000-0000-4000-8000-000000000009','qa-events-grantor@example.invalid',now(),'{}');
+ UPDATE public.profiles SET is_admin=true WHERE id='fa200000-0000-4000-8000-000000000009';UPDATE public.profiles SET is_operator=true WHERE id=a;
+ INSERT INTO public.operator_grants(tenant_id,operator_id,capabilities,authority,authorised_by,contract_reference,expires_at)
+  SELECT qa_t,a,'{read,operate,approve}','contract','fa200000-0000-4000-8000-000000000009','QA synthetic contract',now()+interval '1 day' FROM unnest(array[t]::uuid[]) qa_t;
  INSERT INTO public.business_briefs(tenant_id,version,body,created_by) VALUES(t,1,jsonb_build_object('maxAgeDays',30,'source',jsonb_build_object('observedAt',now())),a);
  INSERT INTO public.campaigns(id,tenant_id,capability,operator_id,purpose,channel,market,timezone,status,client_authority_ref,owner_authority_ref,cts_profile_ref,expires_at,max_actions)
  VALUES(c,t,'events',a,'event-only','event','AE','UTC','approved','qa-client','qa-owner','qa-profile',now()+interval '14 days',10);

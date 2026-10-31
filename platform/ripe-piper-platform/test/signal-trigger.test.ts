@@ -104,7 +104,7 @@ describe('Signal outcome API scope',()=>{
   const actor=crypto.randomUUID(),t=crypto.randomUUID(),l=crypto.randomUUID(),id=crypto.randomUUID();
   let present=true;
   vi.stubGlobal('fetch',async(input:string,init:RequestInit={})=>{
-   const url=new URL(input),body=init.body?JSON.parse(String(init.body)):null;calls.push({url,body});
+   const url=new URL(input),body=init.body?JSON.parse(String(init.body)):null;if(url.pathname==='/rest/v1/rpc/tenant_access')return Response.json(body.p_actor===actor);calls.push({url,body});
    if(url.pathname==='/auth/v1/user')return Response.json({id:actor,email:'staff@example.invalid'});
    if(url.pathname==='/rest/v1/profiles')return Response.json([{is_admin:true}]);
    if(url.pathname==='/rest/v1/leads')return Response.json([{id:l,email:'signal@example.invalid'}]);

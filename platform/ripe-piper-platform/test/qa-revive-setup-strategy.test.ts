@@ -4,6 +4,7 @@ import type {Env} from '../src/env';
 import {PGlite} from '@electric-sql/pglite';
 import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
 import {readFileSync,readdirSync} from 'node:fs';
+import {asOperator} from './helpers/access';
 const actor='33fc9a5e-f7e5-49dc-84cd-047960dba988';
 let db:PGlite;
 async function q(sql:string,args:any[]=[]){return (await db.query<any>(sql,args)).rows;}
@@ -16,6 +17,7 @@ beforeAll(async()=>{
 afterAll(async()=>db?.close());
 async function fixture(reviewed=true){
  const tenant=(await q("insert into tenants(name,slug,country,currency,status) values('Independent setup QA',$1,'AE','AED','onboarding') returning id",[crypto.randomUUID()]))[0].id;
+ await asOperator(db,{tenantId:tenant,profileId:actor});
  const observedAt=new Date(Date.now()-3600000).toISOString(),brief={offer:'Recover reviewed enquiries',industries:['construction'],markets:['AE'],roles:['owner'],needs:['lead follow-up','pipeline visibility'],excludedIndustries:[],maxAgeDays:90,source:{reference:'qa-interview',excerpt:'Reviewed offer and construction targets',observedAt}};
  await rpc('save_business_brief',[tenant,0,brief,actor]);
  const setup={website:null,supportedClaims:[],sourceInventory:[{type:'interview',reference:'qa-interview',rightsReference:'qa-source-rights'}],relationshipSummary:{text:'Previous enquiries deferred their purchase',reference:'qa-history'},senderName:'QA owner',senderEmail:'qa-sender@example.invalid',ownerId:actor,market:'AE',language:'en',timezone:'Asia/Dubai',salesCapacityPerWeek:5,outcomeWindowDays:30,workingDays:[1,2,3,4,5],startMinute:540,endMinute:1020,dailyContactCap:2};
