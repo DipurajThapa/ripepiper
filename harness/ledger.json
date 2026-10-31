@@ -2,7 +2,7 @@
   "version": 1,
   "project": "Ripe Piper",
   "pm_owner": "PM agent",
-  "updated_at": "2026-10-25",
+  "updated_at": "2026-10-31",
   "stages": {
     "baseline": {
       "status": "verified",
@@ -15,7 +15,7 @@
         "baseline_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39931781916"
       },
       "blocker": null,
-      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#baseline-receipt",
+      "qa_run_ref": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#baseline-receipt",
       "qa_source_sha": "e4d976892af5e9c7d9d262d20b77310ca552f291"
     },
     "isolated-db": {
@@ -24,12 +24,12 @@
       "pm_reviewed": true,
       "qa_reviewed": true,
       "evidence": {
-        "isolation_proof": "docs/evidence/HOSTED_STAGING_2026-10-23.md",
-        "cost_decision": "docs/evidence/HOSTED_STAGING_2026-10-23.md",
+        "isolation_proof": "git:ff7a80c:docs/evidence/HOSTED_STAGING_2026-10-23.md",
+        "cost_decision": "git:ff7a80c:docs/evidence/HOSTED_STAGING_2026-10-23.md",
         "database_ref": "supabase:wgomywhuzyboxlckopca"
       },
       "blocker": null,
-      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#independent-hosted-postgresql-verification--isolated-staging",
+      "qa_run_ref": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#independent-hosted-postgresql-verification--isolated-staging",
       "qa_source_sha": "c8052d2961b148d01ff53068975c1eed0ee1359b"
     },
     "migration-rehearsal": {
@@ -38,12 +38,12 @@
       "pm_reviewed": true,
       "qa_reviewed": true,
       "evidence": {
-        "migration_manifest": "docs/evidence/STAGING_MIGRATION_MANIFEST_2026-10-23.json",
-        "rehearsal_run": "docs/evidence/HOSTED_STAGING_2026-10-23.md",
-        "rollback_plan": "docs/evidence/HOSTED_STAGING_2026-10-23.md"
+        "migration_manifest": "git:ff7a80c:docs/evidence/STAGING_MIGRATION_MANIFEST_2026-10-23.json",
+        "rehearsal_run": "git:ff7a80c:docs/evidence/HOSTED_STAGING_2026-10-23.md",
+        "rollback_plan": "git:ff7a80c:docs/evidence/HOSTED_STAGING_2026-10-23.md"
       },
       "blocker": null,
-      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-19-migration-composition-follow-up",
+      "qa_run_ref": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-19-migration-composition-follow-up",
       "qa_source_sha": "fee3d82f3768404e905df694cb65fee7589df04f",
       "acceptance_scope": "Isolated hosted PostgreSQL19-file source manifest (16 initial plus explicitly appended Events, consultation and billing migrations), selected SQL role/RLS/receipt/owner/budget/Events/billing/attendance guards and transaction fixture rollback. Canonical sorted fresh order tested separately. Does not prove production baseline equivalence, backup restoration, Auth/PostgREST HTTP sessions, separate-connection concurrency, live providers or product operation."
     },
@@ -53,12 +53,12 @@
       "pm_reviewed": true,
       "qa_reviewed": true,
       "evidence": {
-        "independent_test_run": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#independent-hosted-postgresql-verification--isolated-staging",
+        "independent_test_run": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#independent-hosted-postgresql-verification--isolated-staging",
         "tenant_rls_results": "qa/staging-rollback-acceptance.sql",
-        "recovery_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-19-migration-composition-follow-up"
+        "recovery_results": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-19-migration-composition-follow-up"
       },
       "blocker": null,
-      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-19-migration-composition-follow-up",
+      "qa_run_ref": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-19-migration-composition-follow-up",
       "qa_source_sha": "fee3d82f3768404e905df694cb65fee7589df04f",
       "acceptance_scope": "Isolated hosted PostgreSQL19-file source manifest (16 initial plus explicitly appended Events, consultation and billing migrations), selected SQL role/RLS/receipt/owner/budget/Events/billing/attendance guards and transaction fixture rollback. Canonical sorted fresh order tested separately. Does not prove production baseline equivalence, backup restoration, Auth/PostgREST HTTP sessions, separate-connection concurrency, live providers or product operation."
     },
@@ -92,17 +92,17 @@
       "pm_reviewed": false,
       "qa_reviewed": false,
       "evidence": {
-        "bounded_local_and_hosted_qa": "docs/evidence/QA_REVIVE_2026-10-23.md",
+        "bounded_local_and_hosted_qa": "git:ff7a80c:docs/evidence/QA_REVIVE_2026-10-23.md",
         "selected_hosted_rollback_packet": "qa/staging-revive-rollback-acceptance.sql",
         "historical_published_candidate_sha": "574c2461495099f2ae666f1502c389472b7c43a2",
         "historical_published_tree_sha": "5f2f7cd4e9164bb9ebb4f14779bcb62dd0fb8c08",
         "historical_published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39991745199",
-        "historical_continuation_qa": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md",
-        "historical_draft_staging_manifest": "docs/evidence/REVIVE_DRAFT_STAGING_2026-10-23.json",
+        "historical_continuation_qa": "git:ff7a80c:docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md",
+        "historical_draft_staging_manifest": "git:ff7a80c:docs/evidence/REVIVE_DRAFT_STAGING_2026-10-23.json",
         "current_local_draft_rollback_packet": "qa/staging-revive-draft-rollback-acceptance.sql",
-        "baseline_safety_qa": "docs/evidence/QA_REVIVE_BINDINGS_2026-10-24.md",
+        "baseline_safety_qa": "git:ff7a80c:docs/evidence/QA_REVIVE_BINDINGS_2026-10-24.md",
         "current_setup_strategy_scope": "docs/DELIVERY.md",
-        "current_setup_strategy_qa": "docs/evidence/QA_REVIVE_SETUP_STRATEGY_2026-10-24.md",
+        "current_setup_strategy_qa": "git:ff7a80c:docs/evidence/QA_REVIVE_SETUP_STRATEGY_2026-10-24.md",
         "current_local_audience_rollback_packet": "qa/staging-revive-rollback-acceptance.sql",
         "prior_draft_report_candidate_sha": "0310fa62f6024248ea180bb71427a7cc90188864",
         "prior_draft_report_tree_sha": "64451394b071d9acc48809a118a825de0cc50262",
@@ -113,13 +113,13 @@
         "current_published_candidate_sha": "7d431f570898b2293950ec5e07e2d13fc22b72e3",
         "current_published_tree_sha": "4fcc07af5eb030cbc1cfd845ac95c10c1a10299d",
         "current_published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/40119542689",
-        "runner_correction_qa": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md",
+        "runner_correction_qa": "git:ff7a80c:docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md",
         "current_admin_ui_scope": "docs/DELIVERY.md",
-        "current_admin_ui_qa": "docs/evidence/QA_CRM_DASHBOARD_2026-10-24.md",
+        "current_admin_ui_qa": "git:ff7a80c:docs/evidence/QA_CRM_DASHBOARD_2026-10-24.md",
         "current_source_merge_sha": "d5a7988f32eb4fce6e0124c1b8eb9cd39d15f375"
       },
       "blocker": "Revive setup/strategy and CRM source have independent bounded local and published CI acceptance and PR #8 is merged. Hosted staging remains at its historical 23-migration checkpoint. Actual Worker/Auth/PostgREST, provider/calendar, recovery, independent-connection and client-outcome proof remain outside these receipts.",
-      "qa_run_ref": "docs/evidence/QA_REVIVE_SETUP_STRATEGY_2026-10-24.md",
+      "qa_run_ref": "git:ff7a80c:docs/evidence/QA_REVIVE_SETUP_STRATEGY_2026-10-24.md",
       "historical_qa_source_sha": "464904674ace1b8d326c97636b0150c40f0fced8",
       "current_candidate_scope": "Published 7d431f5 and protected main merge d5a7988 share tree4fcc07a. CI40119542689 passed927 backend/61files,171Node,audit0 and product/CRM/Signal Chromium151 programs; staging skipped. Independent QA and PM accepted the bounded source handoff. Current RP-030 Signal changes require their own current-candidate verification; no operational promotion.",
       "partial_acceptance_scope": "PM accepts independent local setup/strategy CAS/replay/readiness/owner/brief/source/audience/expiry invalidation, DST/windows/spacing/capacity, strict receipts, UI and three amended rollback packets. Actual Worker-to-local-SQL journey ends in one fenced synthetic receipt. Root full927/61,157 Node,type/syntax/audit0/build/dry-run are local integration evidence. Meeting capacity and goal/window are declared configuration; analytics remains cumulative. Local27 does not extend hosted23 proof. Full-stage flags remain false. CRM UI receipt separately accepts synthetic local shell/model/desktop/mobile behaviour only; it does not replace actual Auth/API or operational acceptance. Full-stage flags remain false."
@@ -130,15 +130,15 @@
       "pm_reviewed": false,
       "qa_reviewed": false,
       "evidence": {
-        "bounded_independent_test_run": "docs/evidence/QA_REVIVE_2026-10-23.md",
+        "bounded_independent_test_run": "git:ff7a80c:docs/evidence/QA_REVIVE_2026-10-23.md",
         "selected_hosted_rollback_packet": "qa/staging-revive-rollback-acceptance.sql",
         "historical_published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39991745199",
-        "historical_continuation_qa": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md",
-        "historical_draft_staging_manifest": "docs/evidence/REVIVE_DRAFT_STAGING_2026-10-23.json",
+        "historical_continuation_qa": "git:ff7a80c:docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md",
+        "historical_draft_staging_manifest": "git:ff7a80c:docs/evidence/REVIVE_DRAFT_STAGING_2026-10-23.json",
         "current_local_draft_rollback_packet": "qa/staging-revive-draft-rollback-acceptance.sql",
-        "baseline_safety_qa": "docs/evidence/QA_REVIVE_BINDINGS_2026-10-24.md",
+        "baseline_safety_qa": "git:ff7a80c:docs/evidence/QA_REVIVE_BINDINGS_2026-10-24.md",
         "current_setup_strategy_scope": "docs/DELIVERY.md",
-        "current_setup_strategy_qa": "docs/evidence/QA_REVIVE_SETUP_STRATEGY_2026-10-24.md",
+        "current_setup_strategy_qa": "git:ff7a80c:docs/evidence/QA_REVIVE_SETUP_STRATEGY_2026-10-24.md",
         "current_local_audience_rollback_packet": "qa/staging-revive-rollback-acceptance.sql",
         "prior_draft_report_candidate_sha": "0310fa62f6024248ea180bb71427a7cc90188864",
         "prior_draft_report_tree_sha": "64451394b071d9acc48809a118a825de0cc50262",
@@ -149,13 +149,13 @@
         "current_published_candidate_sha": "7d431f570898b2293950ec5e07e2d13fc22b72e3",
         "current_published_tree_sha": "4fcc07af5eb030cbc1cfd845ac95c10c1a10299d",
         "current_published_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/40119542689",
-        "runner_correction_qa": "docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md",
+        "runner_correction_qa": "git:ff7a80c:docs/evidence/QA_REVIVE_INTAKE_2026-10-23.md",
         "current_admin_ui_scope": "docs/DELIVERY.md",
-        "current_admin_ui_qa": "docs/evidence/QA_CRM_DASHBOARD_2026-10-24.md",
+        "current_admin_ui_qa": "git:ff7a80c:docs/evidence/QA_CRM_DASHBOARD_2026-10-24.md",
         "current_source_merge_sha": "d5a7988f32eb4fce6e0124c1b8eb9cd39d15f375"
       },
       "blocker": "Revive setup/strategy and CRM source have independent bounded local and published CI acceptance and PR #8 is merged. Hosted staging remains at its historical 23-migration checkpoint. Actual Worker/Auth/PostgREST, provider/calendar, recovery, independent-connection and client-outcome proof remain outside these receipts.",
-      "qa_run_ref": "docs/evidence/QA_REVIVE_SETUP_STRATEGY_2026-10-24.md",
+      "qa_run_ref": "git:ff7a80c:docs/evidence/QA_REVIVE_SETUP_STRATEGY_2026-10-24.md",
       "historical_qa_source_sha": "464904674ace1b8d326c97636b0150c40f0fced8",
       "current_candidate_scope": "Published 7d431f5 and protected main merge d5a7988 share tree4fcc07a. CI40119542689 passed927 backend/61files,171Node,audit0 and product/CRM/Signal Chromium151 programs; staging skipped. Independent QA and PM accepted the bounded source handoff. Current RP-030 Signal changes require their own current-candidate verification; no operational promotion.",
       "partial_acceptance_scope": "Independent ten-case baseline malformed tenant/brief receipt RED retained and passed after fixes; actual local SQL/Worker setup-to-strategy-to-preview/enrolment/fenced acknowledgement, calendar/capacity/rights/suppression/authority guards, private Auth trigger metadata,52 UI-logic and three local rollback packets PASS. Full927 backend/61 files,157 Node are integration evidence. No hosted migration/Auth session/provider/meeting/conversion or independent-connection claim. CRM UI receipt separately accepts synthetic local shell/model/desktop/mobile behaviour only; it does not replace actual Auth/API or operational acceptance. Full-stage flags remain false."
@@ -183,7 +183,7 @@
       "qa_reviewed": false,
       "evidence": {
         "current_scope": "docs/DELIVERY.md#rp-030--signal-trigger-review-and-safe-handoff-2026-10-25",
-        "current_local_qa": "docs/evidence/QA_SIGNAL_REVIEW_2026-10-25.md"
+        "current_local_qa": "git:ff7a80c:docs/evidence/QA_SIGNAL_REVIEW_2026-10-25.md"
       },
       "blocker": "RP-030 has bounded local QA/PM acceptance. First published CI40123876235 failed a historical SQL rollback timeout; corrected two-worker full local regression passed957/64. New official CI pending. Trigger-bound strategy, live source entitlement/egress, hosted Auth/API/provider and measured customer outcomes remain unaccepted."
     },
@@ -234,14 +234,14 @@
       "qa_reviewed": true,
       "evidence": {
         "candidate_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
-        "ledger_contract": "docs/evidence/SYNTHETIC_ACKNOWLEDGEMENTS_2026-10-23.md",
-        "replay_and_uncertainty_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-fenced-acknowledgement--independent-component-review",
-        "suppression_and_pause_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-fenced-acknowledgement--independent-component-review",
+        "ledger_contract": "git:ff7a80c:docs/evidence/SYNTHETIC_ACKNOWLEDGEMENTS_2026-10-23.md",
+        "replay_and_uncertainty_tests": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-fenced-acknowledgement--independent-component-review",
+        "suppression_and_pause_tests": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-fenced-acknowledgement--independent-component-review",
         "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39944568353",
-        "consultation_continuation_contract": "docs/evidence/CONSULTATION_RECEIPTS_ATTENDANCE_2026-10-23.md"
+        "consultation_continuation_contract": "git:ff7a80c:docs/evidence/CONSULTATION_RECEIPTS_ATTENDANCE_2026-10-23.md"
       },
       "blocker": null,
-      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
+      "qa_run_ref": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
       "qa_source_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
       "tested_tree_sha": "ae0ea95a435237414c4062811fe1fef0e034255b",
       "acceptance_scope": "Fenced synthetic sink acknowledgement/replay/recovery, plus default-off consultation reminder claim/strict Gmail-ack adapter and explicit attendance review checked with mocks and selected hosted SQL. Gmail acceptance is not recipient delivery; no real provider operation, automatic uncertain resend or legacy-backfill proof."
@@ -252,14 +252,14 @@
       "pm_reviewed": true,
       "qa_reviewed": true,
       "evidence": {
-        "independent_test_run": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
-        "negative_and_concurrency_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-fenced-acknowledgement--independent-component-review",
-        "artifact_review": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-fenced-acknowledgement--independent-component-review",
+        "independent_test_run": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "negative_and_concurrency_results": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-fenced-acknowledgement--independent-component-review",
+        "artifact_review": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-fenced-acknowledgement--independent-component-review",
         "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39944568353",
-        "consultation_continuation_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance"
+        "consultation_continuation_results": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance"
       },
       "blocker": null,
-      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
+      "qa_run_ref": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
       "qa_source_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
       "tested_tree_sha": "ae0ea95a435237414c4062811fe1fef0e034255b",
       "acceptance_scope": "Independent synthetic acknowledgement/stop/replay/uncertainty/API/UI checks at exact tested tree. No hosted separate-connection race or real provider proof."
@@ -271,13 +271,13 @@
       "qa_reviewed": true,
       "evidence": {
         "candidate_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
-        "ownership_resolution_contract": "docs/evidence/RESPONSE_OWNERSHIP_2026-10-23.md",
-        "ingress_replay_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
-        "thread_and_tenant_isolation_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "ownership_resolution_contract": "git:ff7a80c:docs/evidence/RESPONSE_OWNERSHIP_2026-10-23.md",
+        "ingress_replay_tests": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "thread_and_tenant_isolation_tests": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
         "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39944568353"
       },
       "blocker": null,
-      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
+      "qa_run_ref": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
       "qa_source_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
       "tested_tree_sha": "ae0ea95a435237414c4062811fe1fef0e034255b",
       "acceptance_scope": "Staff tenant/contact/thread ownership, exact-version reviewed resolution and reopening on changed inbound, without releasing suppression or sequence holds. Not live inbox/SLA/client-calendar acceptance."
@@ -288,13 +288,13 @@
       "pm_reviewed": true,
       "qa_reviewed": true,
       "evidence": {
-        "independent_test_run": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
-        "new_inbound_reopen_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
-        "owner_and_resolution_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "independent_test_run": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "new_inbound_reopen_results": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "owner_and_resolution_results": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
         "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39944568353"
       },
       "blocker": null,
-      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
+      "qa_run_ref": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
       "qa_source_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
       "tested_tree_sha": "ae0ea95a435237414c4062811fe1fef0e034255b",
       "acceptance_scope": "Independent owner/version/RPC receipt/auth boundary/reopen/hold tests and rendered workflow at exact tested tree. No actual mailbox or booked-client-meeting claim."
@@ -306,13 +306,13 @@
       "qa_reviewed": true,
       "evidence": {
         "candidate_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
-        "fail_closed_cost_contract": "docs/evidence/BUILD_BUDGET_2026-10-23.md",
-        "concurrent_reservation_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-paid-use-control--independent-component-review",
-        "uncertain_settlement_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "fail_closed_cost_contract": "git:ff7a80c:docs/evidence/BUILD_BUDGET_2026-10-23.md",
+        "concurrent_reservation_tests": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-paid-use-control--independent-component-review",
+        "uncertain_settlement_tests": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
         "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39944568353"
       },
       "blocker": null,
-      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
+      "qa_run_ref": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
       "qa_source_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
       "tested_tree_sha": "ae0ea95a435237414c4062811fe1fef0e034255b",
       "acceptance_scope": "Default-off paid adapter, global budget reservation/settlement and strict boolean receipts using fixtures/selected hosted SQL. No authorization or claim of paid use, current tariff/token-bound validity or full prior-charge reconciliation."
@@ -323,13 +323,13 @@
       "pm_reviewed": true,
       "qa_reviewed": true,
       "evidence": {
-        "independent_test_run": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
-        "cap_and_unknown_price_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-paid-use-control--independent-component-review",
-        "artifact_review": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "independent_test_run": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
+        "cap_and_unknown_price_results": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#offline-paid-use-control--independent-component-review",
+        "artifact_review": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#integrated-offline-review-and-reproduced-defect",
         "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39944568353"
       },
       "blocker": null,
-      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
+      "qa_run_ref": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
       "qa_source_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
       "tested_tree_sha": "ae0ea95a435237414c4062811fe1fef0e034255b",
       "acceptance_scope": "Independent cap/concurrency/unknown-price/receipt/uncertain-charge regressions at exact tested tree. Hosted test serialization is not independent-connection concurrency or real billing settlement proof."
@@ -341,13 +341,13 @@
       "qa_reviewed": true,
       "evidence": {
         "candidate_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
-        "approved_source_contract": "docs/evidence/SIGNAL_SOURCES_2026-10-23.md",
-        "bounded_preview_and_review_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review",
-        "provenance_and_dedupe_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review",
+        "approved_source_contract": "git:ff7a80c:docs/evidence/SIGNAL_SOURCES_2026-10-23.md",
+        "bounded_preview_and_review_tests": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review",
+        "provenance_and_dedupe_tests": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review",
         "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39944568353"
       },
       "blocker": null,
-      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
+      "qa_run_ref": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
       "qa_source_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
       "tested_tree_sha": "ae0ea95a435237414c4062811fe1fef0e034255b",
       "acceptance_scope": "Operator-configured bounded JSON feed, human preview/review, cited idempotent import with no contact rights. Not web-wide autonomous discovery, live source entitlement or DNS-egress proof.",
@@ -361,7 +361,7 @@
         "verified": true,
         "limitations": "No hosted migration, live source/DNS/Auth/provider, strategy-based Signal execution or measured commercial acceptance. Historical offline source identity above is retained; this local increment is bound by QA source hashes.",
         "verification_scope": "Bounded local application/schema/browser acceptance. First published CI40123876235 failed a historical rollback fixture timeout; corrective two-worker full local regression passed957/64 with unchanged assertions/timeouts. New official CI pending.",
-        "qa_evidence": "docs/evidence/QA_SIGNAL_REVIEW_2026-10-25.md",
+        "qa_evidence": "git:ff7a80c:docs/evidence/QA_SIGNAL_REVIEW_2026-10-25.md",
         "local_regression": "957 backend / 64 files; 193 Node; type/syntax/build/audit0 and all product/CRM/Signal browser programs PASS. Local Chromium153; official151 pending.",
         "local_schema_migrations": 28,
         "historical_hosted_schema_migrations": 23,
@@ -380,13 +380,13 @@
       "pm_reviewed": true,
       "qa_reviewed": true,
       "evidence": {
-        "independent_test_run": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review",
-        "source_boundary_and_injection_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review",
-        "ingress_idempotency_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review",
+        "independent_test_run": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review",
+        "source_boundary_and_injection_results": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review",
+        "ingress_idempotency_results": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#signal-acquisition--independent-review",
         "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39944568353"
       },
       "blocker": null,
-      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
+      "qa_run_ref": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
       "qa_source_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
       "tested_tree_sha": "ae0ea95a435237414c4062811fe1fef0e034255b",
       "acceptance_scope": "Independent source boundary/digest/tenant/injection/replay/API/database/UI checks and rendered source workflow at exact tested tree; live egress/final configuration race remain release concerns.",
@@ -400,7 +400,7 @@
         "verified": true,
         "limitations": "No hosted migration, live source/DNS/Auth/provider, strategy-based Signal execution or measured commercial acceptance. Historical offline source identity above is retained; this local increment is bound by QA source hashes.",
         "verification_scope": "Bounded local application/schema/browser acceptance. First published CI40123876235 failed a historical rollback fixture timeout; corrective two-worker full local regression passed957/64 with unchanged assertions/timeouts. New official CI pending.",
-        "qa_evidence": "docs/evidence/QA_SIGNAL_REVIEW_2026-10-25.md",
+        "qa_evidence": "git:ff7a80c:docs/evidence/QA_SIGNAL_REVIEW_2026-10-25.md",
         "local_regression": "957 backend / 64 files; 193 Node; type/syntax/build/audit0 and all product/CRM/Signal browser programs PASS. Local Chromium153; official151 pending.",
         "local_schema_migrations": 28,
         "historical_hosted_schema_migrations": 23,
@@ -420,13 +420,13 @@
       "qa_reviewed": true,
       "evidence": {
         "candidate_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
-        "versioned_event_settings_contract": "docs/evidence/EVENTS_LIFECYCLE_2026-10-23.md",
-        "registration_capability_replay_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#events-lifecycle-and-combined-candidate-verification",
-        "cancel_and_reschedule_tests": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-events-follow-up-and-final-local-composition",
+        "versioned_event_settings_contract": "git:ff7a80c:docs/evidence/EVENTS_LIFECYCLE_2026-10-23.md",
+        "registration_capability_replay_tests": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#events-lifecycle-and-combined-candidate-verification",
+        "cancel_and_reschedule_tests": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-events-follow-up-and-final-local-composition",
         "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39944568353"
       },
       "blocker": null,
-      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
+      "qa_run_ref": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
       "qa_source_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
       "tested_tree_sha": "ae0ea95a435237414c4062811fe1fef0e034255b",
       "acceptance_scope": "Default-off synthetic public registration/cancellation/recovery/reschedule acknowledgement on existing versioned Events campaigns; identity remains unverified, no contact rights/messages/provider writes."
@@ -437,13 +437,13 @@
       "pm_reviewed": true,
       "qa_reviewed": true,
       "evidence": {
-        "independent_test_run": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#events-lifecycle-and-combined-candidate-verification",
-        "capability_and_identity_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-events-follow-up-and-final-local-composition",
-        "lifecycle_and_suppression_results": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-events-follow-up-and-final-local-composition",
+        "independent_test_run": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#events-lifecycle-and-combined-candidate-verification",
+        "capability_and_identity_results": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-events-follow-up-and-final-local-composition",
+        "lifecycle_and_suppression_results": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#hosted-events-follow-up-and-final-local-composition",
         "implementation_ci": "https://github.com/DipurajThapa/ripepiper/actions/runs/39944568353"
       },
       "blocker": null,
-      "qa_run_ref": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
+      "qa_run_ref": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
       "qa_source_sha": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
       "tested_tree_sha": "ae0ea95a435237414c4062811fe1fef0e034255b",
       "acceptance_scope": "Independent local and selected staging SQL lifecycle/capability/retention/capacity/replay tests plus rendered workflow at exact tested tree. Not real identity, provider reminders or separate-connection concurrency proof."
@@ -454,11 +454,11 @@
     "commit": "31f9b6c63cf3d9c223a632d287704f2c68b3d9bf",
     "tree": "ae0ea95a435237414c4062811fe1fef0e034255b",
     "ci_run": "39944568353",
-    "qa_receipt": "docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
+    "qa_receipt": "git:ff7a80c:docs/evidence/QA_OPERATIONAL_2026-10-23.md#continuation-published-exact-tree-ci-acceptance",
     "environment": "synthetic/local controls with separately scoped19-migration hosted SQL evidence; no deployment, real provider, payment or communication",
     "continuations": {
-      "RP-014": "docs/evidence/ATOMIC_BILLING_2026-10-23.md",
-      "RP-016": "docs/evidence/CONSULTATION_RECEIPTS_ATTENDANCE_2026-10-23.md"
+      "RP-014": "git:ff7a80c:docs/evidence/ATOMIC_BILLING_2026-10-23.md",
+      "RP-016": "git:ff7a80c:docs/evidence/CONSULTATION_RECEIPTS_ATTENDANCE_2026-10-23.md"
     }
   }
 }

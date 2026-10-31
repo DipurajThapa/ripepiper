@@ -1,5 +1,5 @@
 -- Isolated wgomywhuzyboxlckopca only; integrator must pin the connector project_id.
--- Prepared for the current 37-migration schema; source/local rehearsal only.
+-- Prepared for the 37-migration schema it was written against; source/local rehearsal only.
 -- Adapted from the immutable prior audit packet; no hosted execution is authorized.
 -- Synthetic SQL fixtures only, including reserved .example addresses for live-mode predicates.
 -- No DDL, provider/API calls, Auth API, deployment or persistent fixture authority.
