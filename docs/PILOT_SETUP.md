@@ -48,12 +48,12 @@ Secrets survive later deploys. Plain variables set in the dashboard do not, so m
 3. **Google Auth Platform** (also labelled "OAuth consent screen"):
    - **Branding:** app name Ripe Piper, support email `dipuraj.thapa@gmail.com`.
    - **Audience:** user type **External**, leave it in **Testing**, and add `dipuraj.thapa@gmail.com` under **Test users**.
-   - **Data Access:** add the scopes `.../auth/gmail.send`, `.../auth/calendar.events`, `.../auth/calendar.freebusy` and `.../auth/gmail.readonly` (read is for spotting replies, section F).
+   - **Data Access:** add the scopes `.../auth/gmail.send`, `.../auth/calendar.events` and `.../auth/calendar.freebusy`.
    - **Clients > Create client:** type **Web application**. Under **Authorised redirect URIs** add exactly `https://ripe-piper-api-staging.dipuraj-thapa.workers.dev/api/oauth/google/callback`.
 4. Copy the **Client ID** and **Client secret** into your password manager. Google may show the secret only once.
 5. In Cloudflare (same screen as C3), add two secrets: `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
 
-While the app stays in **Testing**, Google lets your own test account use every scope above without verification, including the read scope. Google also expires the sign-in after 7 days in Testing mode, so for a 7-day pilot expect to reconnect once from the portal's Connect button. Google verification is only needed later, before other companies connect their mailboxes.
+While the app stays in **Testing**, Google lets your own test account use every scope above without verification. Reading the inbox (`gmail.readonly`) would also be allowed for your own account, but the connection does not request it yet. Google also expires the sign-in after 7 days in Testing mode, so for a 7-day pilot expect to reconnect once from the portal's Connect button. Google verification is only needed later, before other companies connect their mailboxes.
 
 ## E. First test-server deploy
 
@@ -65,4 +65,4 @@ After A is done, tell me and I'll start the deploy from a fresh branch (the proc
 
 - **A postal address for the email footer.** Every outreach email carries one, and the sending code refuses to send without it. A Ripe Piper business address in Dubai is the usual choice.
 
-At 2 new contacts a day you are far below Gmail's limits. Replies land in your normal inbox. Once the read scope is connected, the platform can also spot them and stop any further follow-ups.
+At 2 new contacts a day you are far below Gmail's limits. Replies land in your normal inbox. **The platform does not detect replies yet.** Until the reply check is built, watch the inbox yourself and, when someone replies or opts out, record it in the portal the same day (the conversation review import or a contact stop) so no follow-up goes to them. The reply check is the next piece of engineering after live sending.
