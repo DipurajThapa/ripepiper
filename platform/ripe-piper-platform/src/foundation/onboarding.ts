@@ -52,11 +52,10 @@ export const CONNECTORS:Connector[]=[
 export async function onboardingStatus(req:Request,env:Env,tenantId:string){
  await requireTenant(req,env,tenantId,'read');
  const db=new Db(env,8000),t=tenantId.toLowerCase();
- const [tenant,brief,setup,campaign,connections]=await Promise.all([
+ const [tenant,brief,setup,connections]=await Promise.all([
   db.one<any>('tenants',`id=eq.${t}&select=status,ownership`),
   db.one<any>('business_briefs',`tenant_id=eq.${t}&select=version&order=version.desc`),
   db.one<any>('revive_setups',`tenant_id=eq.${t}&select=version&order=version.desc`),
-  db.one<any>('campaigns',`tenant_id=eq.${t}&status=eq.approved&select=id`),
   registryList(db,t)]);
  // Same choice as envelope_campaign_fit: the newest fully approved version, so a pending proposal does not hide the one in force.
  const envelope=await db.one<any>('operating_envelopes',`tenant_id=eq.${t}&client_approved_by=not.is.null${tenant?.ownership==='managed'?'&operator_approved_by=not.is.null':''}&select=version&order=version.desc`);
@@ -65,6 +64,8 @@ export async function onboardingStatus(req:Request,env:Env,tenantId:string){
  const [setupCurrent,envelopeEffective]=await Promise.all([
   setup?db.rpc<boolean>('revive_setup_current',{p_tenant:t,p_version:setup.version,p_now:now}).then(r=>r===true):false,
   envelope?db.rpc<boolean>('envelope_effective',{p_tenant:t,p_version:envelope.version,p_now:now}).then(r=>r===true):false]);
+ // Only a campaign approved by the envelope in force counts; a person's approval outside it clears envelope_version.
+ const campaign=envelopeEffective?await db.one<any>('campaigns',`tenant_id=eq.${t}&status=eq.approved&envelope_version=eq.${envelope.version}&select=id`):null;
  const mailbox=connections.find(c=>c.canSend&&c.senderVerified),calendar=connections.find(c=>c.canBook);
  const steps=[
   {id:'business_brief',label:'Describe the business, offer and ideal customers',done:!!brief},
