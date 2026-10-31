@@ -166,12 +166,12 @@ function mimeFrom(from: string): string {
   if (!m || /[<>]/.test(m[3])) throw new Error("Invalid From header");
   return `${encodedWords((m[1] ?? m[2]).replace(/\\(.)/g, "$1"))} <${m[3]}>`;
 }
-export type MimeHeaders = Partial<Record<"Reply-To" | "List-Unsubscribe" | "List-Unsubscribe-Post", string>>;
+export type MimeHeaders = Partial<Record<"Reply-To" | "List-Unsubscribe" | "List-Unsubscribe-Post" | "Message-ID", string>>;
 export function buildMime(from: string, to: string, subject: string, text: string, html?: string, headers: MimeHeaders = {}): string {
   // Header injection guard: every caller (agency or tenant-supplied identity) passes through here.
   if ([from, to, ...Object.values(headers)].some(v => /[\r\n]/.test(v ?? ""))) throw new Error("Invalid email header value");
   const extra = Object.entries(headers).filter(([, v]) => v !== undefined).map(([k, v]) => {
-    if (!["Reply-To", "List-Unsubscribe", "List-Unsubscribe-Post"].includes(k) || !/^[ -~]+$/.test(v!)) throw new Error("Invalid email header value");
+    if (!["Reply-To", "List-Unsubscribe", "List-Unsubscribe-Post", "Message-ID"].includes(k) || !/^[ -~]+$/.test(v!)) throw new Error("Invalid email header value");
     return `${k}: ${v}`;
   });
   const head = [`From: ${mimeFrom(from)}`, `To: ${to}`, ...extra, `Subject: ${encodedWords(subject)}`, "MIME-Version: 1.0"];

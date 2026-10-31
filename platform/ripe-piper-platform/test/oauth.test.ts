@@ -2,7 +2,7 @@ import {describe,it,expect,vi} from 'vitest';
 import type {Env} from '../src/env';
 import {startAuthorization,exchangeCode,fetchIdentity,grantedScopes,pkceChallenge,hashState,requestedScopes} from '../src/lib/oauth';
 const env={OAUTH_ENABLED:'true',SITE_URL:'https://ripepiper.example.invalid',GOOGLE_CLIENT_ID:'g-client',GOOGLE_CLIENT_SECRET:'g-secret',MS_CLIENT_ID:'m-client',MS_CLIENT_SECRET:'m-secret'} as Env;
-const GMAIL='https://www.googleapis.com/auth/gmail.send',GCAL='https://www.googleapis.com/auth/calendar.events';
+const GMAIL='https://www.googleapis.com/auth/gmail.send',GCAL='https://www.googleapis.com/auth/calendar.events',GFREE='https://www.googleapis.com/auth/calendar.freebusy';
 describe('OAuth helpers',()=>{
  it('derives the RFC 7636 S256 challenge and hashes state to 64 hex',async()=>{
   // RFC 7636 appendix B test vector.
@@ -36,8 +36,10 @@ describe('OAuth helpers',()=>{
   expect(f).not.toHaveBeenCalled();
  });
  it('intersects granted scopes narrower than requested and never widens',()=>{
-  expect(grantedScopes('google_workspace',['mail_send','calendar'],`openid ${GCAL} email https://www.googleapis.com/auth/gmail.readonly`))
-   .toEqual({scopes:['openid','email',GCAL],purposes:['calendar']});
+  expect(grantedScopes('google_workspace',['mail_send','calendar'],`openid ${GCAL} ${GFREE} email https://www.googleapis.com/auth/gmail.readonly`))
+   .toEqual({scopes:['openid','email',GCAL,GFREE],purposes:['calendar']});
+  // Event access without availability access is not a usable calendar connection.
+  expect(grantedScopes('google_workspace',['calendar'],`openid email ${GCAL}`).purposes).toEqual([]);
   expect(grantedScopes('microsoft_365',['mail_send','calendar'],'https%3A%2F%2Fgraph.microsoft.com%2Fmail.send%20openid%20User.Read%20offline_access%20Mail.ReadWrite'))
    .toEqual({scopes:['openid','offline_access','User.Read','Mail.Send'],purposes:['mail_send']});
   expect(grantedScopes('microsoft_365',['mail_send'],'').purposes).toEqual([]);

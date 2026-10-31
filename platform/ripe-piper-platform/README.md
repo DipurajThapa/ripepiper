@@ -97,7 +97,7 @@ The Revive tick first approves draft campaigns that fit a client's effective ope
 | Adapter | File | Notes |
 |---|---|---|
 | Google | `src/lib/google.ts` | Calendar free/busy and events, Gmail send, Sheets, Meet transcripts, tenant read-only Gmail/Calendar reads and token revocation |
-| Microsoft 365 | `src/lib/microsoft.ts` | Graph mail (draft then send), calendar events and free/busy for tenant connections |
+| Microsoft 365 | `src/lib/microsoft.ts` | Graph mail (one MIME sendMail call, `Mail.Send` only), calendar events and free/busy for tenant connections |
 | Tenant send | `src/foundation/tenant-send.ts` | Client mail and invitations from the client's own connection: sender must equal the connected mailbox, postal footer and unsubscribe link required, connection rechecked before the provider call |
 | Email | `src/lib/email.ts` | Transactional email text, sent through Gmail |
 | Payments | `src/lib/payments.ts` | Stripe (AED) and Razorpay (INR) checkout for the advance, plus webhook signature checks |

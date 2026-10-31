@@ -16,14 +16,14 @@ function stub(fn:(url:URL,init:RequestInit)=>Response|Promise<Response>,token:Re
 }
 const mail={from:'"Client Co" <owner@client.example>',to:'fixture@example.invalid',subject:'Hello',text:'Body'};
 describe('Microsoft Graph adapter',()=>{
- it('creates a MIME draft, then sends it, after the preflight, and returns the draft id',async()=>{
+ it('sends MIME in one sendMail call (Mail.Send only) after the preflight and returns its own Message-ID',async()=>{
   const order:string[]=[];
-  const calls=stub((url,init)=>{order.push(`${init.method} ${url.pathname}`);return url.pathname.endsWith('/send')?new Response(null,{status:202}):Response.json({id:'AAMkAD=='},{status:201});});
+  const calls=stub((url,init)=>{order.push(`${init.method} ${url.pathname}`);return new Response(null,{status:202});});
   const r=await msSendMail(env,{refreshToken:'rt'},mail,async()=>{order.push('preflight');});
-  expect(r).toEqual({messageId:'AAMkAD=='});
-  expect(order).toEqual(['preflight','POST /v1.0/me/messages','POST /v1.0/me/messages/AAMkAD%3D%3D/send']);
-  const draft=calls.find(c=>c.url.pathname==='/v1.0/me/messages')!;
-  expect((draft.init.headers as any)['Content-Type']).toBe('text/plain');expect((draft.init.headers as any).Authorization).toBe('Bearer at-1');
+  expect(r.messageId).toMatch(/^[0-9a-f-]{36}@client[.]example$/);
+  expect(order).toEqual(['preflight','POST /v1.0/me/sendMail']);
+  const draft=calls.find(c=>c.url.pathname==='/v1.0/me/sendMail')!;
+  expect((draft.init.headers as any)['Content-Type']).toBe('text/plain');expect(new TextDecoder().decode(Uint8Array.from(atob(String(draft.init.body)),c=>c.charCodeAt(0)))).toContain(`Message-ID: <${r.messageId}>`);expect((draft.init.headers as any).Authorization).toBe('Bearer at-1');
   const raw=new TextDecoder().decode(Uint8Array.from(atob(String(draft.init.body)),c=>c.charCodeAt(0)));
   expect(raw).toContain('From: "Client Co" <owner@client.example>\r\n');expect(raw).toContain('To: fixture@example.invalid\r\n');
   expect(calls.every(c=>HOSTS.includes(c.url.host))).toBe(true);
@@ -34,13 +34,11 @@ describe('Microsoft Graph adapter',()=>{
   await expect(msSendMail(env,{refreshToken:'rt'},{...mail,to:'a@b.invalid\r\nBcc: x@y.invalid'})).rejects.toThrow('Invalid email header');
   expect(calls.filter(c=>c.url.host==='graph.microsoft.com')).toHaveLength(0);
  });
- it('keeps the draft id on an uncertain send and never re-sends; errors are status-only',async()=>{
-  const calls=stub(url=>url.pathname.endsWith('/send')?new Response('PRIVATE recipient fixture@example.invalid',{status:503}):Response.json({id:'draft-1'}));
+ it('keeps its Message-ID on an uncertain send and never re-sends; errors are status-only',async()=>{
+  const calls=stub(url=>url.pathname==='/v1.0/me/sendMail'?new Response('PRIVATE recipient fixture@example.invalid',{status:503}):Response.json({}));
   const e=await msSendMail(env,{refreshToken:'rt'},mail).catch(x=>x);
-  expect(e.message).toBe('Microsoft integration request failed (503)');expect(e.message).not.toContain('PRIVATE');expect(e.messageId).toBe('draft-1');
-  expect(calls.filter(c=>c.url.pathname.endsWith('/send'))).toHaveLength(1);
-  stub(()=>Response.json({}));
-  await expect(msSendMail(env,{refreshToken:'rt2'},mail)).rejects.toThrow('draft acknowledgement is uncertain');
+  expect(e.message).toBe('Microsoft integration request failed (503)');expect(e.message).not.toContain('PRIVATE');expect(e.messageId).toMatch(/@client[.]example$/);
+  expect(calls.filter(c=>c.url.pathname==='/v1.0/me/sendMail')).toHaveLength(1);
  });
  it('creates one event with transactionId and an online meeting, without replay on uncertainty',async()=>{
   const calls=stub(()=>Response.json({id:'evt-1',onlineMeeting:{joinUrl:'https://teams.microsoft.com/l/meetup-join/fixture'}}));

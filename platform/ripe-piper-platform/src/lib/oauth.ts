@@ -8,12 +8,14 @@ export const PROVIDERS = {
     slug: "google", authorize: "https://accounts.google.com/o/oauth2/v2/auth", token: "https://oauth2.googleapis.com/token",
     identity: "https://openidconnect.googleapis.com/v1/userinfo", base: ["openid", "email"],
     // Sensitive scopes only; restricted Gmail read scopes are deliberately absent.
-    scopes: { mail_send: "https://www.googleapis.com/auth/gmail.send", calendar: "https://www.googleapis.com/auth/calendar.events" },
+    // calendar.events books meetings; calendar.freebusy is what the freeBusy availability query accepts.
+    scopes: { mail_send: ["https://www.googleapis.com/auth/gmail.send"], calendar: ["https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.freebusy"] },
   },
   microsoft_365: {
     slug: "microsoft", authorize: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize", token: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
     identity: "https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName", base: ["openid", "email", "offline_access", "User.Read"],
-    scopes: { mail_send: "Mail.Send", calendar: "Calendars.ReadWrite" },
+    // Mail.Send alone covers sendMail with MIME; no mailbox read access is requested.
+    scopes: { mail_send: ["Mail.Send"], calendar: ["Calendars.ReadWrite"] },
   },
 } as const;
 export class OAuthError extends Error {
@@ -37,7 +39,7 @@ function client(env: Env, provider: OAuthProvider) {
 export function requestedScopes(provider: OAuthProvider, purposes: readonly ConnectionPurpose[]): string[] {
   const p = PROVIDERS[provider];
   if (!purposes.length || purposes.some(x => !Object.hasOwn(p.scopes, x))) throw new OAuthError(0, "Unsupported connection purpose");
-  return [...new Set([...p.base, ...purposes.map(x => p.scopes[x])])];
+  return [...new Set([...p.base, ...purposes.flatMap(x => p.scopes[x])])];
 }
 
 /** Returns the state (sent to the provider) with its hash and the verifier (both stored server-side by the caller). */
@@ -85,5 +87,5 @@ export function grantedScopes(provider: OAuthProvider, purposes: readonly Connec
   let field = scopeField; try { field = decodeURIComponent(scopeField.replace(/\+/g, " ")); } catch { /* keep raw */ }
   const granted = new Set(field.split(/\s+/).filter(Boolean).map(norm));
   const scopes = requestedScopes(provider, purposes).filter(s => granted.has(norm(s)));
-  return { scopes, purposes: purposes.filter(p => scopes.includes(PROVIDERS[provider].scopes[p])) };
+  return { scopes, purposes: purposes.filter(p => PROVIDERS[provider].scopes[p].every(s => scopes.includes(s))) };
 }

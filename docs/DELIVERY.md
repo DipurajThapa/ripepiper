@@ -138,7 +138,7 @@ Engineering, tests and documentation need no further approval. Only these need t
 10. **Turnstile** production site key (`config.js` `turnstileSiteKey` is empty) and secret before the public forms go live.
 11. **Live outreach (RP-013):** authorisation, plus each client's connected mailbox and sending-domain DNS (SPF/DKIM/DMARC), before any real campaign email.
 12. **Production deploy** of the new migrations and matching Worker (production deploys are blocked today).
-13. **OAuth apps:** Google verification for `gmail.send` and `calendar.events` (until then only test users on the unverified app), and a multi-tenant Microsoft Entra app (redirect URI, secret, publisher verification).
+13. **OAuth apps:** Google verification for `gmail.send`, `calendar.events` and `calendar.freebusy` (until then only test users on the unverified app), and a multi-tenant Microsoft Entra app (redirect URI, secret, publisher verification).
 14. **Keys:** generate, back up and own `CONNECTION_KEYS`, and `SUPPRESSION_HMAC_KEY` before any purge. Losing the connection keys forces every client to reconnect.
 15. **Legal:** allowed legal-basis values per market for envelopes, whether a postal footer is required in every market, and counsel wording for UAE PDPL and India DPDP export, erasure, log retention and the post-offboarding suppression hold.
 16. **Company data source:** a licensed or free source whose terms allow reuse across clients, before the shared reference store holds anything.

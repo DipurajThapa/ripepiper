@@ -235,9 +235,13 @@ begin
   or exists(select 1 from jsonb_array_elements(setup->'supportedClaims') i where i->>'reference'=s->>'evidenceReference'),false)) then r:=r||'unknown_evidence'::text; end if;
  planned:=coalesce(jsonb_array_length(a.steps),0)*members;
  if planned>(e.body->'limits'->>'perCampaignMaxActions')::integer then r:=r||'campaign_limit'::text; end if;
- -- A reservation on max_actions, not actual sends: deterministic and conservative.
- if (select coalesce(sum(x.max_actions),0) from public.campaigns x where x.tenant_id=p_tenant and x.envelope_version=e.version and x.status<>'ended' and x.id<>c.id)+planned
-  >(e.body->'limits'->>'totalActions')::integer then r:=r||'total_limit'::text; end if;
+ -- Reservations (max_actions) of campaigns still bound to this version, plus actions already used since it was approved
+ -- by campaigns no longer bound (an edit clears envelope_version) and by earlier versions of this campaign: deterministic and conservative.
+ if (select coalesce(sum(x.max_actions),0) from public.campaigns x where x.tenant_id=p_tenant and x.envelope_version=e.version and x.status<>'ended' and x.id<>c.id)
+  +(select count(*) from public.outbound_actions o where o.tenant_id=p_tenant and o.state<>'cancelled' and o.created_at>=e.client_approved_at
+     and not (o.campaign_id=c.id and o.asset_version=p_version)
+     and not exists(select 1 from public.campaigns x where x.id=o.campaign_id and x.id<>c.id and x.envelope_version=e.version and x.status<>'ended'))
+  +planned>(e.body->'limits'->>'totalActions')::integer then r:=r||'total_limit'::text; end if;
  if (select count(*) from public.campaigns x where x.tenant_id=p_tenant and x.status='approved' and x.id<>c.id)>=(e.body->'limits'->>'maxActiveCampaigns')::integer then r:=r||'active_campaign_limit'::text; end if;
  -- Only email has no per-message cost; budget metering does not exist yet.
  if c.channel<>'email' then r:=r||'paid_channel_unmetered'::text; end if;

@@ -292,6 +292,8 @@ begin
 end $policies$;
 -- An admin JWT writing memberships or invites would make itself a tenant owner with no grant, audit or tenant lock.
 -- Membership changes go through service routes (accept_verified_invites, set_member_role); staff keep read access.
+-- A granted operator (no membership) must see the tenant row to open its workspace.
+create policy grant_read on public.tenants for select using (public.can_read_tenant(id));
 -- Client-visible timeline notes from staff need an 'operate' grant (or ownership) on that tenant.
 create function public.can_operate_tenant(t uuid) returns boolean
 language sql stable security definer set search_path='' as $$ select ripepiper_private.can_operate(t,auth.uid(),'operate') $$;

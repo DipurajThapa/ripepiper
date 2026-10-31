@@ -108,6 +108,18 @@ describe('operating envelope approve-once',()=>{
   expect(await rpc('envelope_campaign_fit',[f.tenant,first,1,new Date().toISOString()])).toContain('approver_not_authorised');
  });
 
+ it('keeps actions already used against the total after the campaign is edited out of the envelope',async()=>{
+  const f=await fixture({leads:2}),n=f.proposal.steps.length;
+  const p=await f.propose({limits:{perCampaignMaxActions:10,totalActions:n,maxActiveCampaigns:3,maxAudience:5,maxCampaignDays:30}});await f.approve(f.owner,p);
+  const only=(lead:string,extra:object={})=>f.body({audience:{leadIds:[lead],confirmed:true},...extra});
+  const a=crypto.randomUUID();expect((await f.save(a,0,only(f.contacts[0].lead))).envelope.status).toBe('approved');
+  await synthetic(f,a,f.contacts[0].lead);
+  // An edit unbinds the campaign from the envelope; the step it already used still counts.
+  const edited=f.proposal.steps.map((x:any,i:number)=>i?x:{...x,body:x.body+" Edited."});
+  expect((await f.save(a,1,only(f.contacts[0].lead,{steps:edited}))).envelope.reasons).toContain('content_not_from_template');
+  expect((await f.save(crypto.randomUUID(),0,only(f.contacts[1].lead))).envelope.reasons).toEqual(['total_limit']);
+ });
+
  const cases:[string,(f:any)=>any,(f:any)=>any,string[]][]=[
   ['edited copy',()=>({}),f=>({steps:f.proposal.steps.map((s:any,i:number)=>i?s:{...s,body:s.body+'\nEdited.'})}),['content_not_from_template']],
   ['prohibited term in the offer',()=>({prohibitedTerms:['dormant']}),()=>({}),['prohibited_claim']],

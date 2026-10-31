@@ -173,3 +173,13 @@ it('switches operating mode by compare-and-set without moving data',async()=>{
  expect(await counts()).toEqual(start);
  expect((await q(`select message from activity_log where tenant_id=$1 and message like 'Operating mode%' order by id`,[t])).map(r=>r.message)).toEqual(['Operating mode changed from managed to self-service: Client runs it in-house','Operating mode changed from self-service to managed: Back to managed']);
 });
+
+it('shows a granted operator the tenant row (and only while the grant lasts) so the client list can open it',async()=>{
+ const t=await tenant(),op=await user('operator');
+ const seen=async()=>{await db.exec(`set role authenticated;select set_config('request.jwt.sub','${op}',false)`);try{return (await q(`select count(*)::int n from tenants where id='${t}'`))[0].n;}finally{await db.exec(`reset role;select set_config('request.jwt.sub','',false)`);}};
+ expect(await seen()).toBe(0);
+ await asOperator(db,{tenantId:t,profileId:op,capabilities:['read']});
+ expect(await seen()).toBe(1);
+ await q('update operator_grants set revoked_at=now(),revoked_by=authorised_by where tenant_id=$1 and operator_id=$2',[t,op]);
+ expect(await seen()).toBe(0);
+});

@@ -245,7 +245,7 @@ describe('4. concurrent clients with their own brand, integration and channels',
   const a=await client('client_owned','Alpha Trading'),b=await client('client_owned','Beta Logistics');
   const brand=(n:string,email:string,tz:string)=>({senderName:`${n} Sales`,senderEmail:email,timezone:tz,signature:`${n} Sales\n${n} Head Office`,legalFooter:{postalAddress:`1 ${n} Street, Dubai, AE`,reference:`legal:${n.toLowerCase()}`}});
   for(const t of [a,b])expect((await post(t.owner,`/api/admin/tenants/${t.id}/brief`,{brief:brief(),expected_version:0})).status).toBe(200);
-  const ca=await connect(a.owner,a.id,'google',['mail_send','calendar'],{identity:'owner@alpha.example',scope:'https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar.events',refresh:'refresh-alpha'});
+  const ca=await connect(a.owner,a.id,'google',['mail_send','calendar'],{identity:'owner@alpha.example',scope:'https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.freebusy',refresh:'refresh-alpha'});
   const cb=await connect(b.owner,b.id,'microsoft',['mail_send'],{identity:'sales@beta.example',scope:'Mail.Send offline_access',refresh:'refresh-beta'});
   const sa=(await setup(a.id,a.owner,brand('Alpha','owner@alpha.example','Asia/Dubai'))).body,sb=(await setup(b.id,b.owner,brand('Beta','sales@beta.example','Asia/Kolkata'))).body;
   // Two contacts each: the first goes through the sink, the second shows the message the live adapter would build.

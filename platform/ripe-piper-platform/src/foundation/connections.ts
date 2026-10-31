@@ -56,11 +56,11 @@ class AuthorityChanged extends Error {}
 // ---------------------------------------------------------------- registry
 export type ConnectionPurpose='mail_send'|'calendar';
 type Row={provider:string;purposes:string[];scopes_granted?:string[];scopes?:string[];status?:string;expires_at?:string|null};
-const scopeOf=(provider:string,purpose:ConnectionPurpose)=>(PROVIDERS as Record<string,{scopes:Record<string,string>}>)[provider]?.scopes[purpose]?.toLowerCase();
+const scopesOf=(provider:string,purpose:ConnectionPurpose)=>(PROVIDERS as Record<string,{scopes:Record<string,readonly string[]>}>)[provider]?.scopes[purpose]?.map(s=>s.toLowerCase());
 /** Derived, never trusted from a payload: connected, unexpired, purpose chosen and its scope actually granted. */
 export function connectionAllows(r:Row,purpose:ConnectionPurpose){
- const scope=scopeOf(r.provider,purpose),granted=(r.scopes_granted??r.scopes??[]).map(x=>x.toLowerCase());
- return (r.status??'connected')==='connected'&&(!r.expires_at||Date.parse(r.expires_at)>Date.now())&&r.purposes.includes(purpose)&&!!scope&&granted.includes(scope);
+const scopes=scopesOf(r.provider,purpose),granted=(r.scopes_granted??r.scopes??[]).map(x=>x.toLowerCase());
+ return (r.status??'connected')==='connected'&&(!r.expires_at||Date.parse(r.expires_at)>Date.now())&&r.purposes.includes(purpose)&&!!scopes&&scopes.every(s=>granted.includes(s));
 }
 // The pilot binding is read-only by construction (purposes mail_read+calendar, no send scope).
 const pilotCanSend=connectionAllows({provider:'google_workspace',purposes:['mail_read','calendar'],scopes_granted:[]},'mail_send');

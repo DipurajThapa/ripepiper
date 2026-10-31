@@ -60,13 +60,13 @@ const graphId = (id: unknown): id is string => typeof id === "string" && /^[A-Za
 
 /** Draft (MIME via buildMime, so header guards and RFC 2047 apply) then send; /sendMail would return no id to reconcile. */
 export async function msSendMail(env: Env, account: MsAccount, m: { from: string; to: string; subject: string; text: string; html?: string; headers?: MimeHeaders }, beforeSend?: () => Promise<void>) {
-  const mime = new TextEncoder().encode(buildMime(m.from, m.to, m.subject, m.text, m.html, m.headers));
+  // sendMail needs only Mail.Send (a draft would need Mail.ReadWrite). It returns 202 with no id, so our own Message-ID is the reference.
+  const domain = /@([A-Za-z0-9.-]+)>?[ ]*$/.exec(m.from)?.[1] ?? "ripepiper.invalid", messageId = `${crypto.randomUUID()}@${domain}`;
+  const mime = new TextEncoder().encode(buildMime(m.from, m.to, m.subject, m.text, m.html, { ...m.headers, "Message-ID": `<${messageId}>` }));
   let bin = ""; mime.forEach(b => (bin += String.fromCharCode(b)));
-  const draft = await graph<any>(env, account, "/me/messages", { method: "POST", headers: { "Content-Type": "text/plain" }, body: btoa(bin) }, beforeSend);
-  if (!graphId(draft?.id)) throw new MicrosoftError(0, "Microsoft draft acknowledgement is uncertain");
-  try { await graph(env, account, `/me/messages/${encodeURIComponent(draft.id)}/send`, { method: "POST" }); }
-  catch (e) { if (e instanceof MicrosoftError) e.messageId = draft.id; throw e; }
-  return { messageId: draft.id as string };
+  try { await graph(env, account, "/me/sendMail", { method: "POST", headers: { "Content-Type": "text/plain" }, body: btoa(bin) }, beforeSend); }
+  catch (e) { if (e instanceof MicrosoftError) e.messageId = messageId; throw e; }
+  return { messageId };
 }
 
 // ponytail: one calendarView page of 500; a fuller window fails closed instead of following @odata.nextLink.

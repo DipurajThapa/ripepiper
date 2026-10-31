@@ -29,9 +29,9 @@ describe('tenant send adapters (network stubbed, synthetic identities)',()=>{
   const a=googleConnection(tA,'owner@alpha.example','rt-A','cal-a@group.calendar.google.com'),b=microsoftConnection('sales@beta.example','rt-B');
   const mailA=buildTenantSend(a,brandSetup('Alpha','Owner@Alpha.example',{replyTo:'replies@alpha.example'}),'Alpha Ltd',action);
   const mailB=buildTenantSend(b,brandSetup('Beta','sales@beta.example'),'Beta LLC',action);
-  expect(await Promise.all([sendTenantMail(baseEnv('true'),a,mailA),sendTenantMail(baseEnv('true'),b,mailB)])).toEqual([{messageId:'gmail-A'},{messageId:'draft-B'}]);
+  expect(await Promise.all([sendTenantMail(baseEnv('true'),a,mailA),sendTenantMail(baseEnv('true'),b,mailB)])).toMatchObject([{messageId:'gmail-A'},{messageId:expect.stringMatching(/@beta[.]example$/)}]);
   const gmail=calls.filter(c=>c.url.host==='gmail.googleapis.com'),graph=calls.filter(c=>c.url.host==='graph.microsoft.com');
-  expect(gmail).toHaveLength(1);expect(graph.map(c=>c.url.pathname)).toEqual(['/v1.0/me/messages','/v1.0/me/messages/draft-B/send']);
+  expect(gmail).toHaveLength(1);expect(graph.map(c=>c.url.pathname)).toEqual(['/v1.0/me/sendMail']);
   expect(auth(gmail[0])).toBe('Bearer at:rt-A');expect(graph.every(c=>auth(c)==='Bearer at:rt-B')).toBe(true);
   const rawA=decode(JSON.parse(String(gmail[0].init.body)).raw),rawB=decode(String(graph[0].init.body));
   expect(rawA).toContain('From: "Alpha" <owner@alpha.example>\r\n');expect(rawA).toContain('Reply-To: replies@alpha.example\r\n');expect(rawA).toContain(`List-Unsubscribe: <${link}>\r\n`);
@@ -83,14 +83,13 @@ describe('tenant send adapters (network stubbed, synthetic identities)',()=>{
 });
 describe('tenant send through the fenced action (TENANT_SEND_ENABLED on, stubbed providers)',()=>{
  it('holds an uncertain Microsoft send with the draft id and never sends twice',async()=>{
-  const calls=providers(url=>url.pathname.endsWith('/send')?new Response('PRIVATE',{status:503}):Response.json({id:'draft-B'}));
+  const calls=providers(url=>url.pathname==='/v1.0/me/sendMail'?new Response('PRIVATE',{status:503}):Response.json({}));
   const c=microsoftConnection('sales@beta.example','rt-B'),f=fakeDb(tB,brandSetup('Beta','sales@beta.example'),{name:'Beta LLC'});
   const r=await executeSyntheticAction(f.db,baseEnv('true'),f.row.id,tB,async()=>c);
   expect(r.status).toBe(503);expect(await r.text()).not.toContain('PRIVATE');
-  expect(f.row).toMatchObject({state:'review',provider_ref:'draft-B',error_code:'uncertain_result',connection_id:c.connectionId,connection_version:5});
+  expect(f.row).toMatchObject({state:'review',provider_ref:expect.stringMatching(/@beta[.]example$/),error_code:'uncertain_result',connection_id:c.connectionId,connection_version:5});
   expect((await executeSyntheticAction(f.db,baseEnv('true'),f.row.id,tB,async()=>c)).status).toBe(409);
-  expect(calls.filter(x=>x.url.pathname==='/v1.0/me/messages')).toHaveLength(1);
-  expect(calls.filter(x=>x.url.pathname.endsWith('/send'))).toHaveLength(1);
+  expect(calls.filter(x=>x.url.pathname==='/v1.0/me/sendMail')).toHaveLength(1);
   expect(f.calls.some(x=>x.name==='complete_fenced_synthetic_action')).toBe(false);
  });
  it('calls the provider once after the connection preflight and holds the accepted send for reconciliation',async()=>{
