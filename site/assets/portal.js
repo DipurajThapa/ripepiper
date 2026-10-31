@@ -240,9 +240,24 @@
   function tenantPath(t, action) { return "/api/admin/tenants/" + t.id + "/" + action; }
   var CONNECTOR_STATUS = { operational: "Working", testing: "Built, awaiting provider approval", planned: "Planned", not_supported: "Not offered" };
   // Steps and connector status come from the server; nothing here decides whether a step is done.
-  function loadOnboarding(t, current) {
-    var box = function (html) { if (current()) $("onboardingBox").innerHTML = "<h3>Getting started</h3>" + html; };
-    RP.api(tenantPath(t, "onboarding"), undefined, "GET").then(function (j) {
+  // Sample workspace only: shows the panel's shape with made-up progress; a connected account always reads the server.
+  var SAMPLE_ONBOARDING = { next: "mailbox", liveSending: false, steps: [
+    { id: "business_brief", label: "Describe the business, offer and ideal customers", done: true },
+    { id: "setup", label: "Review the sending details: sender, postal address, working hours and limits", done: true },
+    { id: "account_active", label: "Activate the account against the reviewed brief", done: true },
+    { id: "mailbox", label: "Connect the sending mailbox (Google or Microsoft)", done: false },
+    { id: "calendar", label: "Connect the calendar for booked meetings (optional)", done: false, optional: true },
+    { id: "envelope", label: "Approve the operating limits", done: false },
+    { id: "first_campaign", label: "First campaign approved inside those limits", done: false }
+  ], connectors: [
+    { name: "Google Workspace (Gmail and Calendar)", status: "testing", customerDoes: "Signs in with the sending mailbox and allows send and calendar access.", ripePiperManages: "One Google Cloud app, its verification, token encryption, refresh and revocation.", adminConsent: "Only if the Workspace admin restricts third-party apps." },
+    { name: "CSV contact import", status: "operational", customerDoes: "Uploads contacts they have the right to contact and confirms the source.", ripePiperManages: "Row checks, per-client duplicate removal and error reporting.", adminConsent: "Not needed." },
+    { name: "HubSpot", status: "planned", customerDoes: "Installs the app in their HubSpot account.", ripePiperManages: "A public HubSpot app and contact, deal and meeting sync.", adminConsent: "A HubSpot super admin installs it." },
+    { name: "LinkedIn", status: "not_supported", customerDoes: "Uses LinkedIn by hand; Ripe Piper can store the profile link.", ripePiperManages: "Nothing. LinkedIn offers no permitted API for prospecting messages.", adminConsent: "Not applicable." }
+  ] };
+  function loadOnboarding(t, current, sample) {
+    var box = function (html) { if (current()) $("onboardingBox").innerHTML = "<h3>Getting started" + (sample ? " (sample)" : "") + "</h3>" + html; };
+    (sample ? Promise.resolve(sample) : RP.api(tenantPath(t, "onboarding"), undefined, "GET")).then(function (j) {
       var steps = j.steps.map(function (s) {
         return "<li>" + (s.done ? "Done: " : s.id === j.next ? "Next: " : "To do: ") + RP.esc(s.label) + (s.available === false && !s.done ? " (not switched on yet)" : "") + "</li>";
       }).join("");
@@ -268,11 +283,12 @@
     var t = state.tenant, owner = state.role === "owner" && !RP.demo, self = t.ownership === "client_owned", ticket = ++ownerTicket;
     var current = function () { return ticket === ownerTicket && state.tenant === t; };
     var shut = [];
-    document.querySelectorAll("[data-owner]").forEach(function (n) { n.hidden = !owner || (n.dataset.tab === "workspace" && !self); if (n.hidden) shut.push(n.dataset.tab); });
+    document.querySelectorAll("[data-owner]").forEach(function (n) { n.hidden = n.dataset.tab === "account" && RP.demo ? false : !owner || (n.dataset.tab === "workspace" && !self); if (n.hidden) shut.push(n.dataset.tab); });
     // A hidden tab must not stay open (a viewer arriving on #account, a mode switch, another company picked).
     document.querySelectorAll("[data-panel]").forEach(function (p) { if (!p.hidden && shut.indexOf(p.dataset.panel) >= 0) document.querySelectorAll('[data-tab="overview"]').forEach(function (a) { a.click(); }); });
     $("downloadJson").hidden = !owner; $("ownerAccount").innerHTML = "";
     panelIds.forEach(function (id) { $(id).innerHTML = ""; });
+    if (RP.demo) { $("ownerAccount").innerHTML = '<div class="formbox" id="onboardingBox"></div>'; loadOnboarding(t, current, SAMPLE_ONBOARDING); return; }
     if (!owner) return;
     $("ownerAccount").innerHTML = ownerMarkup(self);
     loadOnboarding(t, current);
@@ -320,7 +336,7 @@
 
   RP.auth(function (user) {
     RP.tabs();
-    if (RP.demo) { demoData(); fillMonths(); renderAll(); return; }
+    if (RP.demo) { demoData(); fillMonths(); renderAll(); renderOwner(); return; }
     RP.api("/api/portal/accept-invites").then(function () {
       return RP.sb.from("memberships").select("role, tenants(*)").eq("user_id", user.id);
     }).then(function (r) {

@@ -51,7 +51,12 @@ Not recommended now: inbox rotation and bulk warm-up networks (they serve volume
 ## 3. Prioritised corrections
 
 ### Critical
-- **C1. Public claims ahead of the product (confirmed, owner decision).** The live site says every lead gets "a score from 0 to 100", that mail goes "from warmed-up inboxes to verified addresses", and that a person answers interested replies "within one hour". The product has no headline score (an owner decision, RP-019), no warm-up, no verification and no reply sync. Either soften the copy or build the capability before taking a client. I did not change the copy because it is a commercial commitment.
+- **C1. Public claims ahead of the product (confirmed; owner chose to build, 31 Oct 2026).** Root causes and what can be built:
+  - *Score 0 to 100.* Website enquiries already get one (`scoreLead` in `src/lib/validate.ts`). Prospects deliberately do not: RP-019 replaced a single number with four separate checks (fit, role, need, timing) because no real outcome data exists to calibrate a probability. Root cause: a product decision, not a technical limit. Buildable now: a published priority score from those four checks plus signal freshness, labelled as priority, not probability, and recalibrated from pilot outcomes.
+  - *Warmed-up inboxes.* Root cause: there is no live sending yet (RP-013), so there is nothing to warm. Buildable: a gradual daily ramp on top of the existing per-client daily contact cap (`revive_daily_capacity_available`). Artificial warm-up networks are not recommended; they exchange fake mail and conflict with the rule never to work around provider rules.
+  - *Verified addresses.* Root cause: proving a mailbox exists means talking to the recipient's mail server on port 25, and Cloudflare Workers block outbound port 25 (Cloudflare TCP sockets documentation). Many company servers also accept every address, so even a probe is partial. Buildable free: syntax plus domain mail-record check over DNS-over-HTTPS, and a hard-bounce stop. Mailbox-level checks need a paid provider (budget decision).
+  - *A person replies within one hour.* Root cause: the platform cannot see replies. Gmail read access is a restricted Google scope; for client mailboxes Google requires a paid independent security assessment (CASA) before production, while an app in Testing may use it for its own test users. Buildable now for Ripe Piper's own pilot: poll the connected mailbox for replies, stop follow-ups and alert the owner. The one-hour part is a staffing promise software can only support.
+
 - **C2. Nothing is deployed (confirmed).** No Worker; eleven migrations unapplied (DELIVERY.md release blockers 1 and 2).
 - **C3. Live sending not wired (confirmed, RP-013).** Blocked on outreach authorisation.
 
@@ -87,7 +92,7 @@ Credentials: refresh tokens are sealed with AES-GCM bound to tenant, connection 
 ## 5. Owner action checklist (in order)
 
 1. **Merge pull request #15.** My merge was blocked by a safety rule on this machine; you can merge it on GitHub, or allow it and tell me to.
-2. **Decide the site copy (C1):** soften the score, warm-up, verification and one-hour reply claims, or keep them and accept that they are not yet true.
+2. **Site copy (C1):** decided 31 October 2026: build the promises rather than soften them. Step-by-step owner setup for the pilot is in [PILOT_SETUP.md](PILOT_SETUP.md).
 3. **Staging secrets** in GitHub Actions (`RIPEPIPER_STAGING_CLOUDFLARE_API_TOKEN`, `RIPEPIPER_STAGING_SERVICE_ROLE_KEY`, `RIPEPIPER_STAGING_ANON_KEY`), then approve applying the eleven migrations to staging and deploying the staging Worker.
 4. **Generate and back up a connection key** (a random 32-byte key, base64, kept in a password manager), then set two staging Worker secrets yourself: `CONNECTION_KEYS` as `{"k1":"<the base64 key>"}` and `CONNECTION_KEY_CURRENT` as `k1`.
 5. **Create the Google Cloud OAuth client** for Ripe Piper with the staging callback URL, add your own mailbox as a test user (no Google verification is needed for test users), and set the client id and secret as staging Worker secrets, plus `OAUTH_ENABLED` set to exactly `true`.

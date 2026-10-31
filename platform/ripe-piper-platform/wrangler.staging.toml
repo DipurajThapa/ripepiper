@@ -22,6 +22,8 @@ ADS_SYNC_ENABLED = "false"
 SYNTHETIC_SINK_ENABLED = "true"
 REVIVE_AUTOMATION_ENABLED = "false"
 WHATSAPP_ENABLED = "false"
+# Owner-approved for the Ripe Piper pilot (31 Oct 2026): mailbox connection on staging. Vars here replace dashboard vars on deploy.
+OAUTH_ENABLED = "true"
 # Add only the isolated Supabase URL/keys through secure environment setup.
 # No production key, global Google send/calendar grant, payment key or AI key.
 # Configure permitted read-only tenant Google bindings separately after consent.
